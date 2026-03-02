@@ -24,6 +24,24 @@ _CONNECT_TIMEOUT = 30  # seconds
 _TRANSFER_TIMEOUT = 60  # seconds
 
 
+def _safe_filename(filename: str) -> str:
+    """Validate and return a safe filename, rejecting path traversal attempts.
+
+    Accepts only filenames (no directory separators, no parent-dir sequences).
+    Raises EDIFTPError if the filename is invalid.
+    """
+    if not filename:
+        raise EDIFTPError('Empty filename rejected')
+    # Reject any path component separators or traversal sequences
+    if '/' in filename or '\\' in filename or '..' in filename:
+        raise EDIFTPError(f'Path traversal attempt in filename rejected: {filename!r}')
+    # Strip leading/trailing whitespace that could confuse path joins
+    clean = filename.strip()
+    if not clean:
+        raise EDIFTPError(f'Blank filename rejected: {filename!r}')
+    return clean
+
+
 class EDIFTPHandler:
     """
     Manages FTP/SFTP connections for a single trading partner.
@@ -112,6 +130,7 @@ class EDIFTPHandler:
 
     def download_file(self, filename: str) -> bytes:
         """Download a single file by name from the active inbox. Returns raw bytes."""
+        filename = _safe_filename(filename)
         inbox = self.partner.get_active_inbox_path()
         filepath = "%s/%s" % (inbox, filename)
         buf = io.BytesIO()
@@ -126,6 +145,7 @@ class EDIFTPHandler:
 
     def upload_file(self, filename: str, content: bytes) -> None:
         """Upload a file by name to the active outbox directory."""
+        filename = _safe_filename(filename)
         outbox = self.partner.get_active_outbox_path()
         filepath = "%s/%s" % (outbox, filename)
         buf = io.BytesIO(content)
@@ -142,6 +162,7 @@ class EDIFTPHandler:
         Rename a processed file in the inbox to prevent re-processing.
         New name format: {filename}.processed.{YYYYMMDDHHMMSS}
         """
+        filename = _safe_filename(filename)
         inbox = self.partner.get_active_inbox_path()
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
         old_path = "%s/%s" % (inbox, filename)
