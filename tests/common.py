@@ -135,3 +135,33 @@ class EDITestSetup:
         })
 
         self.processor = self.env["edi.processor"]
+
+
+def make_fallback_lookup_order(
+    primary_ean="NONEXISTENT_EAN_0000",
+    vendor_code="MML-INTERNAL-001",
+    buyer_article_no="BRISCOES-ART-001",
+    po_number="TESTPO_CASCADE",
+):
+    """
+    ParsedOrder where primary product_code (EAN) won't match anything,
+    but vendor_code (MML internal ref) WILL match a product with default_code.
+    Used for cascade lookup tests.
+    """
+    return ParsedOrder(
+        po_number=po_number,
+        order_date=date.today(),
+        lines=[
+            ParsedOrderLine(
+                product_code=primary_ean,
+                description="Cascade Test Product",
+                quantity=5.0,
+                unit_price=9.99,
+                line_number=1,
+                vendor_code=vendor_code,
+                buyer_article_no=buyer_article_no,
+            )
+        ],
+        document_type="new_order",
+        raw_data="MOCK_CASCADE_EDI",
+    )
