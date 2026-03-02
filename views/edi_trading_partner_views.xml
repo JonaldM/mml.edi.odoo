@@ -91,7 +91,8 @@
                                        widget="badge"
                                        string="Environment"
                                        decoration-warning="environment == 'test'"/>
-                                <field name="pricelist_id" string="Price List"/>
+                                <field name="pricelist_id" string="Price List"
+                                       help="EDI price comparison uses this pricelist — not the product's sale price. Required if price checking is enabled."/>
                                 <field name="auto_confirm_clean"
                                        widget="boolean_toggle"
                                        string="Auto-Confirm Clean Orders"/>
@@ -148,13 +149,15 @@
                                         <field name="poll_interval_minutes"
                                                string="Poll Interval (minutes)"/>
                                     </group>
-                                    <group string="Validation">
+                                    <group string="Order Processing &amp; Pricing">
                                         <field name="price_tolerance_pct"
                                                string="Price Tolerance (%)"
-                                               widget="percentage"/>
+                                               widget="percentage"
+                                               help="Auto-accept orders where the EDI price is within this % of the pricelist price. Set 0.0 to require exact match (recommended for retail compliance)."/>
                                         <field name="auto_confirm_clean"
                                                widget="boolean_toggle"
-                                               string="Auto-Confirm Clean Orders"/>
+                                               string="Auto-Confirm Clean Orders"
+                                               help="Automatically confirm and queue ACK for orders with no blocking issues. Disable for high-value partners where human review is always required."/>
                                         <field name="parser_class"
                                                string="Parser Class"
                                                placeholder="mml_edi.parsers.briscoes.BriscoesOrderParser"/>
