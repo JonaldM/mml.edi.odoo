@@ -66,6 +66,15 @@ class SaleOrderLine(models.Model):
         digits="Product Unit of Measure",
         help="Qty requested minus qty available at time of EDI processing (0 if sufficient)",
     )
+    edi_matched_by = fields.Selection(
+        [
+            ("barcode", "Barcode (EAN-13)"),
+            ("default_code", "Internal Reference"),
+            ("supplier_sku", "Supplier Code"),
+        ],
+        string="Matched By",
+        help="Product lookup strategy that succeeded for this EDI line",
+    )
 
     @api.depends("edi_price", "edi_system_price")
     def _compute_edi_price_discrepancy(self):

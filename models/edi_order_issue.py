@@ -22,6 +22,7 @@ class EDIOrderIssue(models.Model):
             ("qty_shortfall", "Stock Shortfall"),
             ("unknown_store", "Unknown Store"),
             ("uom_mismatch", "UOM Mismatch"),
+            ("product_matched_by_fallback", "Product Matched by Fallback"),
             ("other", "Other"),
         ],
         required=True,
