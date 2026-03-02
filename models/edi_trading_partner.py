@@ -31,6 +31,7 @@ class EDITradingPartner(models.Model):
     edi_format = fields.Selection(
         [
             ("edifact_d96a", "EDIFACT D96A"),
+            ("idoc_xml", "SAP iDOC XML (ORDERSEXT)"),
             ("edifact_d01b", "EDIFACT D01B"),
             ("csv", "CSV"),
             ("custom", "Custom"),
