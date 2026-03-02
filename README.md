@@ -86,7 +86,7 @@ odoo-bin -d <db> -i mml_edi --stop-after-init
 
 ### Post-install configuration
 
-1. Go to **MML Operations → EDI → Trading Partners** and review the Briscoes seed record
+1. Go to **EDI → Configuration → Trading Partners** and review the Briscoes seed record
 2. Set SFTP host, username, and password on the Briscoes trading partner record
 3. Enable the polling cron in **Settings → Technical → Scheduled Actions → EDI: Poll Inbound Orders**
 4. Run a manual poll to verify connectivity before enabling the cron
@@ -95,7 +95,7 @@ odoo-bin -d <db> -i mml_edi --stop-after-init
 
 ## Review queue
 
-Orders that cannot be automatically processed land in **MML Operations → EDI → Order Review**:
+Orders that cannot be automatically processed land in **EDI → Orders → Pending Review**:
 
 | Status | Meaning |
 |--------|---------|
