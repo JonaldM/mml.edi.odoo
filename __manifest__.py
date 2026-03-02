@@ -26,8 +26,9 @@
         "views/edi_order_issue_views.xml",
         "views/edi_log_views.xml",
         "views/sale_order_views.xml",
-        # Wizard view
+        # Wizard views
         "wizards/edi_bulk_action_views.xml",
+        "wizards/edi_seed_stores_views.xml",
         # Menus (after all view actions are defined)
         "views/menuitems.xml",
         # Seed data (noupdate=1 inside)

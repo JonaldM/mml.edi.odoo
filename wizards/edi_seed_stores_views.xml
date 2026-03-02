@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_edi_seed_stores_wizard_form" model="ir.ui.view">
+        <field name="name">edi.seed.stores.wizard.form</field>
+        <field name="model">edi.seed.stores.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Seed Briscoes Store Partners">
+                <group>
+                    <field name="trading_partner_id"/>
+                </group>
+                <group invisible="state == 'draft'">
+                    <field name="result_created"/>
+                    <field name="result_skipped"/>
+                    <field name="result_message"/>
+                </group>
+                <footer>
+                    <button name="action_seed_stores"
+                            string="Seed Store Partners"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state == 'done'"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_edi_seed_stores_wizard" model="ir.actions.act_window">
+        <field name="name">Seed Store Partners</field>
+        <field name="res_model">edi.seed.stores.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_trading_partner_id': active_id}</field>
+    </record>
+</odoo>

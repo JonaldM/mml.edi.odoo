@@ -51,6 +51,12 @@
                                 string="Poll Now"
                                 type="object"
                                 class="btn-secondary"/>
+                        <button name="%(mml_edi.action_edi_seed_stores_wizard)d"
+                                string="Seed Store Partners"
+                                type="action"
+                                invisible="order_split_mode != 'per_store'"
+                                groups="mml_edi.group_edi_manager"
+                                help="Create missing Briscoes store contacts as child delivery addresses. Safe to run multiple times — skips existing records."/>
                     </header>
 
                     <sheet>
