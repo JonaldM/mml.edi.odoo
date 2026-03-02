@@ -1,0 +1,435 @@
+. 2014-11-11 14:07:38.329 --------------------------------------------------------------------------
+. 2014-11-11 14:07:38.329 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-11-11 14:07:38.329 Login time: Tuesday, 11 November 2014 2:07:38 p.m.
+. 2014-11-11 14:07:38.329 --------------------------------------------------------------------------
+. 2014-11-11 14:07:38.329 Session name: myob_test@60.234.24.66
+. 2014-11-11 14:07:38.329 Host name: 60.234.24.66 (Port: 21)
+. 2014-11-11 14:07:38.329 User name: myob_test (Password: Yes, Key file: No)
+. 2014-11-11 14:07:38.329 Tunnel: No
+. 2014-11-11 14:07:38.329 Transfer Protocol: FTP
+. 2014-11-11 14:07:38.329 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-11-11 14:07:38.329 Proxy: none
+. 2014-11-11 14:07:38.329 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-11-11 14:07:38.329 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-11-11 14:07:38.329 Cache directory changes: Yes, Permanent: Yes
+. 2014-11-11 14:07:38.329 DST mode: 1
+. 2014-11-11 14:07:38.329 --------------------------------------------------------------------------
+. 2014-11-11 14:07:38.330 Connecting to 60.234.24.66 ...
+. 2014-11-11 14:07:38.337 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-11-11 14:07:38.343 220 Microsoft FTP Service
+> 2014-11-11 14:07:38.343 USER myob_test
+< 2014-11-11 14:07:38.349 331 Password required for myob_test.
+> 2014-11-11 14:07:38.349 PASS ********
+< 2014-11-11 14:07:38.355 230 User myob_test logged in.
+> 2014-11-11 14:07:38.355 SYST
+< 2014-11-11 14:07:38.361 215 Windows_NT
+> 2014-11-11 14:07:38.361 FEAT
+< 2014-11-11 14:07:38.403 211-FEAT
+< 2014-11-11 14:07:38.403     SIZE
+< 2014-11-11 14:07:38.403     MDTM
+< 2014-11-11 14:07:38.403 211 END
+. 2014-11-11 14:07:38.403 Connected
+. 2014-11-11 14:07:38.403 --------------------------------------------------------------------------
+. 2014-11-11 14:07:38.403 Using FTP protocol.
+. 2014-11-11 14:07:38.404 Doing startup conversation with host.
+> 2014-11-11 14:07:38.405 PWD
+< 2014-11-11 14:07:38.410 257 "/myob_test" is current directory.
+. 2014-11-11 14:07:38.410 Getting current directory name.
+. 2014-11-11 14:07:38.411 Startup conversation with host finished.
+. 2014-11-11 14:07:38.411 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-11-11 14:07:38.411 Getting current directory name.
+. 2014-11-11 14:07:38.411 Retrieving directory listing...
+> 2014-11-11 14:07:38.411 CWD /MYOB_Test/From_EDIS/
+< 2014-11-11 14:07:38.416 250 CWD command successful.
+> 2014-11-11 14:07:38.416 PWD
+< 2014-11-11 14:07:38.423 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-11-11 14:07:38.423 TYPE A
+< 2014-11-11 14:07:38.428 200 Type set to A.
+> 2014-11-11 14:07:38.428 PASV
+< 2014-11-11 14:07:38.435 227 Entering Passive Mode (60,234,24,66,62,34).
+> 2014-11-11 14:07:38.435 LIST -a
+< 2014-11-11 14:07:38.447 125 Data connection already open; Transfer starting.
+< 2014-11-11 14:07:38.650 226 Transfer complete.
+. 2014-11-11 14:07:38.650 Directory listing successful
+. 2014-11-11 14:07:38.650 Retrieving directory listing...
+> 2014-11-11 14:07:38.650 TYPE A
+< 2014-11-11 14:07:38.660 200 Type set to A.
+> 2014-11-11 14:07:38.660 PASV
+< 2014-11-11 14:07:38.664 227 Entering Passive Mode (60,234,24,66,62,37).
+> 2014-11-11 14:07:38.664 LIST -a
+< 2014-11-11 14:07:38.679 125 Data connection already open; Transfer starting.
+< 2014-11-11 14:07:38.881 226 Transfer complete.
+. 2014-11-11 14:07:38.881 Directory listing successful
+. 2014-11-11 14:07:38.882 Disconnected from server
+. 2014-11-14 13:26:08.618 --------------------------------------------------------------------------
+. 2014-11-14 13:26:08.618 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-11-14 13:26:08.618 Login time: Friday, 14 November 2014 1:26:08 p.m.
+. 2014-11-14 13:26:08.618 --------------------------------------------------------------------------
+. 2014-11-14 13:26:08.618 Session name: myob_test@60.234.24.66
+. 2014-11-14 13:26:08.618 Host name: 60.234.24.66 (Port: 21)
+. 2014-11-14 13:26:08.618 User name: myob_test (Password: Yes, Key file: No)
+. 2014-11-14 13:26:08.618 Tunnel: No
+. 2014-11-14 13:26:08.618 Transfer Protocol: FTP
+. 2014-11-14 13:26:08.618 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-11-14 13:26:08.618 Proxy: none
+. 2014-11-14 13:26:08.618 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-11-14 13:26:08.618 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-11-14 13:26:08.618 Cache directory changes: Yes, Permanent: Yes
+. 2014-11-14 13:26:08.618 DST mode: 1
+. 2014-11-14 13:26:08.618 --------------------------------------------------------------------------
+. 2014-11-14 13:26:08.619 Connecting to 60.234.24.66 ...
+. 2014-11-14 13:26:08.625 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-11-14 13:26:08.631 220 Microsoft FTP Service
+> 2014-11-14 13:26:08.631 USER myob_test
+< 2014-11-14 13:26:08.636 331 Password required for myob_test.
+> 2014-11-14 13:26:08.636 PASS ********
+< 2014-11-14 13:26:08.644 230 User myob_test logged in.
+> 2014-11-14 13:26:08.644 SYST
+< 2014-11-14 13:26:08.650 215 Windows_NT
+> 2014-11-14 13:26:08.650 FEAT
+< 2014-11-14 13:26:08.689 211-FEAT
+< 2014-11-14 13:26:08.689     SIZE
+< 2014-11-14 13:26:08.689     MDTM
+< 2014-11-14 13:26:08.690 211 END
+. 2014-11-14 13:26:08.690 Connected
+. 2014-11-14 13:26:08.690 --------------------------------------------------------------------------
+. 2014-11-14 13:26:08.690 Using FTP protocol.
+. 2014-11-14 13:26:08.691 Doing startup conversation with host.
+> 2014-11-14 13:26:08.691 PWD
+< 2014-11-14 13:26:08.697 257 "/myob_test" is current directory.
+. 2014-11-14 13:26:08.697 Getting current directory name.
+. 2014-11-14 13:26:08.697 Startup conversation with host finished.
+. 2014-11-14 13:26:08.699 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-11-14 13:26:08.699 Getting current directory name.
+. 2014-11-14 13:26:08.699 Retrieving directory listing...
+> 2014-11-14 13:26:08.699 CWD /MYOB_Test/From_EDIS/
+< 2014-11-14 13:26:08.704 250 CWD command successful.
+> 2014-11-14 13:26:08.704 PWD
+< 2014-11-14 13:26:08.710 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-11-14 13:26:08.710 TYPE A
+< 2014-11-14 13:26:08.716 200 Type set to A.
+> 2014-11-14 13:26:08.716 PASV
+< 2014-11-14 13:26:08.721 227 Entering Passive Mode (60,234,24,66,246,99).
+> 2014-11-14 13:26:08.722 LIST -a
+< 2014-11-14 13:26:08.733 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:26:08.944 226 Transfer complete.
+. 2014-11-14 13:26:08.944 Directory listing successful
+. 2014-11-14 13:26:08.944 File: "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt"
+. 2014-11-14 13:26:08.945 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt" to local directory started.
+. 2014-11-14 13:26:08.945 Binary transfer mode selected.
+. 2014-11-14 13:26:08.946 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+> 2014-11-14 13:26:08.946 TYPE I
+< 2014-11-14 13:26:08.952 200 Type set to I.
+> 2014-11-14 13:26:08.952 PASV
+< 2014-11-14 13:26:08.958 227 Entering Passive Mode (60,234,24,66,246,100).
+> 2014-11-14 13:26:08.958 RETR PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 13:26:08.970 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:26:09.171 226 Transfer complete.
+. 2014-11-14 13:26:09.171 Download successful
+. 2014-11-14 13:26:09.171 File: "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt"
+. 2014-11-14 13:26:09.172 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt" to local directory started.
+. 2014-11-14 13:26:09.172 Binary transfer mode selected.
+. 2014-11-14 13:26:09.172 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+> 2014-11-14 13:26:09.172 TYPE I
+< 2014-11-14 13:26:09.178 200 Type set to I.
+> 2014-11-14 13:26:09.178 PASV
+< 2014-11-14 13:26:09.184 227 Entering Passive Mode (60,234,24,66,246,102).
+> 2014-11-14 13:26:09.184 RETR PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 13:26:09.209 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:26:09.402 226 Transfer complete.
+. 2014-11-14 13:26:09.402 Download successful
+. 2014-11-14 13:26:09.402 Retrieving directory listing...
+> 2014-11-14 13:26:09.402 TYPE A
+< 2014-11-14 13:26:09.408 200 Type set to A.
+> 2014-11-14 13:26:09.408 PASV
+< 2014-11-14 13:26:09.415 227 Entering Passive Mode (60,234,24,66,246,104).
+> 2014-11-14 13:26:09.415 LIST -a
+< 2014-11-14 13:26:09.427 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:26:09.629 226 Transfer complete.
+. 2014-11-14 13:26:09.629 Directory listing successful
+. 2014-11-14 13:26:09.629 Deleting file "PO_MML_4500063746_20141111095255346.txt".
+> 2014-11-14 13:26:09.629 DELE /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 13:26:09.640 250 DELE command successful.
+. 2014-11-14 13:26:09.640 Deleting file "PO_MML_4500063747_20141111095255533.txt".
+> 2014-11-14 13:26:09.640 DELE /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 13:26:09.645 250 DELE command successful.
+. 2014-11-14 13:26:09.646 Disconnected from server
+. 2014-11-14 13:54:44.763 --------------------------------------------------------------------------
+. 2014-11-14 13:54:44.763 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-11-14 13:54:44.763 Login time: Friday, 14 November 2014 1:54:44 p.m.
+. 2014-11-14 13:54:44.763 --------------------------------------------------------------------------
+. 2014-11-14 13:54:44.763 Session name: myob_test@60.234.24.66
+. 2014-11-14 13:54:44.763 Host name: 60.234.24.66 (Port: 21)
+. 2014-11-14 13:54:44.763 User name: myob_test (Password: Yes, Key file: No)
+. 2014-11-14 13:54:44.763 Tunnel: No
+. 2014-11-14 13:54:44.763 Transfer Protocol: FTP
+. 2014-11-14 13:54:44.763 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-11-14 13:54:44.763 Proxy: none
+. 2014-11-14 13:54:44.763 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-11-14 13:54:44.763 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-11-14 13:54:44.763 Cache directory changes: Yes, Permanent: Yes
+. 2014-11-14 13:54:44.763 DST mode: 1
+. 2014-11-14 13:54:44.763 --------------------------------------------------------------------------
+. 2014-11-14 13:54:44.765 Connecting to 60.234.24.66 ...
+. 2014-11-14 13:54:44.770 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-11-14 13:54:44.777 220 Microsoft FTP Service
+> 2014-11-14 13:54:44.777 USER myob_test
+< 2014-11-14 13:54:44.782 331 Password required for myob_test.
+> 2014-11-14 13:54:44.782 PASS ********
+< 2014-11-14 13:54:44.789 230 User myob_test logged in.
+> 2014-11-14 13:54:44.789 SYST
+< 2014-11-14 13:54:44.793 215 Windows_NT
+> 2014-11-14 13:54:44.793 FEAT
+< 2014-11-14 13:54:44.835 211-FEAT
+< 2014-11-14 13:54:44.835     SIZE
+< 2014-11-14 13:54:44.835     MDTM
+< 2014-11-14 13:54:44.835 211 END
+. 2014-11-14 13:54:44.835 Connected
+. 2014-11-14 13:54:44.835 --------------------------------------------------------------------------
+. 2014-11-14 13:54:44.835 Using FTP protocol.
+. 2014-11-14 13:54:44.836 Doing startup conversation with host.
+> 2014-11-14 13:54:44.837 PWD
+< 2014-11-14 13:54:44.842 257 "/myob_test" is current directory.
+. 2014-11-14 13:54:44.842 Getting current directory name.
+. 2014-11-14 13:54:44.842 Startup conversation with host finished.
+. 2014-11-14 13:54:44.843 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-11-14 13:54:44.843 Getting current directory name.
+. 2014-11-14 13:54:44.843 Retrieving directory listing...
+> 2014-11-14 13:54:44.843 CWD /MYOB_Test/From_EDIS/
+< 2014-11-14 13:54:44.849 250 CWD command successful.
+> 2014-11-14 13:54:44.849 PWD
+< 2014-11-14 13:54:44.856 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-11-14 13:54:44.856 TYPE A
+< 2014-11-14 13:54:44.861 200 Type set to A.
+> 2014-11-14 13:54:44.861 PASV
+< 2014-11-14 13:54:44.867 227 Entering Passive Mode (60,234,24,66,251,248).
+> 2014-11-14 13:54:44.867 LIST -a
+< 2014-11-14 13:54:44.878 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:54:45.078 226 Transfer complete.
+. 2014-11-14 13:54:45.078 Directory listing successful
+. 2014-11-14 13:54:45.079 File: "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt"
+. 2014-11-14 13:54:45.080 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt" to local directory started.
+. 2014-11-14 13:54:45.080 Binary transfer mode selected.
+. 2014-11-14 13:54:45.082 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+> 2014-11-14 13:54:45.082 TYPE I
+< 2014-11-14 13:54:45.089 200 Type set to I.
+> 2014-11-14 13:54:45.089 PASV
+< 2014-11-14 13:54:45.096 227 Entering Passive Mode (60,234,24,66,251,249).
+> 2014-11-14 13:54:45.096 RETR PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 13:54:45.109 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:54:45.314 226 Transfer complete.
+. 2014-11-14 13:54:45.314 Download successful
+. 2014-11-14 13:54:45.314 File: "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt"
+. 2014-11-14 13:54:45.314 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt" to local directory started.
+. 2014-11-14 13:54:45.314 Binary transfer mode selected.
+. 2014-11-14 13:54:45.314 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+> 2014-11-14 13:54:45.314 TYPE I
+< 2014-11-14 13:54:45.321 200 Type set to I.
+> 2014-11-14 13:54:45.321 PASV
+< 2014-11-14 13:54:45.327 227 Entering Passive Mode (60,234,24,66,251,250).
+> 2014-11-14 13:54:45.327 RETR PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 13:54:45.340 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:54:45.547 226 Transfer complete.
+. 2014-11-14 13:54:45.547 Download successful
+. 2014-11-14 13:54:45.547 Retrieving directory listing...
+> 2014-11-14 13:54:45.547 TYPE A
+< 2014-11-14 13:54:45.552 200 Type set to A.
+> 2014-11-14 13:54:45.552 PASV
+< 2014-11-14 13:54:45.558 227 Entering Passive Mode (60,234,24,66,251,251).
+> 2014-11-14 13:54:45.558 LIST -a
+< 2014-11-14 13:54:45.569 125 Data connection already open; Transfer starting.
+< 2014-11-14 13:54:45.779 226 Transfer complete.
+. 2014-11-14 13:54:45.779 Directory listing successful
+. 2014-11-14 13:54:45.779 Deleting file "PO_MML_4500063746_20141111095255346.txt".
+> 2014-11-14 13:54:45.779 DELE /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 13:54:45.786 250 DELE command successful.
+. 2014-11-14 13:54:45.786 Deleting file "PO_MML_4500063747_20141111095255533.txt".
+> 2014-11-14 13:54:45.786 DELE /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 13:54:45.793 250 DELE command successful.
+. 2014-11-14 13:54:45.793 Disconnected from server
+. 2014-11-14 14:11:35.080 --------------------------------------------------------------------------
+. 2014-11-14 14:11:35.080 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-11-14 14:11:35.080 Login time: Friday, 14 November 2014 2:11:35 p.m.
+. 2014-11-14 14:11:35.080 --------------------------------------------------------------------------
+. 2014-11-14 14:11:35.080 Session name: myob_test@60.234.24.66
+. 2014-11-14 14:11:35.080 Host name: 60.234.24.66 (Port: 21)
+. 2014-11-14 14:11:35.080 User name: myob_test (Password: Yes, Key file: No)
+. 2014-11-14 14:11:35.080 Tunnel: No
+. 2014-11-14 14:11:35.080 Transfer Protocol: FTP
+. 2014-11-14 14:11:35.080 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-11-14 14:11:35.080 Proxy: none
+. 2014-11-14 14:11:35.080 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-11-14 14:11:35.080 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-11-14 14:11:35.080 Cache directory changes: Yes, Permanent: Yes
+. 2014-11-14 14:11:35.080 DST mode: 1
+. 2014-11-14 14:11:35.080 --------------------------------------------------------------------------
+. 2014-11-14 14:11:35.081 Connecting to 60.234.24.66 ...
+. 2014-11-14 14:11:35.088 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-11-14 14:11:35.095 220 Microsoft FTP Service
+> 2014-11-14 14:11:35.095 USER myob_test
+< 2014-11-14 14:11:35.100 331 Password required for myob_test.
+> 2014-11-14 14:11:35.100 PASS ********
+< 2014-11-14 14:11:35.106 230 User myob_test logged in.
+> 2014-11-14 14:11:35.106 SYST
+< 2014-11-14 14:11:35.111 215 Windows_NT
+> 2014-11-14 14:11:35.111 FEAT
+< 2014-11-14 14:11:35.148 211-FEAT
+< 2014-11-14 14:11:35.148     SIZE
+< 2014-11-14 14:11:35.148     MDTM
+< 2014-11-14 14:11:35.148 211 END
+. 2014-11-14 14:11:35.148 Connected
+. 2014-11-14 14:11:35.148 --------------------------------------------------------------------------
+. 2014-11-14 14:11:35.148 Using FTP protocol.
+. 2014-11-14 14:11:35.150 Doing startup conversation with host.
+> 2014-11-14 14:11:35.150 PWD
+< 2014-11-14 14:11:35.157 257 "/myob_test" is current directory.
+. 2014-11-14 14:11:35.157 Getting current directory name.
+. 2014-11-14 14:11:35.157 Startup conversation with host finished.
+. 2014-11-14 14:11:35.158 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-11-14 14:11:35.158 Getting current directory name.
+. 2014-11-14 14:11:35.158 Retrieving directory listing...
+> 2014-11-14 14:11:35.158 CWD /MYOB_Test/From_EDIS/
+< 2014-11-14 14:11:35.163 250 CWD command successful.
+> 2014-11-14 14:11:35.163 PWD
+< 2014-11-14 14:11:35.169 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-11-14 14:11:35.169 TYPE A
+< 2014-11-14 14:11:35.175 200 Type set to A.
+> 2014-11-14 14:11:35.175 PASV
+< 2014-11-14 14:11:35.181 227 Entering Passive Mode (60,234,24,66,255,46).
+> 2014-11-14 14:11:35.181 LIST -a
+< 2014-11-14 14:11:35.193 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:11:35.397 226 Transfer complete.
+. 2014-11-14 14:11:35.397 Directory listing successful
+. 2014-11-14 14:11:35.397 File: "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt"
+. 2014-11-14 14:11:35.397 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt" to local directory started.
+. 2014-11-14 14:11:35.397 Binary transfer mode selected.
+. 2014-11-14 14:11:35.398 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+> 2014-11-14 14:11:35.398 TYPE I
+< 2014-11-14 14:11:35.403 200 Type set to I.
+> 2014-11-14 14:11:35.403 PASV
+< 2014-11-14 14:11:35.410 227 Entering Passive Mode (60,234,24,66,255,47).
+> 2014-11-14 14:11:35.410 RETR PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 14:11:35.424 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:11:35.630 226 Transfer complete.
+. 2014-11-14 14:11:35.630 Download successful
+. 2014-11-14 14:11:35.630 File: "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt"
+. 2014-11-14 14:11:35.630 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt" to local directory started.
+. 2014-11-14 14:11:35.630 Binary transfer mode selected.
+. 2014-11-14 14:11:35.630 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+> 2014-11-14 14:11:35.630 TYPE I
+< 2014-11-14 14:11:35.639 200 Type set to I.
+> 2014-11-14 14:11:35.639 PASV
+< 2014-11-14 14:11:35.644 227 Entering Passive Mode (60,234,24,66,255,48).
+> 2014-11-14 14:11:35.644 RETR PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 14:11:35.658 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:11:35.867 226 Transfer complete.
+. 2014-11-14 14:11:35.867 Download successful
+. 2014-11-14 14:11:35.868 Retrieving directory listing...
+> 2014-11-14 14:11:35.868 TYPE A
+< 2014-11-14 14:11:35.874 200 Type set to A.
+> 2014-11-14 14:11:35.874 PASV
+< 2014-11-14 14:11:35.880 227 Entering Passive Mode (60,234,24,66,255,49).
+> 2014-11-14 14:11:35.880 LIST -a
+< 2014-11-14 14:11:35.893 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:11:36.094 226 Transfer complete.
+. 2014-11-14 14:11:36.094 Directory listing successful
+. 2014-11-14 14:11:36.095 Deleting file "PO_MML_4500063746_20141111095255346.txt".
+> 2014-11-14 14:11:36.095 DELE /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 14:11:36.100 250 DELE command successful.
+. 2014-11-14 14:11:36.101 Deleting file "PO_MML_4500063747_20141111095255533.txt".
+> 2014-11-14 14:11:36.101 DELE /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 14:11:36.106 250 DELE command successful.
+. 2014-11-14 14:11:36.107 Disconnected from server
+. 2014-11-14 14:35:46.390 --------------------------------------------------------------------------
+. 2014-11-14 14:35:46.390 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-11-14 14:35:46.390 Login time: Friday, 14 November 2014 2:35:46 p.m.
+. 2014-11-14 14:35:46.390 --------------------------------------------------------------------------
+. 2014-11-14 14:35:46.390 Session name: myob_test@60.234.24.66
+. 2014-11-14 14:35:46.390 Host name: 60.234.24.66 (Port: 21)
+. 2014-11-14 14:35:46.390 User name: myob_test (Password: Yes, Key file: No)
+. 2014-11-14 14:35:46.390 Tunnel: No
+. 2014-11-14 14:35:46.390 Transfer Protocol: FTP
+. 2014-11-14 14:35:46.390 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-11-14 14:35:46.390 Proxy: none
+. 2014-11-14 14:35:46.390 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-11-14 14:35:46.390 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-11-14 14:35:46.390 Cache directory changes: Yes, Permanent: Yes
+. 2014-11-14 14:35:46.390 DST mode: 1
+. 2014-11-14 14:35:46.390 --------------------------------------------------------------------------
+. 2014-11-14 14:35:46.392 Connecting to 60.234.24.66 ...
+. 2014-11-14 14:35:46.398 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-11-14 14:35:46.404 220 Microsoft FTP Service
+> 2014-11-14 14:35:46.404 USER myob_test
+< 2014-11-14 14:35:46.410 331 Password required for myob_test.
+> 2014-11-14 14:35:46.410 PASS ********
+< 2014-11-14 14:35:46.416 230 User myob_test logged in.
+> 2014-11-14 14:35:46.416 SYST
+< 2014-11-14 14:35:46.422 215 Windows_NT
+> 2014-11-14 14:35:46.422 FEAT
+< 2014-11-14 14:35:46.460 211-FEAT
+< 2014-11-14 14:35:46.460     SIZE
+< 2014-11-14 14:35:46.460     MDTM
+< 2014-11-14 14:35:46.460 211 END
+. 2014-11-14 14:35:46.461 Connected
+. 2014-11-14 14:35:46.461 --------------------------------------------------------------------------
+. 2014-11-14 14:35:46.461 Using FTP protocol.
+. 2014-11-14 14:35:46.463 Doing startup conversation with host.
+> 2014-11-14 14:35:46.463 PWD
+< 2014-11-14 14:35:46.468 257 "/myob_test" is current directory.
+. 2014-11-14 14:35:46.468 Getting current directory name.
+. 2014-11-14 14:35:46.468 Startup conversation with host finished.
+. 2014-11-14 14:35:46.469 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-11-14 14:35:46.469 Getting current directory name.
+. 2014-11-14 14:35:46.469 Retrieving directory listing...
+> 2014-11-14 14:35:46.469 CWD /MYOB_Test/From_EDIS/
+< 2014-11-14 14:35:46.474 250 CWD command successful.
+> 2014-11-14 14:35:46.474 PWD
+< 2014-11-14 14:35:46.481 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-11-14 14:35:46.481 TYPE A
+< 2014-11-14 14:35:46.487 200 Type set to A.
+> 2014-11-14 14:35:46.487 PASV
+< 2014-11-14 14:35:46.494 227 Entering Passive Mode (60,234,24,66,239,210).
+> 2014-11-14 14:35:46.494 LIST -a
+< 2014-11-14 14:35:46.506 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:35:46.711 226 Transfer complete.
+. 2014-11-14 14:35:46.711 Directory listing successful
+. 2014-11-14 14:35:46.711 File: "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt"
+. 2014-11-14 14:35:46.711 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt" to local directory started.
+. 2014-11-14 14:35:46.711 Binary transfer mode selected.
+. 2014-11-14 14:35:46.711 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+> 2014-11-14 14:35:46.711 TYPE I
+< 2014-11-14 14:35:46.716 200 Type set to I.
+> 2014-11-14 14:35:46.716 PASV
+< 2014-11-14 14:35:46.725 227 Entering Passive Mode (60,234,24,66,239,211).
+> 2014-11-14 14:35:46.725 RETR PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 14:35:46.737 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:35:46.942 226 Transfer complete.
+. 2014-11-14 14:35:46.942 Download successful
+. 2014-11-14 14:35:46.942 File: "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt"
+. 2014-11-14 14:35:46.942 Copying "/MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt" to local directory started.
+. 2014-11-14 14:35:46.942 Binary transfer mode selected.
+. 2014-11-14 14:35:46.942 Starting download of /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+> 2014-11-14 14:35:46.942 TYPE I
+< 2014-11-14 14:35:46.948 200 Type set to I.
+> 2014-11-14 14:35:46.948 PASV
+< 2014-11-14 14:35:46.954 227 Entering Passive Mode (60,234,24,66,239,212).
+> 2014-11-14 14:35:46.954 RETR PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 14:35:46.967 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:35:47.172 226 Transfer complete.
+. 2014-11-14 14:35:47.172 Download successful
+. 2014-11-14 14:35:47.174 Retrieving directory listing...
+> 2014-11-14 14:35:47.174 TYPE A
+< 2014-11-14 14:35:47.180 200 Type set to A.
+> 2014-11-14 14:35:47.180 PASV
+< 2014-11-14 14:35:47.185 227 Entering Passive Mode (60,234,24,66,239,213).
+> 2014-11-14 14:35:47.185 LIST -a
+< 2014-11-14 14:35:47.196 125 Data connection already open; Transfer starting.
+< 2014-11-14 14:35:47.400 226 Transfer complete.
+. 2014-11-14 14:35:47.400 Directory listing successful
+. 2014-11-14 14:35:47.401 Deleting file "PO_MML_4500063746_20141111095255346.txt".
+> 2014-11-14 14:35:47.401 DELE /MYOB_Test/From_EDIS/PO_MML_4500063746_20141111095255346.txt
+< 2014-11-14 14:35:47.405 250 DELE command successful.
+. 2014-11-14 14:35:47.405 Deleting file "PO_MML_4500063747_20141111095255533.txt".
+> 2014-11-14 14:35:47.405 DELE /MYOB_Test/From_EDIS/PO_MML_4500063747_20141111095255533.txt
+< 2014-11-14 14:35:47.411 250 DELE command successful.
+. 2014-11-14 14:35:47.412 Disconnected from server

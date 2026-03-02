@@ -1,0 +1,8 @@
+option batch on
+option confirm off
+option transfer binary
+open ftp://myob_test:myobedis@60.234.24.66 -passive
+lcd %1%
+cd /MYOB_Test/To_EDIS
+put "PO_Response_*.txt"
+exit

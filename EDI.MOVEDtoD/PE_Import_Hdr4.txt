@@ -1,0 +1,4 @@
+[Co./Last Name]	[Date]	[Customer PO]	[Item Number]	[Quantity]	[Description]	[Price]	[Total]
+Briscoes Group NZ Ltd	04/11/2014	4500063747	RBTS	48	4CT>Spoon Table VOL Rivet Blue	$1.07	$51.36
+Briscoes Group NZ Ltd	04/11/2014	4500063747	RRTE	48	4CT>Teaspoon VOL Rivet Red	$1.07	$51.36
+Briscoes Group NZ Ltd	04/11/2014	4500063747	RRTF	24	2CT>Fork Table VOL Rivet Red	$1.07	$25.68

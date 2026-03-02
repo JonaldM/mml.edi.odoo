@@ -1,0 +1,6 @@
+[Co./Last Name]	[Date]	[Customer PO]	[Item Number]	[Quantity]	[Description]	[Price]	[Total]
+Briscoes Group NZ Ltd	04/11/2014	4500063746	VA8SS	12	2CT>Steak Knives/Forks 8pc VOL Accessorise	$9.49	$113.88
+Briscoes Group NZ Ltd	04/11/2014	4500063746	VA6SK	12	2CT>Steak Knives 6pc VOL Accessorise	$9.13	$109.56
+Briscoes Group NZ Ltd	04/11/2014	4500063746	RBTE	12	1CT>Teaspoon VOL Rivet Blue	$1.07	$12.84
+Briscoes Group NZ Ltd	04/11/2014	4500063746	RBTF	48	4CT>Fork Table VOL Rivet Blue	$1.07	$51.36
+Briscoes Group NZ Ltd	04/11/2014	4500063746	RBTK	36	3CT>Knife Table VOL Rivet Blue	$1.07	$38.52

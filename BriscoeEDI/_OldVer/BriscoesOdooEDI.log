@@ -1,0 +1,80 @@
+2021-06-16 13:43:49,098 [1] INFO BriscoesOdooEDI.Main - Order 4500135303_8001 created successfully
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Header creation was successful
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 1 Qty avail before this line 1344 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 1 Qty avail before this line 1343 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALSCGC200 Qty requested 1 Qty avail before this line 2632 with warning Price requested 1.00 Price on file 19.50
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALSCGS400 Qty requested 1 Qty avail before this line 2632 with warning Price requested 1.00 Price on file 18.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC46 Qty requested 1 Qty avail before this line 896 with warning Price requested 1.00 Price on file 10.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC47 Qty requested 1 Qty avail before this line 1060 with warning Price requested 1.00 Price on file 16.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC48 Qty requested 1 Qty avail before this line 1076 with warning Price requested 1.00 Price on file 23.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC49 Qty requested 1 Qty avail before this line 1992 with warning Price requested 1.00 Price on file 2.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC50 Qty requested 1 Qty avail before this line 1800 with warning Price requested 1.00 Price on file 2.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC51 Qty requested 1 Qty avail before this line 888 with warning Price requested 1.00 Price on file 10.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC30 Qty requested 1 Qty avail before this line 780 with warning Price requested 1.00 Price on file 4.50
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC31 Qty requested 1 Qty avail before this line 648 with warning Price requested 1.00 Price on file 5.14
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC32 Qty requested 1 Qty avail before this line 135 with warning Price requested 1.00 Price on file 13.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC33 Qty requested 1 Qty avail before this line 654 with warning Price requested 1.00 Price on file 2.50
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC34 Qty requested 1 Qty avail before this line 822 with warning Price requested 1.00 Price on file 2.50
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC35 Qty requested 1 Qty avail before this line 294 with warning Price requested 1.00 Price on file 12.80
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC36 Qty requested 1 Qty avail before this line 267 with warning Price requested 1.00 Price on file 16.00
+2021-06-16 13:43:49,126 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC37 Qty requested 1 Qty avail before this line 864 with warning Price requested 1.00 Price on file 3.95
+2021-06-16 13:44:06,933 [1] INFO BriscoesOdooEDI.Main - Order 4500135303_8002 created successfully
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Header creation was successful
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 1 Qty avail before this line 1342 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 1 Qty avail before this line 1341 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC52 Qty requested 1 Qty avail before this line 1028 with warning Price requested 1.00 Price on file 16.00
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC53 Qty requested 1 Qty avail before this line 1076 with warning Price requested 1.00 Price on file 23.00
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC54 Qty requested 1 Qty avail before this line 1992 with warning Price requested 1.00 Price on file 2.00
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC55 Qty requested 1 Qty avail before this line 1992 with warning Price requested 1.00 Price on file 2.00
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC1 Qty requested 1 Qty avail before this line 96 with warning Price requested 1.00 Price on file 15.05
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC1 Qty requested 1 Qty avail before this line 95 with warning Price requested 1.00 Price on file 15.05
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC10 Qty requested 1 Qty avail before this line 2916 with warning Price requested 1.00 Price on file 3.95
+2021-06-16 13:44:06,933 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC11 Qty requested 100 Qty avail before this line 267 with warning Price requested 1.00 Price on file 13.25
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC2 Qty requested 101 Qty avail before this line 255 with warning Price requested 1.00 Price on file 11.10
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC3 Qty requested 1 Qty avail before this line 342 with warning Price requested 1.00 Price on file 5.50
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC4 Qty requested 1 Qty avail before this line 924 with warning Price requested 1.00 Price on file 4.00
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC5 Qty requested 1 Qty avail before this line 756 with warning Price requested 1.00 Price on file 12.10
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC6 Qty requested 1 Qty avail before this line 912 with warning Price requested 1.00 Price on file 9.80
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC7 Qty requested 1 Qty avail before this line 905 with warning Price requested 1.00 Price on file 5.14
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC8 Qty requested 1 Qty avail before this line 1398 with warning Price requested 1.00 Price on file 4.50
+2021-06-16 13:44:06,934 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC9 Qty requested 98 Qty avail before this line 1380 with warning Price requested 1.00 Price on file 3.20
+2021-06-16 13:44:24,455 [1] INFO BriscoesOdooEDI.Main - Order 4500135303_8003 created successfully
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Header creation was successful
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 99 Qty avail before this line 1340 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 1 Qty avail before this line 1241 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC12 Qty requested 1 Qty avail before this line 375 with warning Price requested 1.00 Price on file 11.20
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC13 Qty requested 1 Qty avail before this line 912 with warning Price requested 1.00 Price on file 5.50
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC14 Qty requested 1 Qty avail before this line 522 with warning Price requested 1.00 Price on file 4.00
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC15 Qty requested 1 Qty avail before this line 606 with warning Price requested 1.00 Price on file 7.20
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC16 Qty requested 1 Qty avail before this line 1062 with warning Price requested 1.00 Price on file 4.90
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC17 Qty requested 1 Qty avail before this line 1302 with warning Price requested 1.00 Price on file 2.70
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC18 Qty requested 1 Qty avail before this line 1806 with warning Price requested 1.00 Price on file 3.80
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC19 Qty requested 1 Qty avail before this line 492 with warning Price requested 1.00 Price on file 4.95
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHCSMB Qty requested 1 Qty avail before this line 0 with warning Qty requested 1 Qty avail 0 | Price requested 1.00 Price on file 1.70
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHCSMC Qty requested 1 Qty avail before this line 0 with warning Qty requested 1 Qty avail 0 | Price requested 1.00 Price on file 1.70
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHCSMG Qty requested 1 Qty avail before this line 0 with warning Qty requested 1 Qty avail 0 | Price requested 1.00 Price on file 1.70
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC20 Qty requested 1 Qty avail before this line 414 with warning Price requested 1.00 Price on file 3.25
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC21 Qty requested 1 Qty avail before this line 312 with warning Price requested 1.00 Price on file 10.35
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC22 Qty requested 1 Qty avail before this line 282 with warning Price requested 1.00 Price on file 7.89
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC23 Qty requested 1 Qty avail before this line 315 with warning Price requested 1.00 Price on file 8.86
+2021-06-16 13:44:24,455 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC24 Qty requested 1 Qty avail before this line 0 with warning Qty requested 1 Qty avail 0 | Price requested 1.00 Price on file 8.86
+2021-06-16 13:44:42,321 [1] INFO BriscoesOdooEDI.Main - Order 4500135309 created successfully
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Header creation was successful
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 1 Qty avail before this line 1240 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALCCHS400 Qty requested 1 Qty avail before this line 1239 with warning Price requested 1.00 Price on file 18.25
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC40 Qty requested 1 Qty avail before this line 843 with warning Price requested 1.00 Price on file 9.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC41 Qty requested 1 Qty avail before this line 261 with warning Price requested 1.00 Price on file 11.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC42 Qty requested 1 Qty avail before this line 168 with warning Price requested 1.00 Price on file 8.80
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC43 Qty requested 1 Qty avail before this line 594 with warning Price requested 1.00 Price on file 2.50
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC44 Qty requested 1 Qty avail before this line 678 with warning Price requested 1.00 Price on file 2.50
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC45 Qty requested 1 Qty avail before this line 28 with warning Price requested 1.00 Price on file 6.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC46 Qty requested 1 Qty avail before this line 895 with warning Price requested 1.00 Price on file 10.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC47 Qty requested 1 Qty avail before this line 1059 with warning Price requested 1.00 Price on file 16.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC48 Qty requested 1 Qty avail before this line 1075 with warning Price requested 1.00 Price on file 23.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC49 Qty requested 1 Qty avail before this line 1991 with warning Price requested 1.00 Price on file 2.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC50 Qty requested 1 Qty avail before this line 1799 with warning Price requested 1.00 Price on file 2.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC51 Qty requested 1 Qty avail before this line 887 with warning Price requested 1.00 Price on file 10.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC52 Qty requested 1 Qty avail before this line 1027 with warning Price requested 1.00 Price on file 16.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC53 Qty requested 1 Qty avail before this line 1075 with warning Price requested 1.00 Price on file 23.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC54 Qty requested 1 Qty avail before this line 1991 with warning Price requested 1.00 Price on file 2.00
+2021-06-16 13:44:42,321 [1] DEBUG BriscoesOdooEDI.Main - Order Line ALHC55 Qty requested 1 Qty avail before this line 1991 with warning Price requested 1.00 Price on file 2.00
