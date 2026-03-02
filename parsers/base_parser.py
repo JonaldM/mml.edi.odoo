@@ -26,12 +26,15 @@ if TYPE_CHECKING:
 class ParsedOrderLine:
     """Represents a single line item from an EDI order document."""
 
-    product_code: str          # Matched against trading_partner.product_match_field
+    product_code: str          # Primary code (EAN-13 by convention) — matched against product_match_field
     description: str
     quantity: float
     unit_price: float          # Price from EDI — what the customer expects to pay
     line_number: int           # EDI line number for ACK reference
     uom: str | None = None     # Unit of measure from EDI (may differ from Odoo UOM)
+    carton_qty: float | None = None       # QTY+52 (EDIFACT) / BMNG2 (iDOC) — qty per carton/inner pack
+    buyer_article_no: str | None = None   # PIA+IN (EDIFACT) / E1EDP19 001 (iDOC) — buyer's own item code
+    vendor_code: str | None = None        # PIA+SA (EDIFACT) / E1EDP19 002 (iDOC) — MML internal reference
 
 
 @dataclass
