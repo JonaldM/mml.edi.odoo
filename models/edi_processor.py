@@ -226,7 +226,7 @@ class EDIProcessor(models.AbstractModel):
         """
         blocking = []
 
-        product = self._find_product(parsed_line.product_code, partner)
+        product, matched_by = self._find_product(parsed_line, partner)
         if not product:
             self.env["edi.order.issue"].create({
                 "review_id": review.id,
@@ -254,7 +254,24 @@ class EDIProcessor(models.AbstractModel):
             "price_unit": parsed_line.unit_price,
             "edi_line_number": parsed_line.line_number,
             "edi_price": parsed_line.unit_price,
+            "edi_matched_by": matched_by,
         })
+
+        # Create fallback warning issue if product was not found on primary strategy
+        primary_field = partner.product_match_field
+        if matched_by and matched_by != primary_field:
+            self.env["edi.order.issue"].create({
+                "review_id": review.id,
+                "issue_type": "product_matched_by_fallback",
+                "severity": "warning",
+                "description": (
+                    "Product matched by fallback '%s' — primary code '%s' not found "
+                    "via '%s'. Consider adding the barcode/code to the product record." % (
+                        matched_by, parsed_line.product_code, primary_field,
+                    )
+                ),
+                "sale_order_line_id": sol.id,
+            })
 
         # Stock check (warning, non-blocking)
         qty_available = product.with_context(
@@ -439,25 +456,62 @@ class EDIProcessor(models.AbstractModel):
             )
         return partner.partner_id
 
-    def _find_product(self, product_code: str, partner):
-        """Look up product using the trading partner's configured match field."""
-        field = partner.product_match_field
-        if field == "barcode":
-            result = self.env["product.product"].search(
-                [("barcode", "=", product_code)], limit=1
-            )
-        elif field == "default_code":
-            result = self.env["product.product"].search(
-                [("default_code", "=", product_code)], limit=1
-            )
-        elif field == "supplier_sku":
+    def _find_product(self, parsed_line, partner):
+        """
+        Look up product using cascade strategy:
+        1. Try partner.product_match_field with parsed_line.product_code (primary)
+        2. If miss: try barcode with product_code (if not already barcode mode)
+        3. If miss: try default_code with parsed_line.vendor_code
+        4. If miss: try product.supplierinfo.product_code with parsed_line.buyer_article_no
+
+        Returns: (product_record | None, matched_by: str | None)
+        matched_by is the strategy name that succeeded, or None if not found.
+        """
+        strategies = []
+
+        # Strategy 1: configured primary field
+        primary_field = partner.product_match_field
+        strategies.append((primary_field, parsed_line.product_code))
+
+        # Strategy 2: barcode fallback (if primary wasn't already barcode)
+        if primary_field != "barcode":
+            strategies.append(("barcode", parsed_line.product_code))
+
+        # Strategy 3: internal reference via vendor_code
+        if parsed_line.vendor_code:
+            strategies.append(("default_code", parsed_line.vendor_code))
+
+        # Strategy 4: supplier code via buyer_article_no
+        if parsed_line.buyer_article_no:
+            strategies.append(("supplier_sku", parsed_line.buyer_article_no))
+
+        for strategy, code in strategies:
+            if not code:
+                continue
+            product = self._lookup_by_strategy(strategy, code)
+            if product:
+                return product, strategy
+
+        return None, None
+
+    def _lookup_by_strategy(self, strategy: str, code: str):
+        """Single-strategy product lookup. Returns product.product record or None."""
+        if strategy == "barcode":
+            return self.env["product.product"].search(
+                [("barcode", "=", code)], limit=1
+            ) or None
+        elif strategy == "default_code":
+            return self.env["product.product"].search(
+                [("default_code", "=", code)], limit=1
+            ) or None
+        elif strategy == "supplier_sku":
             info = self.env["product.supplierinfo"].search(
-                [("product_code", "=", product_code)], limit=1
+                [("product_code", "=", code)], limit=1
             )
-            result = info.product_id if info else self.env["product.product"]
-        else:
-            result = self.env["product.product"]
-        return result or None
+            if not info:
+                return None
+            return info.product_id or info.product_tmpl_id.product_variant_ids[:1] or None
+        return None
 
     def _get_pricelist_price(
         self, product, quantity: float, partner
