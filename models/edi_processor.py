@@ -204,6 +204,17 @@ class EDIProcessor(models.AbstractModel):
             if partner.alert_on_issues and blocking_issues:
                 self._send_review_alert(partner, review)
 
+        # Emit billable event — fires whether auto-approved or pending review
+        self.env['mml.event'].emit(
+            'edi.order.processed',
+            quantity=len(so.order_line),
+            billable_unit='edi_order_line',
+            res_model='sale.order',
+            res_id=so.id,
+            source_module='mml_edi',
+            payload={'partner': partner.name, 'order_ref': so.name},
+        )
+
     # ── Order line processing ─────────────────────────────────────────────
 
     def _process_order_line(

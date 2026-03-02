@@ -75,3 +75,14 @@ _register_module(
     os.path.join(models_dir, "edi_ftp.py"),
     mml_edi_models,
 )
+
+# 5. mml_edi.services — no Odoo dependency, safe to execute __init__.py
+services_dir = os.path.join(_ROOT, "services")
+mml_edi_services = _register_package("mml_edi.services", services_dir, parent=mml_edi)
+
+# 6. mml_edi.services.edi_service — the service class under test
+_register_module(
+    "mml_edi.services.edi_service",
+    os.path.join(services_dir, "edi_service.py"),
+    mml_edi_services,
+)

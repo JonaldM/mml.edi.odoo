@@ -12,7 +12,7 @@
     "website": "https://github.com/JonaldM/mml.edi.odoo",
     "category": "Operations",
     "license": "LGPL-3",
-    "depends": ["sale", "account", "stock", "mail"],
+    "depends": ["mml_base", "sale", "account", "stock", "mail"],
     "data": [
         # Security — groups first, then access rules
         "security/edi_security.xml",
@@ -38,4 +38,6 @@
     "installable": True,
     "application": True,
     "auto_install": False,
+    "post_init_hook": "post_init_hook",
+    "uninstall_hook": "uninstall_hook",
 }
