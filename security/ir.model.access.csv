@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_edi_trading_partner_user,edi.trading.partner user,model_edi_trading_partner,mml_edi.group_edi_user,1,0,0,0
+access_edi_trading_partner_manager,edi.trading.partner manager,model_edi_trading_partner,mml_edi.group_edi_manager,1,1,1,1
+access_edi_log_user,edi.log user,model_edi_log,mml_edi.group_edi_user,1,0,0,0
+access_edi_log_manager,edi.log manager,model_edi_log,mml_edi.group_edi_manager,1,0,1,0
+access_edi_order_review_user,edi.order.review user,model_edi_order_review,mml_edi.group_edi_user,1,1,0,0
+access_edi_order_review_manager,edi.order.review manager,model_edi_order_review,mml_edi.group_edi_manager,1,1,1,1
+access_edi_order_issue_user,edi.order.issue user,model_edi_order_issue,mml_edi.group_edi_user,1,1,0,0
+access_edi_order_issue_manager,edi.order.issue manager,model_edi_order_issue,mml_edi.group_edi_manager,1,1,1,1

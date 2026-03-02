@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- TOP-LEVEL MENU                                                   -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <menuitem id="menu_edi_root"
+                  name="EDI"
+                  sequence="100"
+                  web_icon="mml_edi,static/description/icon.png"/>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- DASHBOARD                                                        -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <menuitem id="menu_edi_dashboard"
+                  name="Dashboard"
+                  parent="menu_edi_root"
+                  action="%(mml_edi.action_edi_order_review)d"
+                  sequence="10"/>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- ORDERS SUBMENU                                                   -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <menuitem id="menu_edi_orders"
+                  name="Orders"
+                  parent="menu_edi_root"
+                  sequence="20"/>
+
+        <menuitem id="menu_edi_orders_pending"
+                  name="Pending Review"
+                  parent="menu_edi_orders"
+                  action="%(mml_edi.action_edi_order_review_pending)d"
+                  sequence="10"/>
+
+        <menuitem id="menu_edi_orders_all"
+                  name="All Reviews"
+                  parent="menu_edi_orders"
+                  action="%(mml_edi.action_edi_order_review)d"
+                  sequence="20"/>
+
+        <menuitem id="menu_edi_orders_sale"
+                  name="Sales Orders (EDI)"
+                  parent="menu_edi_orders"
+                  action="%(mml_edi.action_edi_sale_orders)d"
+                  sequence="30"/>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- LOGS                                                             -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <menuitem id="menu_edi_logs"
+                  name="Logs"
+                  parent="menu_edi_root"
+                  action="%(mml_edi.action_edi_log)d"
+                  sequence="30"/>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- CONFIGURATION SUBMENU (managers only)                           -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <menuitem id="menu_edi_configuration"
+                  name="Configuration"
+                  parent="menu_edi_root"
+                  sequence="40"
+                  groups="mml_edi.group_edi_manager"/>
+
+        <menuitem id="menu_edi_trading_partners"
+                  name="Trading Partners"
+                  parent="menu_edi_configuration"
+                  action="%(mml_edi.action_edi_trading_partner)d"
+                  sequence="10"
+                  groups="mml_edi.group_edi_manager"/>
+
+    </data>
+</odoo>

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- LIST VIEW                                                        -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_edi_order_issue_list" model="ir.ui.view">
+            <field name="name">edi.order.issue.list</field>
+            <field name="model">edi.order.issue</field>
+            <field name="arch" type="xml">
+                <list string="EDI Issues"
+                      decoration-danger="severity == 'blocking'"
+                      decoration-warning="severity == 'warning'">
+                    <field name="review_id" string="Review"/>
+                    <field name="severity" widget="badge" string="Severity"/>
+                    <field name="issue_type" widget="badge" string="Issue Type"/>
+                    <field name="description" string="Description"/>
+                    <field name="resolution" widget="badge" string="Resolution"/>
+                    <field name="resolved_by" string="Resolved By" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- FORM VIEW (readonly — issues are created programmatically)      -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_edi_order_issue_form" model="ir.ui.view">
+            <field name="name">edi.order.issue.form</field>
+            <field name="model">edi.order.issue</field>
+            <field name="arch" type="xml">
+                <form string="EDI Issue" create="0" delete="0">
+                    <sheet>
+                        <group>
+                            <group string="Issue Details">
+                                <field name="review_id" readonly="1"/>
+                                <field name="severity" readonly="1" widget="badge"/>
+                                <field name="issue_type" readonly="1" widget="badge"/>
+                                <field name="description" readonly="1"/>
+                            </group>
+                            <group string="Resolution">
+                                <field name="resolution" readonly="1" widget="badge"/>
+                                <field name="resolved_by" readonly="1"/>
+                                <field name="resolved_date" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="Price Details"
+                               invisible="issue_type != 'price_discrepancy'">
+                            <field name="edi_price" readonly="1" string="EDI Price"/>
+                            <field name="system_price" readonly="1" string="System Price"/>
+                            <field name="price_difference_pct" readonly="1" string="Difference (%)"/>
+                        </group>
+                        <group string="Resolution Notes" invisible="not resolution_notes">
+                            <field name="resolution_notes" readonly="1" nolabel="1"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- WINDOW ACTION                                                    -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="action_edi_order_issue" model="ir.actions.act_window">
+            <field name="name">EDI Issues</field>
+            <field name="res_model">edi.order.issue</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    No EDI issues found
+                </p>
+                <p>
+                    Issues identified during EDI order processing — price discrepancies,
+                    unknown products, stock shortfalls — appear here for review.
+                </p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

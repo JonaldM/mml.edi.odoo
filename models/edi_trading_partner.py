@@ -1,0 +1,212 @@
+# mml.edi/models/edi_trading_partner.py
+import importlib
+import logging
+
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError, ValidationError
+
+_logger = logging.getLogger(__name__)
+
+
+class EDITradingPartner(models.Model):
+    _name = "edi.trading.partner"
+    _description = "EDI Trading Partner"
+    _order = "name"
+
+    # ── Core ──────────────────────────────────────────────────────────────
+
+    name = fields.Char(required=True, string="Partner Name")
+    code = fields.Char(
+        required=True,
+        string="Partner Code",
+        help="Unique short code used in references and file naming (e.g., BRISCOES)",
+    )
+    partner_id = fields.Many2one(
+        "res.partner",
+        required=True,
+        string="Odoo Customer",
+        domain=[("customer_rank", ">", 0)],
+    )
+    active = fields.Boolean(default=True)
+    edi_format = fields.Selection(
+        [
+            ("edifact_d96a", "EDIFACT D96A"),
+            ("edifact_d01b", "EDIFACT D01B"),
+            ("csv", "CSV"),
+            ("custom", "Custom"),
+        ],
+        required=True,
+        string="EDI Format",
+    )
+    parser_class = fields.Char(
+        required=True,
+        string="Parser Class",
+        help="Python dotted path to the parser class (e.g., mml_edi.parsers.briscoes.BriscoesParser)",
+    )
+
+    # ── FTP Configuration ─────────────────────────────────────────────────
+
+    ftp_protocol = fields.Selection(
+        [("ftp", "FTP"), ("sftp", "SFTP")],
+        required=True,
+        default="ftp",
+        string="FTP Protocol",
+    )
+    ftp_host = fields.Char(string="FTP Host")
+    ftp_port = fields.Integer(string="FTP Port", default=21)
+    ftp_user = fields.Char(string="FTP Username")
+    ftp_password = fields.Char(string="FTP Password", password=True)
+    ftp_inbox_path = fields.Char(string="Inbox Path")
+    ftp_outbox_path = fields.Char(string="Outbox Path")
+    ftp_test_inbox_path = fields.Char(string="Test Inbox Path")
+    ftp_test_outbox_path = fields.Char(string="Test Outbox Path")
+    environment = fields.Selection(
+        [("production", "Production"), ("test", "Test")],
+        required=True,
+        default="production",
+        string="Environment",
+    )
+
+    # ── Processing Rules ──────────────────────────────────────────────────
+
+    pricelist_id = fields.Many2one(
+        "product.pricelist",
+        string="Pricelist",
+        help="Used for price comparison on inbound orders",
+    )
+    price_tolerance_pct = fields.Float(
+        default=0.0,
+        string="Price Tolerance (%)",
+        help="Auto-accept price discrepancies within this percentage (0.0 = exact match required)",
+    )
+    auto_confirm_clean = fields.Boolean(
+        default=False,
+        string="Auto-Confirm Clean Orders",
+        help="Automatically confirm new orders with no blocking issues",
+    )
+    poll_interval_minutes = fields.Integer(
+        default=15,
+        string="Poll Interval (minutes)",
+        help="How often to check FTP for new files (reflected in cron)",
+    )
+    order_split_mode = fields.Selection(
+        [("per_store", "Per Store (one SO per store code)"), ("single", "Single (one PO = one SO)")],
+        required=True,
+        default="single",
+        string="Order Split Mode",
+    )
+    product_match_field = fields.Selection(
+        [
+            ("barcode", "Barcode (EAN-13)"),
+            ("default_code", "Internal Reference"),
+            ("supplier_sku", "Supplier SKU (supplierinfo)"),
+        ],
+        required=True,
+        default="barcode",
+        string="Product Match Field",
+    )
+    client_ref_template = fields.Char(
+        default="{po_number}",
+        string="Client Reference Template",
+        help="Python format string for SO client reference. Variables: {po_number}, {store_code}",
+    )
+
+    # ── Notifications ─────────────────────────────────────────────────────
+
+    alert_email_ids = fields.Many2many(
+        "res.partner",
+        string="Alert Email Recipients",
+    )
+    alert_on_issues = fields.Boolean(
+        default=True,
+        string="Alert on Review Required",
+        help="Send email when orders are routed to manual review",
+    )
+
+    # ── Computed ──────────────────────────────────────────────────────────
+
+    def get_active_inbox_path(self):
+        """Return inbox path based on current environment."""
+        self.ensure_one()
+        if self.environment == "test":
+            return self.ftp_test_inbox_path
+        return self.ftp_inbox_path
+
+    def get_active_outbox_path(self):
+        """Return outbox path based on current environment."""
+        self.ensure_one()
+        if self.environment == "test":
+            return self.ftp_test_outbox_path
+        return self.ftp_outbox_path
+
+    # ── Constraints ───────────────────────────────────────────────────────
+
+    _sql_constraints = [
+        ("code_unique", "UNIQUE(code)", "Trading partner code must be unique."),
+    ]
+
+    # ── Actions ───────────────────────────────────────────────────────────
+
+    def action_test_ftp_connection(self):
+        """Test FTP connectivity. Called from form view button."""
+        self.ensure_one()
+        from .edi_ftp import EDIFTPHandler
+        from ..parsers.base_parser import EDIFTPError
+
+        try:
+            handler = EDIFTPHandler(self)
+            with handler.connection():
+                files = handler.list_files()
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("FTP Connection Successful"),
+                    "message": _("Connected to %s. Found %d file(s) in inbox.") % (self.ftp_host, len(files)),
+                    "type": "success",
+                },
+            }
+        except EDIFTPError as e:
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("FTP Connection Failed"),
+                    "message": str(e),
+                    "type": "danger",
+                    "sticky": True,
+                },
+            }
+
+    def action_run_poll_now(self):
+        """Trigger immediate FTP poll, bypassing cron schedule."""
+        self.ensure_one()
+        self.env["edi.processor"].poll_trading_partner(self)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Poll Complete"),
+                "message": _("FTP poll completed for %s. Check logs for details.") % self.name,
+                "type": "info",
+            },
+        }
+
+    def get_parser_instance(self):
+        """Dynamically load and instantiate the parser class."""
+        self.ensure_one()
+        try:
+            module_path, class_name = self.parser_class.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            cls = getattr(module, class_name)
+            return cls()
+        except (ImportError, AttributeError, ValueError) as e:
+            raise UserError(
+                _("Cannot load parser class '%s': %s") % (self.parser_class, str(e))
+            )
+
+    def render_client_ref(self, po_number: str, store_code: str | None = None) -> str:
+        """Render SO client reference from template."""
+        self.ensure_one()
+        template = self.client_ref_template or "{po_number}"
+        return template.format(po_number=po_number, store_code=store_code or "")

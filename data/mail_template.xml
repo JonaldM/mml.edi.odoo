@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="mail_template_edi_review_alert" model="mail.template">
+            <field name="name">EDI: Review Required</field>
+            <field name="model_id" ref="model_edi_order_review"/>
+            <field name="subject">EDI Order Requires Review: {{ object.customer_po_number }}</field>
+            <field name="email_from">{{ (object.company_id.email or user.email or '') | safe }}</field>
+            <field name="email_to"></field>
+            <field name="auto_delete" eval="True"/>
+            <field name="body_html"><![CDATA[
+<div style="font-family: Arial, sans-serif; font-size: 14px; color: #333333; max-width: 640px; margin: 0 auto;">
+
+    <h2 style="color: #c0392b; border-bottom: 2px solid #c0392b; padding-bottom: 8px;">
+        EDI Order Requires Review
+    </h2>
+
+    <p>An EDI purchase order has been received and requires manual review before it can be confirmed.</p>
+
+    <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+        <tbody>
+            <tr style="background-color: #f9f9f9;">
+                <td style="padding: 8px 12px; font-weight: bold; width: 40%; border: 1px solid #e0e0e0;">Trading Partner</td>
+                <td style="padding: 8px 12px; border: 1px solid #e0e0e0;">{{ object.trading_partner_id.name }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e0e0e0;">PO Number</td>
+                <td style="padding: 8px 12px; border: 1px solid #e0e0e0;">{{ object.customer_po_number }}</td>
+            </tr>
+            {% if object.store_code %}
+            <tr style="background-color: #f9f9f9;">
+                <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e0e0e0;">Store Code</td>
+                <td style="padding: 8px 12px; border: 1px solid #e0e0e0;">{{ object.store_code }}</td>
+            </tr>
+            {% endif %}
+            <tr {% if not object.store_code %}style="background-color: #f9f9f9;"{% endif %}>
+                <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e0e0e0;">Document Type</td>
+                <td style="padding: 8px 12px; border: 1px solid #e0e0e0;">{{ object.document_type }}</td>
+            </tr>
+            <tr style="background-color: #f9f9f9;">
+                <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e0e0e0;">Received Date</td>
+                <td style="padding: 8px 12px; border: 1px solid #e0e0e0;">{{ object.received_date }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e0e0e0;">Blocking Issues</td>
+                <td style="padding: 8px 12px; border: 1px solid #e0e0e0; color: #c0392b; font-weight: bold;">
+                    {{ object.blocking_issue_count }}
+                </td>
+            </tr>
+            <tr style="background-color: #f9f9f9;">
+                <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e0e0e0;">Warnings</td>
+                <td style="padding: 8px 12px; border: 1px solid #e0e0e0; color: #e67e22; font-weight: bold;">
+                    {{ object.warning_count }}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+    <p style="margin: 24px 0;">
+        <a href="{{ object.get_base_url() }}/odoo/action-mml_edi.action_edi_order_review/{{ object.id }}"
+           style="background-color: #1a6eb5; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+            Review Order
+        </a>
+    </p>
+
+    <p style="color: #666666; font-size: 13px;">
+        Please review and approve or reject this order.
+    </p>
+
+    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 24px 0;"/>
+
+    <p style="color: #999999; font-size: 12px;">
+        This is an automated alert from the MML EDI system. Do not reply to this email.
+    </p>
+
+</div>
+            ]]></field>
+        </record>
+
+    </data>
+</odoo>

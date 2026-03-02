@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- LIST VIEW                                                        -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_edi_trading_partner_list" model="ir.ui.view">
+            <field name="name">edi.trading.partner.list</field>
+            <field name="model">edi.trading.partner</field>
+            <field name="arch" type="xml">
+                <list string="EDI Trading Partners">
+                    <field name="name" string="Partner Name"/>
+                    <field name="code" string="Code"/>
+                    <field name="edi_format"
+                           widget="badge"
+                           string="Format"/>
+                    <field name="environment"
+                           widget="badge"
+                           string="Environment"
+                           decoration-warning="environment == 'test'"/>
+                    <field name="auto_confirm_clean"
+                           string="Auto-Confirm Clean"
+                           widget="boolean_toggle"/>
+                    <field name="active"
+                           widget="boolean_toggle"
+                           optional="show"/>
+                </list>
+            </field>
+        </record>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- FORM VIEW                                                        -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_edi_trading_partner_form" model="ir.ui.view">
+            <field name="name">edi.trading.partner.form</field>
+            <field name="model">edi.trading.partner</field>
+            <field name="arch" type="xml">
+                <form string="EDI Trading Partner">
+
+                    <!-- Header buttons -->
+                    <header>
+                        <button name="action_test_ftp_connection"
+                                string="Test FTP Connection"
+                                type="object"
+                                class="btn-secondary"/>
+                        <button name="action_run_poll_now"
+                                string="Poll Now"
+                                type="object"
+                                class="btn-secondary"/>
+                    </header>
+
+                    <sheet>
+
+                        <!-- Test environment alert banner -->
+                        <div class="alert alert-warning mb-3"
+                             invisible="environment != 'test'"
+                             role="alert">
+                            <strong>TEST ENVIRONMENT</strong> — This partner is configured
+                            to use test FTP paths and the Odoo test database.
+                            No production data will be affected.
+                        </div>
+
+                        <!-- Title row with active toggle -->
+                        <div class="oe_title">
+                            <label for="name" class="oe_edit_only"/>
+                            <h1>
+                                <field name="name"
+                                       placeholder="Trading Partner Name"
+                                       required="1"/>
+                            </h1>
+                            <field name="active"
+                                   widget="boolean_toggle"
+                                   string="Active"/>
+                        </div>
+
+                        <!-- Two-column summary group -->
+                        <group>
+                            <group string="Identity">
+                                <field name="partner_id" string="Odoo Customer"/>
+                                <field name="code" string="Short Code" required="1"/>
+                                <field name="edi_format"
+                                       widget="badge"
+                                       string="EDI Format"/>
+                            </group>
+                            <group string="Operation">
+                                <field name="environment"
+                                       widget="badge"
+                                       string="Environment"
+                                       decoration-warning="environment == 'test'"/>
+                                <field name="pricelist_id" string="Price List"/>
+                                <field name="auto_confirm_clean"
+                                       widget="boolean_toggle"
+                                       string="Auto-Confirm Clean Orders"/>
+                            </group>
+                        </group>
+
+                        <!-- Tabs -->
+                        <notebook>
+
+                            <!-- FTP Configuration tab -->
+                            <page string="FTP Configuration" name="ftp_config">
+
+                                <group string="Connection">
+                                    <field name="ftp_protocol" string="Protocol"/>
+                                    <field name="ftp_host" string="Host"/>
+                                    <field name="ftp_port" string="Port"/>
+                                    <field name="ftp_user" string="Username"/>
+                                    <field name="ftp_password"
+                                           string="Password"/>
+                                </group>
+
+                                <group string="Production Paths">
+                                    <field name="ftp_inbox_path"
+                                           string="Production Inbox Path"
+                                           placeholder="/FromEDIS"/>
+                                    <field name="ftp_outbox_path"
+                                           string="Production Outbox Path"
+                                           placeholder="/ToEDIS"/>
+                                </group>
+
+                                <group string="Test Paths">
+                                    <field name="ftp_test_inbox_path"
+                                           string="Test Inbox Path"
+                                           placeholder="/Test/FromEDIS"/>
+                                    <field name="ftp_test_outbox_path"
+                                           string="Test Outbox Path"
+                                           placeholder="/Test/ToEDIS"/>
+                                </group>
+
+                            </page>
+
+                            <!-- Processing Rules tab -->
+                            <page string="Processing Rules" name="processing_rules">
+
+                                <group>
+                                    <group string="Order Handling">
+                                        <field name="order_split_mode"
+                                               string="Order Split Mode"/>
+                                        <field name="product_match_field"
+                                               string="Product Match Field"/>
+                                        <field name="client_ref_template"
+                                               string="Client Reference Template"
+                                               placeholder="{po_number}_{store_code}"/>
+                                        <field name="poll_interval_minutes"
+                                               string="Poll Interval (minutes)"/>
+                                    </group>
+                                    <group string="Validation">
+                                        <field name="price_tolerance_pct"
+                                               string="Price Tolerance (%)"
+                                               widget="percentage"/>
+                                        <field name="auto_confirm_clean"
+                                               widget="boolean_toggle"
+                                               string="Auto-Confirm Clean Orders"/>
+                                        <field name="parser_class"
+                                               string="Parser Class"
+                                               placeholder="mml_edi.parsers.briscoes.BriscoesOrderParser"/>
+                                    </group>
+                                </group>
+
+                            </page>
+
+                            <!-- Notifications tab -->
+                            <page string="Notifications" name="notifications">
+
+                                <group>
+                                    <field name="alert_on_issues"
+                                           widget="boolean_toggle"
+                                           string="Send Alerts on Issues"/>
+                                </group>
+                                <group string="Alert Recipients"
+                                       invisible="not alert_on_issues">
+                                    <field name="alert_email_ids"
+                                           widget="many2many_tags"
+                                           string="Alert Recipients"
+                                           nolabel="1"
+                                           domain="[('email', '!=', False)]"
+                                           options="{'no_create_edit': True}"/>
+                                </group>
+
+                            </page>
+
+                        </notebook>
+
+                    </sheet>
+
+                </form>
+            </field>
+        </record>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- WINDOW ACTION                                                    -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="action_edi_trading_partner" model="ir.actions.act_window">
+            <field name="name">Trading Partners</field>
+            <field name="res_model">edi.trading.partner</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    No trading partners configured
+                </p>
+                <p>
+                    Create a trading partner profile to begin receiving EDI orders.
+                    Each partner requires FTP connection details, document format,
+                    and processing rules before it can be activated.
+                </p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

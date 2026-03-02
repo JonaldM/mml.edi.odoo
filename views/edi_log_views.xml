@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- SEARCH VIEW                                                      -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_edi_log_search" model="ir.ui.view">
+            <field name="name">edi.log.search</field>
+            <field name="model">edi.log</field>
+            <field name="arch" type="xml">
+                <search string="EDI Logs">
+                    <field name="trading_partner_id" string="Trading Partner"/>
+                    <field name="filename" string="Filename"/>
+                    <field name="message" string="Message"/>
+
+                    <filter name="errors"
+                            string="Errors"
+                            domain="[('status', '=', 'error')]"/>
+                    <filter name="warnings"
+                            string="Warnings"
+                            domain="[('status', '=', 'warning')]"/>
+                    <filter name="today"
+                            string="Today"
+                            domain="[('timestamp', '&gt;=', datetime.datetime.combine(context_today(), datetime.time(0,0,0)).strftime('%Y-%m-%d %H:%M:%S')),
+                                     ('timestamp', '&lt;=', datetime.datetime.combine(context_today(), datetime.time(23,59,59)).strftime('%Y-%m-%d %H:%M:%S'))]"/>
+
+                    <separator/>
+
+                    <group expand="0" string="Group By">
+                        <filter name="group_by_trading_partner"
+                                string="Trading Partner"
+                                context="{'group_by': 'trading_partner_id'}"/>
+                        <filter name="group_by_event_type"
+                                string="Event Type"
+                                context="{'group_by': 'event_type'}"/>
+                        <filter name="group_by_status"
+                                string="Status"
+                                context="{'group_by': 'status'}"/>
+                        <filter name="group_by_direction"
+                                string="Direction"
+                                context="{'group_by': 'direction'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- LIST VIEW                                                        -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_edi_log_list" model="ir.ui.view">
+            <field name="name">edi.log.list</field>
+            <field name="model">edi.log</field>
+            <field name="arch" type="xml">
+                <list string="EDI Logs"
+                      decoration-danger="status == 'error'"
+                      decoration-warning="status == 'warning'"
+                      create="0"
+                      edit="0"
+                      delete="0">
+                    <field name="timestamp" widget="datetime" string="Timestamp"/>
+                    <field name="trading_partner_id" string="Trading Partner"/>
+                    <field name="direction" widget="badge" string="Direction"/>
+                    <field name="event_type" widget="badge" string="Event"/>
+                    <field name="status" widget="badge" string="Status"
+                           decoration-danger="status == 'error'"
+                           decoration-warning="status == 'warning'"
+                           decoration-success="status == 'success'"/>
+                    <field name="message" string="Message"/>
+                    <field name="filename" string="Filename" optional="show"/>
+                    <field name="user_id" string="User" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- FORM VIEW                                                        -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_edi_log_form" model="ir.ui.view">
+            <field name="name">edi.log.form</field>
+            <field name="model">edi.log</field>
+            <field name="arch" type="xml">
+                <form string="EDI Log Entry" create="0" edit="0" delete="0">
+                    <sheet>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" readonly="1"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Event">
+                                <field name="timestamp" readonly="1" widget="datetime"/>
+                                <field name="trading_partner_id" readonly="1"/>
+                                <field name="direction" readonly="1" widget="badge"/>
+                                <field name="event_type" readonly="1" widget="badge"/>
+                                <field name="status" readonly="1" widget="badge"
+                                       decoration-danger="status == 'error'"
+                                       decoration-warning="status == 'warning'"
+                                       decoration-success="status == 'success'"/>
+                                <field name="user_id" readonly="1"/>
+                            </group>
+                            <group string="References">
+                                <field name="sale_order_id" readonly="1"/>
+                                <field name="review_id" readonly="1"/>
+                                <field name="filename" readonly="1"/>
+                                <field name="file_hash" readonly="1"/>
+                            </group>
+                        </group>
+
+                        <group string="Message">
+                            <field name="message"
+                                   readonly="1"
+                                   widget="text"
+                                   nolabel="1"/>
+                        </group>
+
+                        <group string="Detail" invisible="not detail">
+                            <field name="detail"
+                                   readonly="1"
+                                   widget="text"
+                                   nolabel="1"
+                                   invisible="not detail"
+                                   style="font-family: monospace; font-size: 0.85em; white-space: pre;"/>
+                        </group>
+
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- WINDOW ACTION                                                    -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="action_edi_log" model="ir.actions.act_window">
+            <field name="name">EDI Logs</field>
+            <field name="res_model">edi.log</field>
+            <field name="view_mode">list,form</field>
+            <field name="context">{}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    No EDI log entries yet
+                </p>
+                <p>
+                    EDI activity — file downloads, order processing, acknowledgements,
+                    errors — will be recorded here as an immutable audit trail.
+                </p>
+            </field>
+        </record>
+
+    </data>
+</odoo>
