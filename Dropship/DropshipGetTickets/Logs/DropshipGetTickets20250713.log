@@ -1,0 +1,3 @@
+2025-07-13T07:47:59.6270000+12:00 [FTL] (DropshipGetTickets/MMLAKL-TS/1) OrderPickStatus failed to initialise odoo object
+2025-07-13T09:42:17.5839062+12:00 [FTL] (DropshipGetTickets/MMLAKL-TS/1) GetDropship_Orders failed to initialise odoo object
+2025-07-13T23:01:01.0021196+12:00 [INF] (DropshipGetTickets/MMLAKL-TS/1) DropshipGetTickets finished

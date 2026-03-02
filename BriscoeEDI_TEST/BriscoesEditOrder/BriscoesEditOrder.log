@@ -1,0 +1,19 @@
+2026-02-16 11:19:53,253 [6] INFO BriscoesEDI.EDI - Briscoes EDI Import specific files started...
+2026-02-16 11:19:53,987 [6] INFO BriscoesEDI.EDI - 	Generate Orders Successful - EDI order type Dropship
+2026-02-16 11:19:54,543 [6] ERROR BriscoesEDI.EDI - Init Authenticate: Error sending request
+System.Net.WebException: The request was aborted: Could not create SSL/TLS secure channel.
+   at System.Net.HttpWebRequest.GetRequestStream(TransportContext& context)
+   at System.Net.HttpWebRequest.GetRequestStream()
+   at XmlRpc.WebServiceConnection.SendRequest(String dataRequest)
+ Using DB|User: ODOOTEST|enquiries@mml.co.nz
+2026-02-16 11:19:54,574 [6] ERROR BriscoesEDI.EDI - Init Authenticate: Error sending request
+System.Net.WebException: The request was aborted: Could not create SSL/TLS secure channel.
+   at System.Net.HttpWebRequest.GetRequestStream(TransportContext& context)
+   at System.Net.HttpWebRequest.GetRequestStream()
+   at XmlRpc.WebServiceConnection.SendRequest(String dataRequest)
+ Using DB|User: ODOOTEST|enquiries@mml.co.nz
+2026-02-16 11:19:54,590 [6] INFO BriscoesEDI.EDI - 	No acknowledgement requested for EDI file C:\BriscoeEDI_TEST\Inbox\PO_Briscoes_MML_6500267072_0001_20250319121606844.xml
+2026-02-16 11:19:54,973 [6] INFO BriscoesEDI.EDI - 		EDI file archived to success
+2026-02-16 11:19:54,974 [6] WARN BriscoesEDI.EDI - 		Acknowledgement file not found
+2026-02-16 11:19:55,145 [6] ERROR BriscoesEDI.EDI - Failed to send email for message <html><body><p style='color:blue;font-size:120%;'>EDI orders processed:</p><table border='1' style="width:100%; text-align:left;"><tr><th align='left'>EDI File</th><th align='left'>File Type</th><th align='left'>EDI Order Num/Serial</th><th align='left'>EDI Due Date</th><th align='left'>Warning</th></tr><tr><td align='left'>PO_Briscoes_MML_6500267072_0001_20250319121606844.xml</td><td align='left'>Dropship</td><td align='left'>0000000093309722/20250319121606</td><td align='left'>Wed 19/03/2025</td><td align='left'></td></tr></table><br><p style='color:green;font-size:120%;'>Odoo orders created:</p><table border='1' style="width:100%; text-align:left;"><tr><th align='left'>PO Number</th><th align='left'>Store No</th><th align='left'>Store Code</th><th align='left'>Store</th><th align='left'>Status</th><th align='left'>Line warnings</th></tr></table><br><p style='color:green;font-size:120%;'>Odoo orders updated:</p><table border='1' style="width:100%; text-align:left;"><tr><th align='left'>PO Number</th><th align='left'>Store No</th><th align='left'>Store Code</th><th align='left'>Store</th><th align='left'>Status</th><th align='left'>Line warnings</th></tr><tr><td align='left'>6500267072_0001</td><td align='left'>1199</td><td align='left'>1199</td><td align='left'>Vanessa Murch</td><td align='left'>Failed to create order</td><td align='left'> </td></tr></table></body></html>
+2026-02-16 11:19:55,146 [6] INFO BriscoesEDI.EDI - Briscoes EDI Import specific files completed.

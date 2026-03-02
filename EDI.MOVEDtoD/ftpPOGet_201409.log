@@ -1,0 +1,252 @@
+. 2014-09-23 11:53:12.130 --------------------------------------------------------------------------
+. 2014-09-23 11:53:12.130 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-09-23 11:53:12.130 Login time: Tuesday, 23 September 2014 11:53:12 a.m.
+. 2014-09-23 11:53:12.130 --------------------------------------------------------------------------
+. 2014-09-23 11:53:12.130 Session name: myob_test@60.234.24.66
+. 2014-09-23 11:53:12.130 Host name: 60.234.24.66 (Port: 21)
+. 2014-09-23 11:53:12.131 User name: myob_test (Password: Yes, Key file: No)
+. 2014-09-23 11:53:12.131 Tunnel: No
+. 2014-09-23 11:53:12.131 Transfer Protocol: FTP
+. 2014-09-23 11:53:12.131 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-09-23 11:53:12.131 Proxy: none
+. 2014-09-23 11:53:12.131 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-09-23 11:53:12.131 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-09-23 11:53:12.131 Cache directory changes: Yes, Permanent: Yes
+. 2014-09-23 11:53:12.131 DST mode: 1
+. 2014-09-23 11:53:12.131 --------------------------------------------------------------------------
+. 2014-09-23 11:53:12.132 Connecting to 60.234.24.66 ...
+. 2014-09-23 11:53:12.154 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-09-23 11:53:12.175 220 Microsoft FTP Service
+> 2014-09-23 11:53:12.175 USER myob_test
+< 2014-09-23 11:53:12.197 331 Password required for myob_test.
+> 2014-09-23 11:53:12.197 PASS ********
+< 2014-09-23 11:53:12.219 230 User myob_test logged in.
+> 2014-09-23 11:53:12.219 SYST
+< 2014-09-23 11:53:12.242 215 Windows_NT
+> 2014-09-23 11:53:12.242 FEAT
+< 2014-09-23 11:53:12.293 211-FEAT
+< 2014-09-23 11:53:12.293     SIZE
+< 2014-09-23 11:53:12.293     MDTM
+< 2014-09-23 11:53:12.293 211 END
+. 2014-09-23 11:53:12.293 Connected
+. 2014-09-23 11:53:12.293 --------------------------------------------------------------------------
+. 2014-09-23 11:53:12.293 Using FTP protocol.
+. 2014-09-23 11:53:12.294 Doing startup conversation with host.
+> 2014-09-23 11:53:12.294 PWD
+< 2014-09-23 11:53:12.315 257 "/myob_test" is current directory.
+. 2014-09-23 11:53:12.315 Getting current directory name.
+. 2014-09-23 11:53:12.316 Startup conversation with host finished.
+. 2014-09-23 11:53:12.316 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-09-23 11:53:12.316 Getting current directory name.
+. 2014-09-23 11:53:12.316 Retrieving directory listing...
+> 2014-09-23 11:53:12.316 CWD /MYOB_Test/From_EDIS/
+< 2014-09-23 11:53:12.338 250 CWD command successful.
+> 2014-09-23 11:53:12.338 PWD
+< 2014-09-23 11:53:12.372 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-09-23 11:53:12.373 TYPE A
+< 2014-09-23 11:53:12.393 200 Type set to A.
+> 2014-09-23 11:53:12.394 PASV
+< 2014-09-23 11:53:12.416 227 Entering Passive Mode (60,234,24,66,171,126).
+> 2014-09-23 11:53:12.416 LIST -a
+< 2014-09-23 11:53:12.460 125 Data connection already open; Transfer starting.
+< 2014-09-23 11:53:12.688 226 Transfer complete.
+. 2014-09-23 11:53:12.688 Directory listing successful
+. 2014-09-23 11:53:12.688 Retrieving directory listing...
+> 2014-09-23 11:53:12.688 TYPE A
+< 2014-09-23 11:53:12.710 200 Type set to A.
+> 2014-09-23 11:53:12.710 PASV
+< 2014-09-23 11:53:12.731 227 Entering Passive Mode (60,234,24,66,171,127).
+> 2014-09-23 11:53:12.731 LIST -a
+< 2014-09-23 11:53:12.774 125 Data connection already open; Transfer starting.
+< 2014-09-23 11:53:12.991 226 Transfer complete.
+. 2014-09-23 11:53:12.991 Directory listing successful
+. 2014-09-23 11:53:12.991 Disconnected from server
+. 2014-09-23 11:54:48.243 --------------------------------------------------------------------------
+. 2014-09-23 11:54:48.243 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-09-23 11:54:48.243 Login time: Tuesday, 23 September 2014 11:54:48 a.m.
+. 2014-09-23 11:54:48.243 --------------------------------------------------------------------------
+. 2014-09-23 11:54:48.243 Session name: myob_test@60.234.24.66
+. 2014-09-23 11:54:48.243 Host name: 60.234.24.66 (Port: 21)
+. 2014-09-23 11:54:48.243 User name: myob_test (Password: Yes, Key file: No)
+. 2014-09-23 11:54:48.243 Tunnel: No
+. 2014-09-23 11:54:48.243 Transfer Protocol: FTP
+. 2014-09-23 11:54:48.243 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-09-23 11:54:48.243 Proxy: none
+. 2014-09-23 11:54:48.243 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-09-23 11:54:48.243 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-09-23 11:54:48.243 Cache directory changes: Yes, Permanent: Yes
+. 2014-09-23 11:54:48.243 DST mode: 1
+. 2014-09-23 11:54:48.243 --------------------------------------------------------------------------
+. 2014-09-23 11:54:48.245 Connecting to 60.234.24.66 ...
+. 2014-09-23 11:54:48.265 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-09-23 11:54:48.288 220 Microsoft FTP Service
+> 2014-09-23 11:54:48.288 USER myob_test
+< 2014-09-23 11:54:48.311 331 Password required for myob_test.
+> 2014-09-23 11:54:48.311 PASS ********
+< 2014-09-23 11:54:48.331 230 User myob_test logged in.
+> 2014-09-23 11:54:48.331 SYST
+< 2014-09-23 11:54:48.353 215 Windows_NT
+> 2014-09-23 11:54:48.353 FEAT
+< 2014-09-23 11:54:48.412 211-FEAT
+< 2014-09-23 11:54:48.412     SIZE
+< 2014-09-23 11:54:48.412     MDTM
+< 2014-09-23 11:54:48.412 211 END
+. 2014-09-23 11:54:48.412 Connected
+. 2014-09-23 11:54:48.412 --------------------------------------------------------------------------
+. 2014-09-23 11:54:48.412 Using FTP protocol.
+. 2014-09-23 11:54:48.412 Doing startup conversation with host.
+> 2014-09-23 11:54:48.413 PWD
+< 2014-09-23 11:54:48.436 257 "/myob_test" is current directory.
+. 2014-09-23 11:54:48.436 Getting current directory name.
+. 2014-09-23 11:54:48.436 Startup conversation with host finished.
+. 2014-09-23 11:54:48.436 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-09-23 11:54:48.436 Getting current directory name.
+. 2014-09-23 11:54:48.436 Retrieving directory listing...
+> 2014-09-23 11:54:48.436 CWD /MYOB_Test/From_EDIS/
+< 2014-09-23 11:54:48.456 250 CWD command successful.
+> 2014-09-23 11:54:48.456 PWD
+< 2014-09-23 11:54:48.478 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-09-23 11:54:48.478 TYPE A
+< 2014-09-23 11:54:48.499 200 Type set to A.
+> 2014-09-23 11:54:48.499 PASV
+< 2014-09-23 11:54:48.523 227 Entering Passive Mode (60,234,24,66,171,187).
+> 2014-09-23 11:54:48.523 LIST -a
+< 2014-09-23 11:54:48.605 125 Data connection already open; Transfer starting.
+< 2014-09-23 11:54:48.828 226 Transfer complete.
+. 2014-09-23 11:54:48.828 Directory listing successful
+. 2014-09-23 11:54:48.828 Retrieving directory listing...
+> 2014-09-23 11:54:48.828 TYPE A
+< 2014-09-23 11:54:48.849 200 Type set to A.
+> 2014-09-23 11:54:48.849 PASV
+< 2014-09-23 11:54:48.871 227 Entering Passive Mode (60,234,24,66,171,188).
+> 2014-09-23 11:54:48.871 LIST -a
+< 2014-09-23 11:54:48.913 125 Data connection already open; Transfer starting.
+< 2014-09-23 11:54:49.140 226 Transfer complete.
+. 2014-09-23 11:54:49.140 Directory listing successful
+. 2014-09-23 11:54:49.142 Disconnected from server
+. 2014-09-23 12:01:13.186 --------------------------------------------------------------------------
+. 2014-09-23 12:01:13.186 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-09-23 12:01:13.186 Login time: Tuesday, 23 September 2014 12:01:13 p.m.
+. 2014-09-23 12:01:13.186 --------------------------------------------------------------------------
+. 2014-09-23 12:01:13.186 Session name: myob_test@60.234.24.66
+. 2014-09-23 12:01:13.186 Host name: 60.234.24.66 (Port: 21)
+. 2014-09-23 12:01:13.186 User name: myob_test (Password: Yes, Key file: No)
+. 2014-09-23 12:01:13.186 Tunnel: No
+. 2014-09-23 12:01:13.186 Transfer Protocol: FTP
+. 2014-09-23 12:01:13.186 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-09-23 12:01:13.187 Proxy: none
+. 2014-09-23 12:01:13.187 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-09-23 12:01:13.187 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-09-23 12:01:13.187 Cache directory changes: Yes, Permanent: Yes
+. 2014-09-23 12:01:13.187 DST mode: 1
+. 2014-09-23 12:01:13.187 --------------------------------------------------------------------------
+. 2014-09-23 12:01:13.187 Connecting to 60.234.24.66 ...
+. 2014-09-23 12:01:13.209 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-09-23 12:01:13.230 220 Microsoft FTP Service
+> 2014-09-23 12:01:13.230 USER myob_test
+< 2014-09-23 12:01:13.260 331 Password required for myob_test.
+> 2014-09-23 12:01:13.260 PASS ********
+< 2014-09-23 12:01:13.282 230 User myob_test logged in.
+> 2014-09-23 12:01:13.282 SYST
+< 2014-09-23 12:01:13.303 215 Windows_NT
+> 2014-09-23 12:01:13.303 FEAT
+< 2014-09-23 12:01:13.364 211-FEAT
+< 2014-09-23 12:01:13.364     SIZE
+< 2014-09-23 12:01:13.364     MDTM
+< 2014-09-23 12:01:13.364 211 END
+. 2014-09-23 12:01:13.364 Connected
+. 2014-09-23 12:01:13.364 --------------------------------------------------------------------------
+. 2014-09-23 12:01:13.364 Using FTP protocol.
+. 2014-09-23 12:01:13.365 Doing startup conversation with host.
+> 2014-09-23 12:01:13.365 PWD
+< 2014-09-23 12:01:13.386 257 "/myob_test" is current directory.
+. 2014-09-23 12:01:13.386 Getting current directory name.
+. 2014-09-23 12:01:13.386 Startup conversation with host finished.
+. 2014-09-23 12:01:13.387 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-09-23 12:01:13.387 Getting current directory name.
+. 2014-09-23 12:01:13.387 Retrieving directory listing...
+> 2014-09-23 12:01:13.387 CWD /MYOB_Test/From_EDIS/
+< 2014-09-23 12:01:13.408 250 CWD command successful.
+> 2014-09-23 12:01:13.408 PWD
+< 2014-09-23 12:01:13.430 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-09-23 12:01:13.430 TYPE A
+< 2014-09-23 12:01:13.451 200 Type set to A.
+> 2014-09-23 12:01:13.451 PASV
+< 2014-09-23 12:01:13.472 227 Entering Passive Mode (60,234,24,66,172,199).
+> 2014-09-23 12:01:13.473 LIST -a
+< 2014-09-23 12:01:13.515 125 Data connection already open; Transfer starting.
+< 2014-09-23 12:01:13.733 226 Transfer complete.
+. 2014-09-23 12:01:13.733 Directory listing successful
+. 2014-09-23 12:01:13.733 Retrieving directory listing...
+> 2014-09-23 12:01:13.733 TYPE A
+< 2014-09-23 12:01:13.754 200 Type set to A.
+> 2014-09-23 12:01:13.754 PASV
+< 2014-09-23 12:01:13.776 227 Entering Passive Mode (60,234,24,66,172,200).
+> 2014-09-23 12:01:13.776 LIST -a
+< 2014-09-23 12:01:13.819 125 Data connection already open; Transfer starting.
+< 2014-09-23 12:01:14.034 226 Transfer complete.
+. 2014-09-23 12:01:14.034 Directory listing successful
+. 2014-09-23 12:01:14.035 Disconnected from server
+. 2014-09-23 12:15:32.606 --------------------------------------------------------------------------
+. 2014-09-23 12:15:32.606 WinSCP Version 4.2.7 (Build 758) (OS 6.1.7601 Service Pack 1)
+. 2014-09-23 12:15:32.606 Login time: Tuesday, 23 September 2014 12:15:32 p.m.
+. 2014-09-23 12:15:32.606 --------------------------------------------------------------------------
+. 2014-09-23 12:15:32.606 Session name: myob_test@60.234.24.66
+. 2014-09-23 12:15:32.606 Host name: 60.234.24.66 (Port: 21)
+. 2014-09-23 12:15:32.606 User name: myob_test (Password: Yes, Key file: No)
+. 2014-09-23 12:15:32.606 Tunnel: No
+. 2014-09-23 12:15:32.606 Transfer Protocol: FTP
+. 2014-09-23 12:15:32.606 Ping type: C, Ping interval: 30 sec; Timeout: 15 sec
+. 2014-09-23 12:15:32.606 Proxy: none
+. 2014-09-23 12:15:32.606 FTP: FTPS: None; Passive: Yes [Force IP: No]
+. 2014-09-23 12:15:32.606 Local directory: default, Remote directory: home, Update: No, Cache: Yes
+. 2014-09-23 12:15:32.606 Cache directory changes: Yes, Permanent: Yes
+. 2014-09-23 12:15:32.606 DST mode: 1
+. 2014-09-23 12:15:32.606 --------------------------------------------------------------------------
+. 2014-09-23 12:15:32.608 Connecting to 60.234.24.66 ...
+. 2014-09-23 12:15:32.629 Connected with 60.234.24.66. Waiting for welcome message...
+< 2014-09-23 12:15:32.650 220 Microsoft FTP Service
+> 2014-09-23 12:15:32.650 USER myob_test
+< 2014-09-23 12:15:32.673 331 Password required for myob_test.
+> 2014-09-23 12:15:32.673 PASS ********
+< 2014-09-23 12:15:32.695 230 User myob_test logged in.
+> 2014-09-23 12:15:32.695 SYST
+< 2014-09-23 12:15:32.716 215 Windows_NT
+> 2014-09-23 12:15:32.716 FEAT
+< 2014-09-23 12:15:32.773 211-FEAT
+< 2014-09-23 12:15:32.773     SIZE
+< 2014-09-23 12:15:32.773     MDTM
+< 2014-09-23 12:15:32.773 211 END
+. 2014-09-23 12:15:32.773 Connected
+. 2014-09-23 12:15:32.773 --------------------------------------------------------------------------
+. 2014-09-23 12:15:32.773 Using FTP protocol.
+. 2014-09-23 12:15:32.773 Doing startup conversation with host.
+> 2014-09-23 12:15:32.774 PWD
+< 2014-09-23 12:15:32.796 257 "/myob_test" is current directory.
+. 2014-09-23 12:15:32.796 Getting current directory name.
+. 2014-09-23 12:15:32.796 Startup conversation with host finished.
+. 2014-09-23 12:15:32.796 Cached directory change via "/MYOB_Test/From_EDIS" to "/MYOB_Test/From_EDIS".
+. 2014-09-23 12:15:32.796 Getting current directory name.
+. 2014-09-23 12:15:32.797 Retrieving directory listing...
+> 2014-09-23 12:15:32.797 CWD /MYOB_Test/From_EDIS/
+< 2014-09-23 12:15:32.818 250 CWD command successful.
+> 2014-09-23 12:15:32.818 PWD
+< 2014-09-23 12:15:32.839 257 "/MYOB_Test/From_EDIS" is current directory.
+> 2014-09-23 12:15:32.840 TYPE A
+< 2014-09-23 12:15:32.860 200 Type set to A.
+> 2014-09-23 12:15:32.860 PASV
+< 2014-09-23 12:15:32.883 227 Entering Passive Mode (60,234,24,66,175,48).
+> 2014-09-23 12:15:32.883 LIST -a
+< 2014-09-23 12:15:32.927 125 Data connection already open; Transfer starting.
+< 2014-09-23 12:15:33.148 226 Transfer complete.
+. 2014-09-23 12:15:33.148 Directory listing successful
+. 2014-09-23 12:15:33.148 Retrieving directory listing...
+> 2014-09-23 12:15:33.148 TYPE A
+< 2014-09-23 12:15:33.169 200 Type set to A.
+> 2014-09-23 12:15:33.169 PASV
+< 2014-09-23 12:15:33.192 227 Entering Passive Mode (60,234,24,66,175,49).
+> 2014-09-23 12:15:33.192 LIST -a
+< 2014-09-23 12:15:33.234 125 Data connection already open; Transfer starting.
+< 2014-09-23 12:15:33.453 226 Transfer complete.
+. 2014-09-23 12:15:33.453 Directory listing successful
+. 2014-09-23 12:15:33.453 Disconnected from server

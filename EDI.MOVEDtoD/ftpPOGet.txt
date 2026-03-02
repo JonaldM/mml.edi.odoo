@@ -1,0 +1,9 @@
+option batch on
+option confirm off
+option transfer binary
+open ftp://myob_test:myobedis@60.234.24.66 -passive
+lcd %1%
+cd /MYOB_Test/From_EDIS
+get "PO_MML_*.txt"
+rm PO_MML_*.txt
+exit

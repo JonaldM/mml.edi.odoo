@@ -1,0 +1,5 @@
+Co./Last Name	Date	Customer PO	Item Number	Quantity	Description	Price
+Briscoes Group NZ Ltd	7/07/2014	7002330669	rbte	24	Rivet Blue Tea Spoon (12)	$1.07
+Briscoes Group NZ Ltd	7/07/2014	7002330669	rrtk	72	Rivet Red Table Knife  (12)	$1.07
+Briscoes Group NZ Ltd	7/07/2014	7002330669	vcm42	6	Volere Milano 42pce Cutlery (6	$49.24
+Briscoes Group NZ Ltd	7/07/2014	7002330669	vcp24	6	Volere Palermo 24pc Set (6)	$26.81
