@@ -2,6 +2,16 @@
 from unittest.mock import MagicMock
 
 
+def _lin_action(line: str) -> str:
+    """Extract the action code (position [2]) from a LIN segment string.
+
+    LIN format: ``LIN+{line_no}+{action}+{barcode}:EN'``
+    Splitting on '+' and taking index 2 gives the action field without
+    risk of a false positive from a barcode that happens to contain '+N+'.
+    """
+    return line.rstrip("'").split("+")[2]
+
+
 def _make_sol(line_number, barcode, default_code, qty, price, shortfall=0.0):
     sol = MagicMock()
     sol.edi_line_number = line_number
@@ -17,7 +27,7 @@ def _make_so(lines, commitment_date=None):
     so = MagicMock()
     # order_line must be directly iterable (for the purpose-code any() check)
     # AND support .sorted(...) call (for the per-line loop)
-    so.order_line.__iter__ = MagicMock(return_value=iter(lines))
+    so.order_line.__iter__ = lambda self: iter(lines)
     so.order_line.sorted.return_value = lines
     so.commitment_date = commitment_date
     return so
@@ -97,7 +107,7 @@ class TestOrdrspGeneration:
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
         lin_lines = [l for l in text.split("\r\n") if l.startswith("LIN")]
-        assert any("+5+" in l for l in lin_lines), "Expected line action 5 (accepted)"
+        assert any(_lin_action(l) == "5" for l in lin_lines), "Expected line action 5 (accepted)"
 
     def test_shortfall_line_action_3(self):
         from mml_edi.parsers.briscoes import _generate_ordrsp
@@ -106,7 +116,7 @@ class TestOrdrspGeneration:
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
         lin_lines = [l for l in text.split("\r\n") if l.startswith("LIN")]
-        assert any("+3+" in l for l in lin_lines), "Expected line action 3 (qty changed)"
+        assert any(_lin_action(l) == "3" for l in lin_lines), "Expected line action 3 (qty changed)"
 
     def test_rejected_line_action_7(self):
         from mml_edi.parsers.briscoes import _generate_ordrsp
@@ -115,7 +125,7 @@ class TestOrdrspGeneration:
         review = _make_review(state="rejected", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
         lin_lines = [l for l in text.split("\r\n") if l.startswith("LIN")]
-        assert any("+7+" in l for l in lin_lines), "Expected line action 7 (rejected)"
+        assert any(_lin_action(l) == "7" for l in lin_lines), "Expected line action 7 (rejected)"
 
     def test_segment_terminators_present(self):
         from mml_edi.parsers.briscoes import _generate_ordrsp
@@ -147,8 +157,8 @@ class TestOrdrspGeneration:
         bgm_lines = [l for l in text.split("\r\n") if l.startswith("BGM")]
         lin_lines = [l for l in text.split("\r\n") if l.startswith("LIN")]
         assert bgm_lines[0].endswith("+4'"), "Mixed: purpose should be 4"
-        assert any("+5+" in l for l in lin_lines), "Should have an accepted line"
-        assert any("+3+" in l for l in lin_lines), "Should have a qty-changed line"
+        assert any(_lin_action(l) == "5" for l in lin_lines), "Should have an accepted line"
+        assert any(_lin_action(l) == "3" for l in lin_lines), "Should have a qty-changed line"
 
     def test_unb_and_unz_present(self):
         from mml_edi.parsers.briscoes import _generate_ordrsp
