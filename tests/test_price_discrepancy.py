@@ -11,11 +11,16 @@ Covers:
 These are Odoo TransactionCase tests; each test runs in a rolled-back transaction.
 Run with: ./odoo-bin --test-enable -d <db> --test-tags mml_edi
 """
+import unittest
+
 from odoo.tests.common import TransactionCase
 
 from .common import EDITestSetup
 
+_ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
+
+@unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime — run with odoo-bin --test-enable")
 class TestPriceDiscrepancy(EDITestSetup, TransactionCase):
 
     def setUp(self):

@@ -26,6 +26,7 @@ declared dependency so it is present in the test environment.
 Run with: ./odoo-bin --test-enable -d <db> --test-tags mml_edi
 """
 import hashlib
+import unittest
 from datetime import date
 
 from odoo.tests.common import TransactionCase
@@ -40,7 +41,12 @@ from .common import (
 )
 from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
 
+# True only when the real Odoo TransactionCase (with .env) is present.
+# The conftest stub has no 'env' attribute, so this correctly gates the tests.
+_ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
+
+@unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime — run with odoo-bin --test-enable")
 class TestEDIProcessor(EDITestSetup, TransactionCase):
 
     def setUp(self):

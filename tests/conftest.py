@@ -56,6 +56,50 @@ def _register_module(mod_name: str, file_path: str, package_mod: types.ModuleTyp
     return mod
 
 
+# ── Odoo stubs (allow Odoo-importing test files to be collected) ──────────────
+
+def _ensure_odoo_test_stubs() -> None:
+    """
+    Inject a minimal stub for ``odoo.tests.common`` so that Odoo-only test
+    files (which import TransactionCase from there) can be *collected* by
+    pytest without a running Odoo instance.
+
+    The stub TransactionCase inherits from unittest.TestCase so that
+    @unittest.skipUnless decorators on subclasses are honoured by pytest.
+    """
+    if "odoo.tests.common" in sys.modules:
+        return
+
+    import unittest as _unittest
+
+    class TransactionCase(_unittest.TestCase):
+        """Stub — real Odoo TransactionCase has an 'env' attribute."""
+        pass
+
+    odoo_tests_common = types.ModuleType("odoo.tests.common")
+    odoo_tests_common.TransactionCase = TransactionCase
+    odoo_tests = types.ModuleType("odoo.tests")
+    odoo_tests.common = odoo_tests_common
+
+    # Also stub the bare 'odoo' package if not already present so that
+    # 'from odoo import fields' in test files does not raise.
+    if "odoo" not in sys.modules:
+        odoo_mod = types.ModuleType("odoo")
+        odoo_fields = types.ModuleType("odoo.fields")
+        odoo_mod.fields = odoo_fields
+        sys.modules["odoo"] = odoo_mod
+        sys.modules["odoo.fields"] = odoo_fields
+    else:
+        odoo_mod = sys.modules["odoo"]
+
+    odoo_mod.tests = odoo_tests
+    sys.modules["odoo.tests"] = odoo_tests
+    sys.modules["odoo.tests.common"] = odoo_tests_common
+
+
+_ensure_odoo_test_stubs()
+
+
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 
 # 1. Top-level mml_edi package (bare — __init__.py has Odoo relative imports)
