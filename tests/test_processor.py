@@ -28,17 +28,46 @@ Run with: ./odoo-bin --test-enable -d <db> --test-tags mml_edi
 import hashlib
 from datetime import date
 
-from odoo.tests.common import TransactionCase
+try:
+    from odoo.tests.common import TransactionCase
+    from .common import (
+        EDITestSetup,
+        make_change_order_parsed_order,
+        make_clean_parsed_order,
+        make_price_discrepancy_parsed_order,
+        make_product_not_found_parsed_order,
+        make_parsed_line,
+    )
+    from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+    _ODOO_AVAILABLE = True
+except ModuleNotFoundError:
+    # Odoo not installed — TransactionCase tests are skipped; plain pytest
+    # classes (e.g. TestPricelistCompat) can still run.
+    class TransactionCase:  # type: ignore[no-redef]
+        pass
 
-from .common import (
-    EDITestSetup,
-    make_change_order_parsed_order,
-    make_clean_parsed_order,
-    make_price_discrepancy_parsed_order,
-    make_product_not_found_parsed_order,
-    make_parsed_line,
-)
-from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+    class EDITestSetup:  # type: ignore[no-redef]
+        pass
+
+    ParsedOrder = None  # type: ignore[assignment]
+    ParsedOrderLine = None  # type: ignore[assignment]
+
+    def make_change_order_parsed_order(**kw):  # type: ignore[no-redef]
+        pass
+
+    def make_clean_parsed_order(**kw):  # type: ignore[no-redef]
+        pass
+
+    def make_price_discrepancy_parsed_order(**kw):  # type: ignore[no-redef]
+        pass
+
+    def make_product_not_found_parsed_order(**kw):  # type: ignore[no-redef]
+        pass
+
+    def make_parsed_line(**kw):  # type: ignore[no-redef]
+        pass
+
+    _ODOO_AVAILABLE = False
 
 
 class TestEDIProcessor(EDITestSetup, TransactionCase):
@@ -383,3 +412,69 @@ class TestEDIProcessor(EDITestSetup, TransactionCase):
             places=2,
             msg="SO line qty must reflect the ordered quantity, not carton_qty",
         )
+
+
+class TestPricelistCompat:
+    """Verify _get_pricelist_price works correctly with the Odoo 15 price_get API."""
+
+    def test_returns_none_when_no_pricelist(self):
+        """If partner has no pricelist, returns None."""
+        from unittest.mock import MagicMock
+        from mml_edi.models.edi_processor import EDIProcessor
+
+        proc = EDIProcessor.__new__(EDIProcessor)
+        proc.env = MagicMock()
+
+        partner = MagicMock()
+        partner.pricelist_id = False  # Falsy — no pricelist configured
+        product = MagicMock()
+
+        result = proc._get_pricelist_price(product, 10.0, partner)
+        assert result is None
+
+    def test_returns_price_from_price_get_dict(self):
+        """Odoo 15 price_get() returns {pricelist_id: price} — we extract the price."""
+        from unittest.mock import MagicMock
+        from mml_edi.models.edi_processor import EDIProcessor
+
+        proc = EDIProcessor.__new__(EDIProcessor)
+        proc.env = MagicMock()
+
+        pricelist = MagicMock()
+        pricelist.id = 1
+        pricelist.price_get.return_value = {1: 12.50}
+
+        partner = MagicMock()
+        partner.pricelist_id = pricelist
+        partner.partner_id.id = 99
+
+        product = MagicMock()
+        product.id = 5
+
+        result = proc._get_pricelist_price(product, 10.0, partner)
+        assert result == 12.50
+        # Verify the correct Odoo 15 API was called
+        pricelist.price_get.assert_called_once_with(5, 10.0, 99)
+
+    def test_returns_none_on_exception(self):
+        """If price_get() raises, returns None (not a crash)."""
+        from unittest.mock import MagicMock
+        from mml_edi.models.edi_processor import EDIProcessor
+
+        proc = EDIProcessor.__new__(EDIProcessor)
+        proc.env = MagicMock()
+
+        pricelist = MagicMock()
+        pricelist.id = 1
+        pricelist.price_get.side_effect = Exception("pricelist error")
+
+        partner = MagicMock()
+        partner.pricelist_id = pricelist
+        partner.partner_id.id = 99
+
+        product = MagicMock()
+        product.id = 5
+        product.name = "Test Product"
+
+        result = proc._get_pricelist_price(product, 10.0, partner)
+        assert result is None

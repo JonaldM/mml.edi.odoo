@@ -1,4 +1,3 @@
-from __future__ import annotations
 # mml.edi/models/edi_processor.py
 """
 Customer-agnostic EDI processing engine.
@@ -9,6 +8,7 @@ Public API for tests: process_parsed_order(), apply_change_order()
 
 AbstractModel — no database table.
 """
+from __future__ import annotations
 import base64
 import hashlib
 import json
