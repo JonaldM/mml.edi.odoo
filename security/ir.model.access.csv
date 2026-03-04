@@ -8,3 +8,4 @@ access_edi_order_review_manager,edi.order.review manager,model_edi_order_review,
 access_edi_order_issue_user,edi.order.issue user,model_edi_order_issue,mml_edi.group_edi_user,1,1,0,0
 access_edi_order_issue_manager,edi.order.issue manager,model_edi_order_issue,mml_edi.group_edi_manager,1,1,1,1
 access_edi_seed_stores_wizard_manager,edi.seed.stores.wizard manager,model_edi_seed_stores_wizard,mml_edi.group_edi_manager,1,1,1,1
+access_edi_bulk_action_user,edi.bulk.action user,model_edi_bulk_action,mml_edi.group_edi_user,1,1,1,1

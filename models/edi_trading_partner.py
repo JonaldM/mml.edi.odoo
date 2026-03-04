@@ -8,6 +8,11 @@ from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
+_ALLOWED_PARSER_CLASSES = frozenset({
+    'mml_edi.parsers.briscoes.BriscoesParser',
+    'mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser',
+})
+
 
 class EDITradingPartner(models.Model):
     _name = "edi.trading.partner"
@@ -177,13 +182,14 @@ class EDITradingPartner(models.Model):
                     "type": "success",
                 },
             }
-        except EDIFTPError as e:
+        except (EDIFTPError, Exception) as e:
+            _logger.warning('[EDI] FTP connection test failed for %s: %s', self.code, e)
             return {
                 "type": "ir.actions.client",
                 "tag": "display_notification",
                 "params": {
                     "title": _("FTP Connection Failed"),
-                    "message": str(e),
+                    "message": _("Could not connect to the FTP server. Check server logs for details."),
                     "type": "danger",
                     "sticky": True,
                 },
@@ -206,6 +212,11 @@ class EDITradingPartner(models.Model):
     def get_parser_instance(self):
         """Dynamically load and instantiate the parser class."""
         self.ensure_one()
+        if self.parser_class not in _ALLOWED_PARSER_CLASSES:
+            raise UserError(
+                _("Parser class '%s' is not in the approved list. "
+                  "Contact your system administrator.") % self.parser_class
+            )
         try:
             module_path, class_name = self.parser_class.rsplit(".", 1)
             module = importlib.import_module(module_path)

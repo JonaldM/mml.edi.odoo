@@ -11,7 +11,7 @@ Sample files: docs/briscoes.docs/
 from __future__ import annotations
 
 import logging
-import random
+import secrets
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
@@ -39,6 +39,15 @@ _ORDRSP_CANCELLED = "27"
 _ORDRSP_LINE_ACCEPTED = "5"
 _ORDRSP_LINE_QTY_CHANGED = "3"
 _ORDRSP_LINE_REJECTED = "7"
+
+
+# ── EDIFACT escaping ───────────────────────────────────────────────────────────
+
+def _edifact_escape(value):
+    """Escape EDIFACT special characters per ISO 9735."""
+    if not value:
+        return ''
+    return str(value).replace('?', '??').replace('+', '?+').replace(':', '?:').replace("'", "?'")
 
 
 # ── Segment parsing helpers ────────────────────────────────────────────────────
@@ -294,7 +303,7 @@ def _generate_ordrsp(review) -> bytes:
     now = datetime.now()
     date_str = now.strftime("%y%m%d")
     time_str = now.strftime("%H%M")
-    ref_num = str(random.randint(10000, 99999))
+    ref_num = str(10000 + secrets.randbelow(90000))
 
     partner = review.trading_partner_id
     so = review.sale_order_id
@@ -319,13 +328,13 @@ def _generate_ordrsp(review) -> bytes:
 
     segs = []
     segs.append("UNB+UNOA:3+%s:ZZ+%s:14+%s:%s+%s++ORDRSP" % (
-        vendor_code, buyer_gln, date_str, time_str, ref_num))
+        _edifact_escape(vendor_code), _edifact_escape(buyer_gln), date_str, time_str, ref_num))
     segs.append("UNH+1+ORDRSP:D:96A:UN:EAN005")
     segs.append("BGM+231+%s+%s" % (ref_num, purpose))
     segs.append("DTM+137:%s:102" % now.strftime("%Y%m%d"))
-    segs.append("RFF+ON:%s" % (review.customer_po_number or ""))
-    segs.append("NAD+BY+%s::92++%s+%s" % (buyer_gln, buyer_name, ""))
-    segs.append("NAD+SU+%s::92++%s" % (vendor_code, vendor_name))
+    segs.append("RFF+ON:%s" % _edifact_escape(review.customer_po_number or ""))
+    segs.append("NAD+BY+%s::92++%s+%s" % (_edifact_escape(buyer_gln), _edifact_escape(buyer_name), ""))
+    segs.append("NAD+SU+%s::92++%s" % (_edifact_escape(vendor_code), _edifact_escape(vendor_name)))
 
     line_count = 0
     if so:
@@ -337,11 +346,11 @@ def _generate_ordrsp(review) -> bytes:
             else:
                 line_action = _ORDRSP_LINE_ACCEPTED
 
-            barcode = sol.product_id.barcode or ""
-            buyer_code = sol.product_id.default_code or ""
+            barcode = _edifact_escape(sol.product_id.barcode or "")
+            buyer_code = _edifact_escape(sol.product_id.default_code or "")
             confirmed_qty = sol.product_uom_qty
             price = sol.price_unit
-            store_code = review.store_code or ""
+            store_code = _edifact_escape(review.store_code or "")
 
             delivery_date = ""
             if so.commitment_date:
