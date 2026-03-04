@@ -4,7 +4,7 @@ _logger = logging.getLogger(__name__)
 
 
 class EDIService:
-    """Public API for mml_edi. Retrieved via mml.registry.service('edi')."""
+    """Public API for mml_edi. Instantiated directly — mml.registry not available on Odoo 15."""
 
     def __init__(self, env):
         self.env = env

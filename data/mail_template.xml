@@ -51,14 +51,14 @@
             <tr style="background-color: #f9f9f9;">
                 <td style="padding: 8px 12px; font-weight: bold; border: 1px solid #e0e0e0;">Warnings</td>
                 <td style="padding: 8px 12px; border: 1px solid #e0e0e0; color: #e67e22; font-weight: bold;">
-                    {{ object.warning_count }}
+                    {{ object.issue_count - object.blocking_issue_count }}
                 </td>
             </tr>
         </tbody>
     </table>
 
     <p style="margin: 24px 0;">
-        <a href="{{ object.get_base_url() }}/odoo/action-mml_edi.action_edi_order_review/{{ object.id }}"
+        <a href="{{ object.get_base_url() }}/web#action=mml_edi.action_edi_order_review&amp;id={{ object.id }}&amp;model=edi.order.review&amp;view_type=form"
            style="background-color: #1a6eb5; color: #ffffff; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: bold;">
             Review Order
         </a>

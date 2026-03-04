@@ -19,9 +19,8 @@ Note on ACK: auto-approved reviews call _queue_ack() which attempts FTP upload.
 All exceptions from _queue_ack() are swallowed by the caller, so FTP failures
 in test environments do not affect state assertions.
 
-Note on mml.event: _process_new_order() emits an 'edi.order.processed' event
-via self.env['mml.event'].emit(). mml_base (which provides mml.event) is a
-declared dependency so it is present in the test environment.
+Note on mml.event: removed in the Odoo 15 build. _process_new_order() no longer
+emits events via mml.event. mml_base is not a dependency of mml_edi on Odoo 15.
 
 Run with: ./odoo-bin --test-enable -d <db> --test-tags mml_edi
 """
