@@ -1,203 +1,459 @@
 # mml.edi/parsers/briscoes.py
 """
-Briscoes EDI Parser — Phase 1 Stub.
+Briscoes EDI Parser — EDIFACT D96A.
 
-Returns mock ParsedOrder data that exercises all pipeline code paths:
-  1. Clean new order (no issues) → auto-approved if partner allows
-  2. New order with price discrepancy + unknown product → pending_review
-  3. Change order (modifies order #1) → pending_review
-  4. Duplicate of order #1 → dedup engine skips it
+Parses ORDERS (BGM+220) and ORDCHG (BGM+230) messages from the EDIS VAN FTP.
+Generates ORDRSP (BGM+231) order responses.
 
-PHASE 2: Replace parse_file() and generate_ack() with real EDIFACT D96A logic
-when sample files are provided by Briscoes IT.
+Reference: Briscoes EDIFACT Purchase Order Implementation Guide v1.13
+Sample files: docs/briscoes.docs/
 """
+from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime
+from typing import Dict, List, Optional
 
-from .base_parser import BaseEDIParser, ParsedOrder, ParsedOrderLine
+from .base_parser import BaseEDIParser, EDIParseError, ParsedOrder, ParsedOrderLine
 
 _logger = logging.getLogger(__name__)
 
-_MOCK_STORE_A = "1017"
-_MOCK_STORE_B = "1042"
+# EDIFACT message type codes
+_BGM_NEW_ORDER = "220"
+_BGM_CHANGE_ORDER = "230"
+_BGM_ORDER_RESPONSE = "231"
 
+# ORDCHG line action codes
+_LIN_ACTION_ADDED = "1"
+_LIN_ACTION_CHANGED = "2"
+_LIN_ACTION_CANCELLED = "3"
+_LIN_ACTION_NO_CHANGE = "5"
+
+# ORDRSP purpose codes
+_ORDRSP_ACCEPTED = "29"
+_ORDRSP_CHANGED = "4"
+_ORDRSP_CANCELLED = "27"
+
+# ORDRSP line action codes
+_ORDRSP_LINE_ACCEPTED = "5"
+_ORDRSP_LINE_QTY_CHANGED = "3"
+_ORDRSP_LINE_REJECTED = "7"
+
+
+# ── Segment parsing helpers ────────────────────────────────────────────────────
+
+def _parse_date(value: str) -> Optional[date]:
+    """Parse YYMMDD or YYYYMMDD date string to date, or None on failure."""
+    try:
+        if len(value) == 6:
+            return datetime.strptime(value, "%y%m%d").date()
+        if len(value) == 8:
+            return datetime.strptime(value, "%Y%m%d").date()
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _split_segments(raw: bytes) -> List[List[List[str]]]:
+    """
+    Parse raw EDIFACT bytes into structured segments.
+
+    Returns: list of segments, each segment is a list of composites,
+             each composite is a list of sub-elements.
+
+    Handles both the standard EDIFACT segment terminator (0x27 = single quote)
+    and the Windows-1252 right single quotation mark (0x92) which some
+    Briscoes EDIS files use as an alternate terminator.
+
+    Example:
+      "LIN+00010++9414844375629:EN'" ->
+      [["LIN"], ["00010"], [""], ["9414844375629", "EN"]]
+    """
+    # Decode as Windows-1252 (superset of latin-1) to preserve 0x92 as a character
+    text = raw.decode("cp1252", errors="replace")
+
+    # Skip UNA service string if present (always 9 chars: "UNA:+.? '")
+    if text.startswith("UNA"):
+        text = text[9:]
+
+    # Normalise: replace Windows-1252 right single quote (\x92 → \u2019) with standard '
+    # After cp1252 decode, 0x92 becomes '\u2019' (RIGHT SINGLE QUOTATION MARK)
+    text = text.replace("\u2019", "'")
+
+    result = []
+    for seg_str in text.split("'"):
+        seg_str = seg_str.strip().strip("\r\n")
+        if not seg_str:
+            continue
+        composites = seg_str.split("+")
+        parsed_seg = [comp.split(":") for comp in composites]
+        result.append(parsed_seg)
+    return result
+
+
+def _get(seg: List[List[str]], comp_idx: int, sub_idx: int = 0, default: str = "") -> str:
+    """Safe element accessor for parsed EDIFACT segment."""
+    try:
+        return seg[comp_idx][sub_idx] or default
+    except IndexError:
+        return default
+
+
+# ── Message header extraction ──────────────────────────────────────────────────
+
+def _extract_message_header(segments: List[List[List[str]]]) -> Dict:
+    """Extract message-level header fields (before first LIN)."""
+    header = {
+        "message_type": None,
+        "po_number": None,
+        "order_date": None,
+        "buyer_gln": None,
+        "buyer_name": None,
+        "vendor_code": None,
+    }
+    for seg in segments:
+        tag = _get(seg, 0)
+        if tag == "BGM":
+            header["message_type"] = _get(seg, 1)
+            header["po_number"] = _get(seg, 2)
+        elif tag == "DTM" and _get(seg, 1, 0) == "137":
+            header["order_date"] = _parse_date(_get(seg, 1, 1))
+        elif tag == "NAD":
+            role = _get(seg, 1)
+            if role == "BY":
+                header["buyer_gln"] = _get(seg, 2, 0)
+                header["buyer_name"] = _get(seg, 5) or _get(seg, 6)
+            elif role == "SU":
+                header["vendor_code"] = _get(seg, 2, 0)
+        elif tag == "LIN":
+            break
+    return header
+
+
+# ── LIN group collector ────────────────────────────────────────────────────────
+
+def _collect_lin_groups(segments: List[List[List[str]]]) -> List[Dict]:
+    """Walk segments and collect one dict per LIN block."""
+    groups = []
+    current: Optional[Dict] = None
+    in_lines = False
+
+    for seg in segments:
+        tag = _get(seg, 0)
+
+        if tag == "LIN":
+            if current is not None:
+                groups.append(current)
+            current = {
+                "line_number": _parse_line_number(_get(seg, 1)),
+                "action_code": _get(seg, 2) or None,
+                "barcode": _get(seg, 3, 0),
+                "barcode_qualifier": _get(seg, 3, 1),
+                "buyer_article_no": None,
+                "total_qty": None,
+                "store_qty": None,
+                "carton_qty": None,
+                "uom": "EA",
+                "unit_price": None,
+                "currency": "NZD",
+                "store_code": None,
+                "delivery_date": None,
+                "delivery_name": None,
+            }
+            in_lines = True
+            continue
+
+        if not in_lines or current is None:
+            continue
+
+        if tag == "PIA":
+            qualifier = _get(seg, 2, 1)
+            if qualifier == "IN":
+                current["buyer_article_no"] = _get(seg, 2, 0)
+
+        elif tag == "QTY":
+            qty_type = _get(seg, 1, 0)
+            try:
+                qty_val = float(_get(seg, 1, 1) or "0")
+            except ValueError:
+                qty_val = 0.0
+            uom = _get(seg, 1, 2) or "EA"
+            if qty_type == "21":
+                current["total_qty"] = qty_val
+                current["uom"] = uom
+            elif qty_type == "52":
+                current["carton_qty"] = qty_val
+            elif qty_type == "11":
+                current["store_qty"] = qty_val
+                current["uom"] = uom
+
+        elif tag == "PRI":
+            try:
+                current["unit_price"] = float(_get(seg, 1, 1) or "0")
+            except ValueError:
+                pass
+
+        elif tag == "CUX":
+            current["currency"] = _get(seg, 1, 1) or "NZD"
+
+        elif tag == "LOC":
+            if _get(seg, 1) == "7":
+                current["store_code"] = _get(seg, 2, 0)
+
+        elif tag == "DTM" and _get(seg, 1, 0) == "2":
+            current["delivery_date"] = _parse_date(_get(seg, 1, 1))
+
+        elif tag == "NAD" and _get(seg, 1) == "UD":
+            current["delivery_name"] = _get(seg, 4)
+
+        elif tag in ("UNS", "CNT", "UNT", "UNZ"):
+            if current is not None:
+                groups.append(current)
+                current = None
+            break
+
+    if current is not None:
+        groups.append(current)
+
+    return groups
+
+
+def _parse_line_number(value: str) -> int:
+    """Parse EDIFACT line number (e.g., '00010' -> 10)."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+
+# ── Store grouping ─────────────────────────────────────────────────────────────
+
+def _group_by_store(
+    lin_groups: List[Dict],
+    po_number: str,
+    order_date: Optional[date],
+    document_type: str,
+    raw_data: str,
+) -> List[ParsedOrder]:
+    """Group LIN groups by store code → one ParsedOrder per store."""
+    store_lines: Dict[str, List[Dict]] = {}
+    store_delivery_dates: Dict[str, Optional[date]] = {}
+
+    for grp in lin_groups:
+        # Skip cancelled lines in ORDCHG (action_code=3)
+        if document_type == "change_order" and grp.get("action_code") == _LIN_ACTION_CANCELLED:
+            _logger.debug(
+                "[BriscoesParser] Skipping cancelled line %s (action=3)",
+                grp.get("line_number"),
+            )
+            continue
+
+        store = grp.get("store_code") or "_DEFAULT"
+        if store not in store_lines:
+            store_lines[store] = []
+        store_lines[store].append(grp)
+
+        if store not in store_delivery_dates and grp.get("delivery_date"):
+            store_delivery_dates[store] = grp["delivery_date"]
+
+    orders = []
+    for store_code, grps in store_lines.items():
+        lines = []
+        for grp in grps:
+            qty = grp.get("store_qty") if grp.get("store_qty") is not None else grp.get("total_qty", 0.0)
+            lines.append(ParsedOrderLine(
+                product_code=grp["barcode"],
+                description="",
+                quantity=qty or 0.0,
+                unit_price=grp.get("unit_price") or 0.0,
+                line_number=grp["line_number"],
+                uom=grp.get("uom"),
+                carton_qty=grp.get("carton_qty"),
+                buyer_article_no=grp.get("buyer_article_no"),
+            ))
+
+        actual_store_code = store_code if store_code != "_DEFAULT" else None
+        orders.append(ParsedOrder(
+            po_number=po_number,
+            order_date=order_date,
+            store_code=actual_store_code,
+            requested_delivery_date=store_delivery_dates.get(store_code),
+            lines=lines,
+            document_type=document_type,
+            raw_data=raw_data,
+        ))
+
+    return orders
+
+
+# ── ORDRSP generator ───────────────────────────────────────────────────────────
+
+def _generate_ordrsp(review) -> bytes:
+    """Build EDIFACT ORDRSP segments and return as bytes."""
+    import random
+
+    now = datetime.now()
+    date_str = now.strftime("%y%m%d")
+    time_str = now.strftime("%H%M")
+    ref_num = str(random.randint(10000, 99999))
+
+    partner = review.trading_partner_id
+    so = review.sale_order_id
+
+    vendor_code = (
+        partner.partner_id.ref or "VENDOR"
+        if partner and partner.partner_id else "VENDOR"
+    )
+    buyer_gln = (
+        partner.partner_id.vat or partner.partner_id.ref or "BUYER"
+        if partner and partner.partner_id else "BUYER"
+    )
+    buyer_name = partner.partner_id.name if partner and partner.partner_id else ""
+    vendor_name = "MML Consumer Products"
+
+    if review.state == "rejected":
+        purpose = _ORDRSP_CANCELLED
+    elif so and any(l.edi_qty_shortfall > 0 for l in so.order_line):
+        purpose = _ORDRSP_CHANGED
+    else:
+        purpose = _ORDRSP_ACCEPTED
+
+    segs = []
+    segs.append("UNB+UNOA:3+%s:ZZ+%s:14+%s:%s+%s++ORDRSP" % (
+        vendor_code, buyer_gln, date_str, time_str, ref_num))
+    segs.append("UNH+1+ORDRSP:D:96A:UN:EAN005")
+    segs.append("BGM+231+%s+%s" % (ref_num, purpose))
+    segs.append("DTM+137:%s:102" % now.strftime("%Y%m%d"))
+    segs.append("RFF+ON:%s" % (review.customer_po_number or ""))
+    segs.append("NAD+BY+%s::92++%s+%s" % (buyer_gln, buyer_name, ""))
+    segs.append("NAD+SU+%s::92++%s" % (vendor_code, vendor_name))
+
+    line_count = 0
+    if so:
+        for sol in so.order_line.sorted(lambda l: l.edi_line_number or 0):
+            if review.state == "rejected":
+                line_action = _ORDRSP_LINE_REJECTED
+            elif sol.edi_qty_shortfall > 0:
+                line_action = _ORDRSP_LINE_QTY_CHANGED
+            else:
+                line_action = _ORDRSP_LINE_ACCEPTED
+
+            barcode = sol.product_id.barcode or ""
+            buyer_code = sol.product_id.default_code or ""
+            confirmed_qty = sol.product_uom_qty
+            price = sol.price_unit
+            store_code = review.store_code or ""
+
+            delivery_date = ""
+            if so.commitment_date:
+                delivery_date = so.commitment_date.strftime("%Y%m%d")
+
+            segs.append("LIN+%05d+%s+%s:EN" % (
+                sol.edi_line_number or (line_count + 10), line_action, barcode))
+            if buyer_code:
+                segs.append("PIA+1+%s:IN" % buyer_code)
+            segs.append("PRI+AAA:%.2f" % price)
+            if store_code:
+                segs.append("LOC+7+%s::92" % store_code)
+            segs.append("QTY+11:%.3f:EA" % confirmed_qty)
+            if delivery_date:
+                segs.append("DTM+2:%s:102" % delivery_date)
+
+            line_count += 1
+
+    segs.append("UNS+S")
+    segs.append("CNT+2:%d" % line_count)
+
+    # UNT count: all segments from UNH to UNT inclusive
+    # segs[1] is UNH; next segment will be UNT
+    # count = len(segs) - 1 (exclude UNB) + 1 (for UNT) = len(segs)
+    unt_count = len(segs)
+    segs.append("UNT+%d+1" % unt_count)
+    segs.append("UNZ+1+%s" % ref_num)
+
+    return ("'\r\n".join(segs) + "'\r\n").encode("utf-8")
+
+
+# ── Main parser class ──────────────────────────────────────────────────────────
 
 class BriscoesParser(BaseEDIParser):
     """
     Parser for Briscoes EDIFACT D96A purchase orders.
 
-    Phase 1: Returns mock data for end-to-end pipeline testing.
-    Phase 2: Implement real EDIFACT D96A parsing.
+    Handles:
+    - ORDERS (BGM+220) -> new purchase orders, one SO per store
+    - ORDCHG (BGM+230) -> change orders, one change review per store
+
+    Generates:
+    - ORDRSP (BGM+231) -> order response / acknowledgement
     """
 
     def parse_file(
         self, raw_content: bytes, trading_partner
-    ) -> list[ParsedOrder]:
+    ) -> List[ParsedOrder]:
         """
-        # PHASE 2: Replace this stub with real EDIFACT D96A parsing.
-        #
-        # The real implementation should:
-        # 1. Decode raw_content as EDIFACT (ISO 9735)
-        # 2. Extract UNH/UNT segment groups
-        # 3. Identify message type: ORDERS (new) or ORDCHG (change)
-        # 4. Extract BGM, DTM, NAD, LIN, QTY, PRI segments
-        # 5. Map store code from NAD+DP GLN to res.partner.ref
-        # 6. Return one ParsedOrder per store group
-        #
-        # Reference: EDIFACT D96A ORDERS standard
-        # Sample files: provided by Briscoes IT in Phase 2
+        Parse raw EDIFACT bytes into a list of ParsedOrder objects.
 
-        For now, return 4 mock ParsedOrder objects that exercise all code paths.
+        One EDIFACT interchange contains a single ORDERS or ORDCHG message.
+        Each message is split into one ParsedOrder per store (LOC+7 code).
         """
-        _logger.info("[BriscoesParser] Phase 1 stub: returning mock parsed orders")
+        raw_data = raw_content.decode("cp1252", errors="replace")
+        segments = _split_segments(raw_content)
 
-        today = date.today()
-        delivery_date = today + timedelta(days=7)
-        changed_delivery_date = today + timedelta(days=14)
-        raw_text = raw_content.decode("utf-8", errors="replace")
+        if not segments:
+            _logger.warning("[BriscoesParser] Empty or unparseable file")
+            return []
 
-        # Scenario 1: Clean new order for store 1017
-        # Expected outcome: auto-approved if partner.auto_confirm_clean=True
-        clean_order = ParsedOrder(
-            po_number="4500999001",
-            store_code=_MOCK_STORE_A,
-            order_date=today,
-            requested_delivery_date=delivery_date,
-            lines=[
-                ParsedOrderLine(
-                    product_code="9300601234567",   # Valid EAN-13
-                    description="Volere Sparkling Water 12pk",
-                    quantity=24.0,
-                    unit_price=18.99,
-                    line_number=1,
-                ),
-                ParsedOrderLine(
-                    product_code="9300601234568",
-                    description="Volere Still Water 12pk",
-                    quantity=12.0,
-                    unit_price=18.99,
-                    line_number=2,
-                ),
-                ParsedOrderLine(
-                    product_code="9300601234569",
-                    description="Enkel Sparkling 6pk",
-                    quantity=6.0,
-                    unit_price=11.99,
-                    line_number=3,
-                ),
-            ],
-            document_type="new_order",
-            raw_data=raw_text,
+        header = _extract_message_header(segments)
+        msg_type = header.get("message_type")
+
+        if msg_type == _BGM_NEW_ORDER:
+            document_type = "new_order"
+        elif msg_type == _BGM_CHANGE_ORDER:
+            document_type = "change_order"
+        elif msg_type == _BGM_ORDER_RESPONSE:
+            _logger.warning(
+                "[BriscoesParser] Received unexpected ORDRSP message — skipping"
+            )
+            return []
+        else:
+            raise EDIParseError(
+                "Unrecognised BGM message type: %s (expected 220 or 230)" % msg_type
+            )
+
+        po_number = header.get("po_number")
+        if not po_number:
+            raise EDIParseError("BGM segment missing PO number")
+
+        lin_groups = _collect_lin_groups(segments)
+        if not lin_groups:
+            _logger.warning(
+                "[BriscoesParser] No LIN groups found in message for PO %s", po_number
+            )
+            return []
+
+        orders = _group_by_store(
+            lin_groups,
+            po_number=po_number,
+            order_date=header.get("order_date"),
+            document_type=document_type,
+            raw_data=raw_data,
         )
 
-        # Scenario 2: New order with issues for store 1042
-        # Line 1: price discrepancy (EDI price != pricelist price)
-        # Line 2: product code not in Odoo
-        # Expected outcome: pending_review, 2 blocking issues
-        problem_order = ParsedOrder(
-            po_number="4500999002",
-            store_code=_MOCK_STORE_B,
-            order_date=today,
-            requested_delivery_date=delivery_date,
-            lines=[
-                ParsedOrderLine(
-                    product_code="9300601234567",   # Known product, wrong price
-                    description="Volere Sparkling Water 12pk",
-                    quantity=24.0,
-                    unit_price=999.99,               # Deliberately wrong price
-                    line_number=1,
-                ),
-                ParsedOrderLine(
-                    product_code="UNKNOWN_SKU_00000",  # Not in Odoo
-                    description="Mystery Product",
-                    quantity=10.0,
-                    unit_price=9.99,
-                    line_number=2,
-                ),
-            ],
-            document_type="new_order",
-            raw_data=raw_text,
+        _logger.info(
+            "[BriscoesParser] Parsed PO %s (%s): %d store order(s), %d total lines",
+            po_number,
+            document_type,
+            len(orders),
+            sum(len(o.lines) for o in orders),
         )
-
-        # Scenario 3: Change order for PO 4500999001 (scenario 1)
-        # Changes: qty on line 1 increased, delivery date changed
-        # Expected outcome: pending_review, change_summary computed
-        change_order = ParsedOrder(
-            po_number="4500999001",
-            store_code=_MOCK_STORE_A,
-            order_date=today,
-            requested_delivery_date=changed_delivery_date,
-            lines=[
-                ParsedOrderLine(
-                    product_code="9300601234567",
-                    description="Volere Sparkling Water 12pk",
-                    quantity=36.0,              # Was 24 — qty increased
-                    unit_price=18.99,
-                    line_number=1,
-                ),
-                ParsedOrderLine(
-                    product_code="9300601234568",
-                    description="Volere Still Water 12pk",
-                    quantity=12.0,
-                    unit_price=18.99,
-                    line_number=2,
-                ),
-                ParsedOrderLine(
-                    product_code="9300601234569",
-                    description="Enkel Sparkling 6pk",
-                    quantity=6.0,
-                    unit_price=11.99,
-                    line_number=3,
-                ),
-            ],
-            document_type="change_order",
-            change_reason="Customer increased order quantity",
-            raw_data=raw_text,
-        )
-
-        # Scenario 4: Duplicate of scenario 1 (same PO + store)
-        # Expected outcome: dedup engine skips it — no new SO or review
-        duplicate_order = ParsedOrder(
-            po_number="4500999001",
-            store_code=_MOCK_STORE_A,
-            order_date=today,
-            requested_delivery_date=delivery_date,
-            lines=[
-                ParsedOrderLine(
-                    product_code="9300601234567",
-                    description="Volere Sparkling Water 12pk",
-                    quantity=24.0,
-                    unit_price=18.99,
-                    line_number=1,
-                ),
-            ],
-            document_type="new_order",
-            raw_data=raw_text,
-        )
-
-        return [clean_order, problem_order, change_order, duplicate_order]
+        return orders
 
     def generate_ack(self, review_record) -> bytes:
         """
-        # PHASE 2: Replace with real EDIFACT ORDRSP/APERAK ACK generation.
-        #
-        # The real implementation should:
-        # 1. Generate EDIFACT ORDRSP (order response) or APERAK (application error)
-        # 2. Include all accepted/rejected line details
-        # 3. Follow Briscoes-specific segment requirements from their tech spec
-        #
-        # Sample ACK format: provided by Briscoes IT in Phase 2
+        Generate EDIFACT ORDRSP (order response) for a processed order.
 
-        Phase 1: return a placeholder ACK for pipeline testing.
+        Purpose codes: 29=accepted, 4=changed, 27=cancelled
+        Line action codes: 5=accepted, 3=qty-changed, 7=rejected
         """
-        _logger.info(
-            "[BriscoesParser] Phase 1 stub: generating placeholder ACK for %s",
-            review_record.customer_po_number,
-        )
-        return (
-            "ACK|%s|%s|PHASE2_PLACEHOLDER" % (
-                review_record.customer_po_number,
-                review_record.state,
-            )
-        ).encode("utf-8")
+        return _generate_ordrsp(review_record)
