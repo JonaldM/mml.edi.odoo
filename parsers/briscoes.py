@@ -11,6 +11,7 @@ Sample files: docs/briscoes.docs/
 from __future__ import annotations
 
 import logging
+import random
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
@@ -290,8 +291,6 @@ def _group_by_store(
 
 def _generate_ordrsp(review) -> bytes:
     """Build EDIFACT ORDRSP segments and return as bytes."""
-    import random
-
     now = datetime.now()
     date_str = now.strftime("%y%m%d")
     time_str = now.strftime("%H%M")

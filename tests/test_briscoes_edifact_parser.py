@@ -179,6 +179,40 @@ class TestChangeOrderParsing:
         results = parser.parse_file(raw, _mock_partner())
         assert isinstance(results, list)
 
+    def test_cancelled_lines_excluded_or_flagged(self):
+        """Lines with action=3 (cancel) are excluded from ParsedOrderLines.
+
+        ORDCHG fixture has four LIN segments:
+          00010 action=3 (cancel): barcode 9414844375629, store 1005  <- excluded
+          00020 action=3 (cancel): barcode 9414844375636, store 1007  <- excluded
+          00060 action=2 (change): barcode 9414844375629, store 1005  <- included
+          00090 action=1 (add):    barcode 9414844375674, store 1007  <- included
+
+        Verification strategy:
+        - 9414844375636 only appears in the cancelled line 00020, so it must be
+          entirely absent from all results.
+        - 9414844375629 for store 1005 appears in both a cancelled line (00010)
+          and a changed line (00060). The cancelled duplicate must not inflate the
+          count: store 1005 should have exactly 1 occurrence of that barcode.
+        """
+        raw = _load("briscoes_ordchg_4500038166.edi")
+        parser = BriscoesParser()
+        results = parser.parse_file(raw, _mock_partner())
+
+        # Line 00020: barcode 9414844375636 only in a cancelled line — must not appear
+        all_barcodes = [l.product_code for o in results for l in o.lines]
+        assert "9414844375636" not in all_barcodes
+
+        # Line 00010 (cancelled) vs line 00060 (changed): same barcode+store.
+        # Cancelled line must not be double-counted — exactly 1 occurrence for store 1005.
+        store_1005 = next((o for o in results if o.store_code == "1005"), None)
+        assert store_1005 is not None, "Store 1005 should be present (line 00060 is action=2)"
+        occurrences = [l for l in store_1005.lines if l.product_code == "9414844375629"]
+        assert len(occurrences) == 1, (
+            "Cancelled line 00010 must not duplicate the changed line 00060; "
+            "expected exactly 1 occurrence of barcode 9414844375629 for store 1005"
+        )
+
 
 class TestCartonQty:
     def test_carton_qty_none_when_absent(self):
@@ -189,3 +223,13 @@ class TestCartonQty:
         for order in results:
             for line in order.lines:
                 assert line.carton_qty is None or isinstance(line.carton_qty, float)
+
+    def test_carton_qty_extracted_when_present(self):
+        """QTY+52 (carton/inner pack qty) from ORDERS fixture.
+        Line 00010 has QTY+52:1.000 — carton_qty should be 1.0."""
+        raw = _load("briscoes_orders_4500038166.edi")
+        parser = BriscoesParser()
+        results = parser.parse_file(raw, _mock_partner())
+        store_1005 = next(o for o in results if o.store_code == "1005")
+        line = next(l for l in store_1005.lines if l.product_code == "9414844375629")
+        assert line.carton_qty == 1.0
