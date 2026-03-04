@@ -1,3 +1,4 @@
+from __future__ import annotations
 # mml.edi/models/edi_processor.py
 """
 Customer-agnostic EDI processing engine.
@@ -203,17 +204,6 @@ class EDIProcessor(models.AbstractModel):
             )
             if partner.alert_on_issues and blocking_issues:
                 self._send_review_alert(partner, review)
-
-        # Emit billable event — fires whether auto-approved or pending review
-        self.env['mml.event'].emit(
-            'edi.order.processed',
-            quantity=len(so.order_line),
-            billable_unit='edi_order_line',
-            res_model='sale.order',
-            res_id=so.id,
-            source_module='mml_edi',
-            payload={'partner': partner.name, 'order_ref': so.name},
-        )
 
     # ── Order line processing ─────────────────────────────────────────────
 
@@ -516,13 +506,18 @@ class EDIProcessor(models.AbstractModel):
     def _get_pricelist_price(
         self, product, quantity: float, partner
     ) -> float | None:
-        """Get pricelist price. Returns None if no pricelist configured."""
+        """
+        Get pricelist price using Odoo 15 API.
+
+        Odoo 15: pricelist.price_get(prod_id, qty, partner_id) → {pricelist_id: price}
+        Returns None if no pricelist configured.
+        """
         if not partner.pricelist_id:
             return None
         try:
-            return partner.pricelist_id._get_product_price(
-                product, quantity, partner.partner_id
-            )
+            pricelist = partner.pricelist_id
+            price_dict = pricelist.price_get(product.id, quantity, partner.partner_id.id)
+            return price_dict.get(pricelist.id)
         except Exception as exc:
             _logger.warning(
                 "[EDI] Pricelist price lookup failed for %s: %s", product.name, exc
