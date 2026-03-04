@@ -1,9 +1,9 @@
 {
     "name": "MML EDI",
-    "version": "19.0.1.0.0",
+    "version": "15.0.1.0.0",
     "summary": "Electronic Data Interchange for retail partners (Briscoes Group and others)",
     "description": """
-        Customer-agnostic EDI module for Odoo 19.
+        Customer-agnostic EDI module for Odoo 15.
         Replaces the legacy .NET Windows service handling Briscoes Group purchase orders.
         Phase 1: Briscoes parser stub + full processing engine, review dashboard, FTP handler.
         Phase 2: Real EDIFACT D96A parsing (awaiting partner technical spec).
@@ -12,7 +12,7 @@
     "website": "https://github.com/JonaldM/mml.edi.odoo",
     "category": "Operations",
     "license": "LGPL-3",
-    "depends": ["mml_base", "sale", "account", "stock", "mail"],
+    "depends": ["base", "sale", "account", "stock", "mail"],
     "data": [
         # Security — groups first, then access rules
         "security/edi_security.xml",
