@@ -1,6 +1,7 @@
 # mml.edi/models/edi_trading_partner.py
 import importlib
 import logging
+import string
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -55,8 +56,17 @@ class EDITradingPartner(models.Model):
     )
     ftp_host = fields.Char(string="FTP Host")
     ftp_port = fields.Integer(string="FTP Port", default=21)
-    ftp_user = fields.Char(string="FTP Username")
-    ftp_password = fields.Char(string="FTP Password", password=True)
+    ftp_user = fields.Char(
+        string="FTP Username",
+        groups='base.group_system',
+    )
+    ftp_password = fields.Char(
+        string="FTP Password",
+        password=True,
+        groups='base.group_system',
+        help="NOTE: Migrate to ir.config_parameter for multi-tenant deployments. "
+             "Key pattern: mml_edi.{partner_code}.ftp_password",
+    )
     ftp_inbox_path = fields.Char(string="Inbox Path")
     ftp_outbox_path = fields.Char(string="Outbox Path")
     ftp_test_inbox_path = fields.Char(string="Test Inbox Path")
@@ -209,5 +219,8 @@ class EDITradingPartner(models.Model):
     def render_client_ref(self, po_number: str, store_code: str | None = None) -> str:
         """Render SO client reference from template."""
         self.ensure_one()
-        template = self.client_ref_template or "{po_number}"
-        return template.format(po_number=po_number, store_code=store_code or "")
+        template_str = self.client_ref_template or '$po_number'
+        # Support both {po_number} and $po_number style templates
+        template_str = template_str.replace('{po_number}', '$po_number').replace('{store_code}', '$store_code')
+        t = string.Template(template_str)
+        return t.safe_substitute(po_number=po_number, store_code=store_code or '')

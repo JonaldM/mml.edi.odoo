@@ -39,6 +39,7 @@
     "installable": True,
     "application": True,
     "auto_install": False,
+    "web_icon": "mml_edi,static/description/icon.png",
     "post_init_hook": "post_init_hook",
     "uninstall_hook": "uninstall_hook",
 }

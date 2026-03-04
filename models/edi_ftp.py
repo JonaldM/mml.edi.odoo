@@ -57,6 +57,7 @@ class EDIFTPHandler:
     def __init__(self, trading_partner):
         self.partner = trading_partner
         self._ftp = None  # ftplib.FTP or paramiko.SFTPClient
+        self._transport = None  # paramiko.Transport (SFTP only)
 
     # ── Connection lifecycle ──────────────────────────────────────────────
 
@@ -104,6 +105,9 @@ class EDIFTPHandler:
             pass  # Best-effort disconnect
         finally:
             self._ftp = None
+            if hasattr(self, '_transport') and self._transport:
+                self._transport.close()
+                self._transport = None
 
     @contextmanager
     def connection(self):
@@ -190,11 +194,11 @@ class EDIFTPHandler:
             raise EDIFTPError(
                 "paramiko is required for SFTP. Install with: pip install paramiko"
             )
-        transport = paramiko.Transport(
+        self._transport = paramiko.Transport(
             (self.partner.ftp_host, self.partner.ftp_port)
         )
-        transport.connect(
+        self._transport.connect(
             username=self.partner.ftp_user,
             password=self.partner.ftp_password,
         )
-        self._ftp = paramiko.SFTPClient.from_transport(transport)
+        self._ftp = paramiko.SFTPClient.from_transport(self._transport)

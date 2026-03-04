@@ -53,7 +53,7 @@ class EDILog(models.Model):
         string="Event Type",
     )
     filename = fields.Char(string="Filename")
-    file_hash = fields.Char(string="File Hash (SHA-256)")
+    file_hash = fields.Char(string="File Hash (SHA-256)", index=True)
     sale_order_id = fields.Many2one("sale.order", index=True, ondelete="set null", string="Sales Order")
     review_id = fields.Many2one("edi.order.review", index=True, ondelete="set null", string="Review")
     user_id = fields.Many2one(

@@ -139,14 +139,23 @@ class EDIProcessor(models.AbstractModel):
     ):
         """Full new order pipeline: dedup → SO → lines → issues → routing."""
         existing_so = self._find_existing_so(client_ref)
-        if existing_so and existing_so.state in ("draft", "sent", "sale", "done"):
-            self.env["edi.log"].log(
-                partner, "inbound", "duplicate_skipped", "warning",
-                "Duplicate PO — SO %s already exists (state: %s)" % (
-                    existing_so.name, existing_so.state),
-                filename=filename, file_hash=file_hash, sale_order=existing_so,
-            )
-            return
+        if existing_so:
+            if existing_so.state == 'cancel':
+                _logger.info(
+                    'EDI: found cancelled SO %s for client_ref=%s — '
+                    'creating new SO (re-order after cancellation)',
+                    existing_so.name, client_ref,
+                )
+                # Fall through to create new SO
+            else:
+                # Valid existing SO — skip
+                self.env["edi.log"].log(
+                    partner, "inbound", "duplicate_skipped", "warning",
+                    "Duplicate PO — SO %s already exists (state: %s)" % (
+                        existing_so.name, existing_so.state),
+                    filename=filename, file_hash=file_hash, sale_order=existing_so,
+                )
+                return
 
         delivery_partner = self._resolve_delivery_partner(partner, order)
 
@@ -415,6 +424,23 @@ class EDIProcessor(models.AbstractModel):
             if so_line:
                 so_line.product_uom_qty = line_change["new_qty"]
 
+        # Handle removed lines (ORDCHG action code 3)
+        for removed_line_num in changes.get('removed_lines', []):
+            so_line = self.env['sale.order.line'].search([
+                ('order_id', '=', so.id),
+                ('edi_line_number', '=', removed_line_num),
+            ], limit=1)
+            if so_line:
+                if so.state == 'draft':
+                    so_line.unlink()
+                else:
+                    so_line.write({'product_uom_qty': 0})
+                    _logger.warning(
+                        'EDI ORDCHG: SO %s is confirmed — zeroed qty on line %s '
+                        '(action code 3). Manual review required.',
+                        so.name, removed_line_num,
+                    )
+
         so.message_post(
             body=_("EDI change order approved: %s") % review.change_summary,
             subtype_xmlid="mail.mt_note",
@@ -561,6 +587,12 @@ class EDIProcessor(models.AbstractModel):
 
     def _encode_pending_changes(self, order, existing_so) -> str:
         """Encode change order data as base64 JSON for ir.attachment.datas."""
+        existing_line_nums = {
+            line.edi_line_number for line in existing_so.order_line
+        }
+        incoming_line_nums = {l.line_number for l in order.lines}
+        removed_line_nums = sorted(existing_line_nums - incoming_line_nums)
+
         changes = {
             "new_delivery_date": (
                 order.requested_delivery_date.isoformat()
@@ -570,6 +602,7 @@ class EDIProcessor(models.AbstractModel):
                 {"line_number": l.line_number, "new_qty": l.quantity}
                 for l in order.lines
             ],
+            "removed_lines": removed_line_nums,
         }
         return base64.b64encode(json.dumps(changes).encode()).decode()
 
