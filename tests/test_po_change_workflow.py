@@ -23,13 +23,17 @@ Run with: ./odoo-bin --test-enable -d <db> --test-tags mml_edi
 """
 import base64
 import json
+import unittest
 
 from odoo import fields
 from odoo.tests.common import TransactionCase
 
 from .common import EDITestSetup
 
+_ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
+
+@unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime — run with odoo-bin --test-enable")
 class TestPOChangeWorkflow(EDITestSetup, TransactionCase):
 
     def setUp(self):

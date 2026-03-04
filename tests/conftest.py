@@ -189,12 +189,32 @@ def _ensure_odoo_stubs() -> None:
     odoo_mod.models = odoo_models
     odoo_mod.exceptions = odoo_exceptions
 
+    # odoo.tests / odoo.tests.common — stub TransactionCase so Odoo-only test
+    # files can be *collected* by pytest without errors. The actual test classes
+    # are decorated with @unittest.skipUnless(_ODOO_AVAILABLE, ...) so they are
+    # skipped gracefully when Odoo is not installed.
+    #
+    # Must inherit from unittest.TestCase so pytest honours the
+    # @unittest.skipUnless decorator on the subclasses.
+    import unittest as _unittest
+
+    class TransactionCase(_unittest.TestCase):  # type: ignore[no-redef]
+        pass
+
+    odoo_tests_common = types.ModuleType("odoo.tests.common")
+    odoo_tests_common.TransactionCase = TransactionCase
+    odoo_tests = types.ModuleType("odoo.tests")
+    odoo_tests.common = odoo_tests_common
+    odoo_mod.tests = odoo_tests
+
     for name, mod in [
         ("odoo", odoo_mod),
         ("odoo.models", odoo_models),
         ("odoo.fields", odoo_fields),
         ("odoo.api", odoo_api),
         ("odoo.exceptions", odoo_exceptions),
+        ("odoo.tests", odoo_tests),
+        ("odoo.tests.common", odoo_tests_common),
     ]:
         sys.modules[name] = mod
 

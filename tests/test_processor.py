@@ -25,10 +25,12 @@ emits events via mml.event. mml_base is not a dependency of mml_edi on Odoo 15.
 Run with: ./odoo-bin --test-enable -d <db> --test-tags mml_edi
 """
 import hashlib
+import unittest
 from datetime import date
 
+from odoo.tests.common import TransactionCase
+
 try:
-    from odoo.tests.common import TransactionCase
     from .common import (
         EDITestSetup,
         make_change_order_parsed_order,
@@ -38,13 +40,7 @@ try:
         make_parsed_line,
     )
     from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
-    _ODOO_AVAILABLE = True
-except ModuleNotFoundError:
-    # Odoo not installed — TransactionCase tests are skipped; plain pytest
-    # classes (e.g. TestPricelistCompat) can still run.
-    class TransactionCase:  # type: ignore[no-redef]
-        pass
-
+except (ModuleNotFoundError, ImportError):
     class EDITestSetup:  # type: ignore[no-redef]
         pass
 
@@ -66,9 +62,13 @@ except ModuleNotFoundError:
     def make_parsed_line(**kw):  # type: ignore[no-redef]
         pass
 
-    _ODOO_AVAILABLE = False
+# True only when the real Odoo TransactionCase (with .env) is available.
+# The conftest injects a stub TransactionCase that has no 'env' attribute,
+# so this sentinel correctly distinguishes stub from real.
+_ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
 
+@unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime — run with odoo-bin --test-enable")
 class TestEDIProcessor(EDITestSetup, TransactionCase):
 
     def setUp(self):
