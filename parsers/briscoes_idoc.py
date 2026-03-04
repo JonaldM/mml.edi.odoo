@@ -22,6 +22,8 @@ iDOC XML Structure (ORDERSEXT v1.6, MANDT=300):
   E1EDS01           — summary/control
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import date, timedelta
 

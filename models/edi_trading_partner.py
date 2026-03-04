@@ -1,4 +1,6 @@
 # mml.edi/models/edi_trading_partner.py
+from __future__ import annotations
+
 import importlib
 import logging
 
