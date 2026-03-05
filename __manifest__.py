@@ -26,6 +26,7 @@
         "views/edi_order_issue_views.xml",
         "views/edi_log_views.xml",
         "views/sale_order_views.xml",
+        "views/stock_location_views.xml",
         # Wizard views
         "wizards/edi_bulk_action_views.xml",
         "wizards/edi_seed_stores_views.xml",
