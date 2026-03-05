@@ -76,6 +76,16 @@ class EDITradingPartner(models.Model):
     ftp_outbox_path = fields.Char(string="Outbox Path")
     ftp_test_inbox_path = fields.Char(string="Test Inbox Path")
     ftp_test_outbox_path = fields.Char(string="Test Outbox Path")
+    sftp_host_key = fields.Char(
+        string='SFTP Host Key (base64)',
+        groups='base.group_system',
+        help=(
+            'Base64-encoded RSA server public key. '
+            'Obtain with: ssh-keyscan -t rsa <host> | awk \'{print $3}\'. '
+            'Required when ftp_protocol = sftp. '
+            'Leave blank to REJECT all SFTP connections (fail-safe).'
+        ),
+    )
     environment = fields.Selection(
         [("production", "Production"), ("test", "Test")],
         required=True,

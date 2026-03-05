@@ -189,16 +189,49 @@ class EDIFTPHandler:
 
     def _connect_sftp(self):
         try:
+            import base64
             import paramiko
         except ImportError:
             raise EDIFTPError(
                 "paramiko is required for SFTP. Install with: pip install paramiko"
             )
-        self._transport = paramiko.Transport(
-            (self.partner.ftp_host, self.partner.ftp_port)
+
+        stored_key_b64 = self.partner.sftp_host_key
+        if not stored_key_b64:
+            raise EDIFTPError(
+                "SFTP host key not configured for partner '%s'. "
+                "Set sftp_host_key on the trading partner before enabling SFTP." % self.partner.code
+            )
+
+        try:
+            key_bytes = base64.b64decode(stored_key_b64)
+            server_key = paramiko.RSAKey(data=key_bytes)
+        except Exception as exc:
+            raise EDIFTPError(
+                "Invalid sftp_host_key format for partner '%s': %s" % (self.partner.code, exc)
+            )
+
+        client = paramiko.SSHClient()
+        client.get_host_keys().add(
+            self.partner.ftp_host, 'ssh-rsa', server_key
         )
-        self._transport.connect(
-            username=self.partner.ftp_user,
-            password=self.partner.ftp_password,
-        )
-        self._ftp = paramiko.SFTPClient.from_transport(self._transport)
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
+
+        try:
+            client.connect(
+                hostname=self.partner.ftp_host,
+                port=self.partner.ftp_port,
+                username=self.partner.ftp_user,
+                password=self.partner.ftp_password,
+                timeout=_CONNECT_TIMEOUT,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+        except paramiko.SSHException as exc:
+            raise EDIFTPError(
+                "SFTP connection failed for '%s': %s" % (self.partner.code, exc)
+            )
+
+        self._ftp = client.open_sftp()
+        # SSHClient wraps the transport — store reference for disconnect()
+        self._transport = client
