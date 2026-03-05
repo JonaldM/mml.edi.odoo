@@ -41,6 +41,11 @@ class EDIProcessor(models.AbstractModel):
                     "Scheduled poll failed: %s" % str(exc),
                     detail=str(exc),
                 )
+                self._send_cron_alert(
+                    'mml_edi',
+                    'EDI poll failed for %s' % partner.code,
+                    str(exc),
+                )
 
     # ── Per-partner poll ──────────────────────────────────────────────────
 
@@ -605,6 +610,22 @@ class EDIProcessor(models.AbstractModel):
             "removed_lines": removed_line_nums,
         }
         return base64.b64encode(json.dumps(changes).encode()).decode()
+
+    def _send_cron_alert(self, module_name: str, subject: str, body: str) -> None:
+        """Send an email alert when a scheduled action fails."""
+        alert_email = self.env['ir.config_parameter'].sudo().get_param(
+            'mml.cron_alert_email', False
+        )
+        if not alert_email:
+            return
+        try:
+            self.env['mail.mail'].sudo().create({
+                'subject': '[MML ALERT] %s: %s' % (module_name, subject),
+                'body_html': '<pre>%s</pre>' % body,
+                'email_to': alert_email,
+            }).send()
+        except Exception:
+            _logger.exception('Failed to send cron alert email for %s', module_name)
 
     def _send_review_alert(self, partner, review):
         """Send alert email to configured recipients."""
