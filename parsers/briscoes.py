@@ -296,6 +296,32 @@ def _group_by_store(
     return orders
 
 
+# ── EAN-13 validation ─────────────────────────────────────────────────────────
+
+def _ean13_check_digit_valid(barcode: str) -> bool:
+    digits = [int(c) for c in barcode]
+    total = sum(d * (3 if i % 2 else 1) for i, d in enumerate(digits[:-1]))
+    return (10 - total % 10) % 10 == digits[-1]
+
+
+def _validate_ean13_for_ordrsp(order_lines):
+    """Raise UserError if any line product has no valid EAN-13 barcode."""
+    import re
+    ean13_re = re.compile(r'^\d{13}$')
+    missing = []
+    for line in order_lines:
+        barcode = getattr(line.product_id, 'barcode', '') or ''
+        if not ean13_re.match(barcode) or not _ean13_check_digit_valid(barcode):
+            missing.append(line.product_id.display_name)
+    if missing:
+        from odoo.exceptions import UserError
+        raise UserError(
+            "Cannot generate ORDRSP: the following products have no valid EAN-13 barcode:\n%s\n\n"
+            "Add a 13-digit barcode with a valid check digit to each product before generating."
+            % '\n'.join('  - %s' % name for name in missing)
+        )
+
+
 # ── ORDRSP generator ───────────────────────────────────────────────────────────
 
 def _generate_ordrsp(review) -> bytes:
@@ -325,6 +351,11 @@ def _generate_ordrsp(review) -> bytes:
         purpose = _ORDRSP_CHANGED
     else:
         purpose = _ORDRSP_ACCEPTED
+
+    # Validate EAN-13 barcodes before building segments — Briscoes requires
+    # valid EAN-13 on all ORDRSP lines; missing/invalid barcodes cause silent rejection.
+    if so:
+        _validate_ean13_for_ordrsp(so.order_line)
 
     segs = []
     segs.append("UNB+UNOA:3+%s:ZZ+%s:14+%s:%s+%s++ORDRSP" % (
