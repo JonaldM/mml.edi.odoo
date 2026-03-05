@@ -67,7 +67,7 @@ class EDILog(models.Model):
         string="Status",
     )
     message = fields.Text(required=True, string="Message")
-    detail = fields.Text(string="Technical Detail")
+    detail = fields.Text(string="Technical Detail", groups='mml_edi.group_edi_manager')
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
