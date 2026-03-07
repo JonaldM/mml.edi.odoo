@@ -558,7 +558,7 @@ class EDIProcessor(models.AbstractModel):
         Odoo 17+: _get_product_price(product, quantity) — partner arg was removed.
         Falls back to product.list_price on any exception.
         """
-        if not hasattr(partner, 'pricelist_id') or not partner.pricelist_id:
+        if not partner.pricelist_id:
             return None
         try:
             return partner.pricelist_id._get_product_price(product, quantity)
