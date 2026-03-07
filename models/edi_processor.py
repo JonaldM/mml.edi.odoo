@@ -178,7 +178,6 @@ class EDIProcessor(models.AbstractModel):
         # pricelist_id is only available when sale_management is installed (Odoo 17+)
         if (
             'pricelist_id' in self.env['sale.order']._fields
-            and hasattr(partner, 'pricelist_id')
             and partner.pricelist_id
         ):
             so_vals['pricelist_id'] = partner.pricelist_id.id
@@ -573,7 +572,7 @@ class EDIProcessor(models.AbstractModel):
                 _logger.warning(
                     "[EDI] Pricelist price lookup failed for %s: %s", product.name, exc
                 )
-                return product.list_price
+                return None
 
     def _compute_change_summary(self, existing_so, order) -> str:
         """Generate human-readable summary of what changed."""
