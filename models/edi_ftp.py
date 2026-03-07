@@ -232,6 +232,5 @@ class EDIFTPHandler:
                 "SFTP connection failed for '%s': %s" % (self.partner.code, exc)
             )
 
+        self._transport = client   # assign BEFORE open_sftp so disconnect() can clean up on failure
         self._ftp = client.open_sftp()
-        # SSHClient wraps the transport — store reference for disconnect()
-        self._transport = client
