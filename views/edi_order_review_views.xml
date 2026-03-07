@@ -76,7 +76,6 @@
                     <field name="received_date"/>
 
                     <progressbar field="blocking_issue_count"
-                                 colors='{"0": "success", "1": "danger"}'
                                  sum_field="blocking_issue_count"/>
 
                     <templates>
