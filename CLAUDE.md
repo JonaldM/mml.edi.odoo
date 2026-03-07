@@ -2,65 +2,153 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What This Directory Is
+---
 
-This is a **deployment directory for compiled .NET Windows applications** — there is no source code here. The binaries are built from a separate solution (not tracked in this repo) and deployed here for production/test operation. Key DLLs (`BriscoesEDI.dll`, `OdooHandler.dll`, `DynamicXmlApi.dll`) are the compiled application logic.
+## What This Directory Contains
 
-Parent module context: see `../CLAUDE.md` → `mml_edi` module section.
+Two distinct systems share this directory:
+
+1. **`mml_edi/` — Odoo 19 Python module** (the active development target): a customer-agnostic EDI engine that replaces the legacy .NET service. The module root is the directory itself (`__manifest__.py` is at the top level).
+
+2. **`BriscoeEDI/`, `BriscoeEDI_TEST/`, `Dropship/` — Legacy .NET binaries** (deployed, no source here): compiled Windows services for Briscoes EDI and dropship order processing.
 
 ---
 
-## Applications
+## Odoo Module: `mml_edi`
+
+### Architecture
+
+The module is structured as a processing pipeline:
+
+```
+FTP (EDIS VAN)
+    │
+    ▼
+EDIFTPHandler          (models/edi_ftp.py)       — FTP/SFTP connection, retry, path traversal guard
+    │
+    ▼
+BaseEDIParser          (parsers/base_parser.py)   — Abstract contract: parse_file() + generate_ack()
+BriscoesParser         (parsers/briscoes.py)      — EDIFACT D96A: ORDERS(220) + ORDCHG(230) + ORDRSP(231)
+BriscoesIDOCParser     (parsers/briscoes_idoc.py) — SAP ORDERSEXT stub (Phase 2 — raises NotImplementedError)
+    │
+    ▼  ParsedOrder / ParsedOrderLine (dataclasses in base_parser.py)
+    │
+    ▼
+EDIProcessor           (models/edi_processor.py)  — AbstractModel, no DB table, orchestrates full pipeline
+    │
+    ├── product lookup cascade: barcode → internal ref → vendor_code → supplier_sku
+    ├── issues: product_not_found (blocking), price_discrepancy (blocking), qty_shortfall (warning)
+    ├── auto-confirm clean orders (if trading_partner.auto_confirm_clean = True)
+    └── emits mml.event 'edi.order.processed' (billable unit)
+    │
+    ▼
+EDIOrderReview         (models/edi_order_review.py) — Manual review dashboard; approve/reject/reset
+EDIOrderIssue          (models/edi_order_issue.py)  — Per-line issue records with resolution workflow
+EDILog                 (models/edi_log.py)           — Append-only audit log; use .log() helper always
+    │
+    ▼  On approve: generate_ack() → upload ORDRSP to FTP outbox
+    │
+    ▼
+EDIService             (services/edi_service.py)    — mml.registry service 'edi'; handles outbound ASN
+BriscoesASNGenerator   (parsers/briscoes_asn.py)    — Generates EDIFACT DESADV D96A (ASN)
+```
+
+### Key Models
+
+| Model | Purpose |
+|---|---|
+| `edi.trading.partner` | Per-partner config: FTP credentials, parser class, pricelist, auto-confirm flag, order split mode |
+| `edi.processor` | AbstractModel — entry point for cron (`run_scheduled_poll`) and manual poll; public API for tests: `process_parsed_order()`, `apply_change_order()` |
+| `edi.order.review` | One per inbound PO/store; states: `pending_review → approved/rejected/auto_approved` |
+| `edi.order.issue` | Attached to review; severities: `blocking` (prevents auto-confirm) / `warning` / `info` |
+| `edi.log` | Audit trail — always use `self.env['edi.log'].log(partner, direction, event_type, status, message)` |
+| `sale.order` | Extended with `edi_trading_partner_id`, `edi_review_id`, `is_edi_order` |
+| `sale.order.line` | Extended with `edi_line_number`, `edi_price`, `edi_system_price`, `edi_qty_shortfall`, `edi_matched_by` |
+
+### Integration with mml_base Platform
+
+- `post_init_hook` registers capabilities: `edi.order.process`, `edi.asn.send`, `edi.invoice.send`
+- `EDIService` is registered as `mml.registry.service('edi')`
+- `EDIService.on_3pl_despatch_confirmed(event)` generates and uploads DESADV to EDIS VAN — **gated by `ir.config_parameter` `mml_edi.asn_enabled = '1'`** (default `'0'` — off until the legacy .NET service is retired)
+
+### Parser Extension Points
+
+- All parsers must subclass `BaseEDIParser` and implement `parse_file()` + `generate_ack()`
+- New parser classes must be added to `_ALLOWED_PARSER_CLASSES` in `edi_trading_partner.py` (security allowlist — prevents arbitrary class loading)
+- `client_ref_template` on `edi.trading.partner` controls SO `client_order_ref` format; supports `{po_number}` and `{store_code}` variables
+
+### EDIFACT / File Handling Notes
+
+- Briscoes files may use Windows-1252 encoding with `\x92` (right single quote) as an alternate segment terminator — `_split_segments()` normalises this before parsing
+- Processed files are renamed in-place on FTP: `{filename}.processed.{YYYYMMDDHHMMSS}` (not deleted)
+- File-level deduplication via SHA-256 hash checked against `edi.log` (`event_type=file_download, status=success`)
+- EAN-13 check digit validation is enforced before ORDRSP and DESADV generation — missing/invalid barcodes raise `UserError` to prevent silent partner rejection
+
+### Outbound ASN (DESADV) Flow
+
+Triggered by `mml.event` `3pl.despatch.confirmed`:
+1. `EDIService.on_3pl_despatch_confirmed(event)` looks up `stock.picking`
+2. Validates picking has a linked `sale.order` with an active `edi.trading.partner`
+3. Groups `stock.move` lines by `location_dest_id.edi_store_gln` (custom field on `stock.location`)
+4. `BriscoesASNGenerator.generate(despatch)` builds EDIFACT DESADV D96A
+5. Uploads via `EDIFTPHandler` to partner outbox; logs `ir.attachment` on the picking
+
+### System Parameters
+
+| Key | Default | Purpose |
+|---|---|---|
+| `mml_edi.asn_enabled` | `'0'` | Enable outbound DESADV — set to `'1'` after legacy .NET retirement |
+| `mml_edi.sender_id` | `'MMLEDI'` | MML EDIS VAN sender ID used in DESADV UNB segment |
+| `mml.cron_alert_email` | (none) | Email address for cron failure alerts |
+
+---
+
+## Running Tests
+
+```bash
+# All pure-Python tests (no Odoo needed)
+pytest -q
+
+# Single test file
+pytest tests/test_briscoes_edifact_parser.py -q
+
+# Single test by name
+pytest tests/test_briscoes_edifact_parser.py -k "test_parse_multistore" -q
+```
+
+Tests run from the `mml.edi/` directory. The `pytest.ini` restricts collection to `tests/` and uses `--import-mode=importlib` (required because the directory name contains a dot).
+
+The `tests/conftest.py` bootstraps `mml_edi` as a Python package alias and stubs `odoo.*` so pure-Python tests can import parsers and services without a running Odoo instance.
+
+Odoo integration tests (requiring `self.env`) must be run via `odoo-bin --test-enable -u mml_edi -d <db>`.
+
+---
+
+## Legacy .NET Services
 
 ### BriscoesEditOrder (`BriscoeEDI/` and `BriscoeEDI_TEST/`)
 
-A .NET Framework 4.8 Windows service that:
-1. Polls the EDIS VAN FTP server (`post.edis.co.nz`) every 15 minutes for Briscoes purchase order files
-2. Parses PO files and creates Odoo sales orders via XML-RPC
-3. Sends acknowledgement messages back to EDIS FTP
-4. Logs errors and sends email alerts via Office 365 SMTP
-
-**PO structure:** One Briscoes PO generates multiple Odoo SOs — one per store (order type "MultiStore"). Order IDs are `{BriscoesPONumber}_{StoreCode}` (e.g., `4500176806_1017`).
-
-**Stock checking:** Order lines check available stock at creation; items may be flagged `LineQtyShortfall` but still created if the product has "allow over-sell" enabled.
+.NET Framework 4.8 Windows service: polls EDIS VAN FTP every 15 min, parses Briscoes POs, creates Odoo SOs via XML-RPC, sends ACKs. One Briscoes PO → multiple SOs (one per store). Order IDs: `{PONumber}_{StoreCode}` (e.g., `4500176806_1017`).
 
 ### DropshipGetTickets (`Dropship/`)
 
-A .NET Framework 4.6.1 Windows service that handles dropship orders. In addition to EDIS FTP polling, it integrates with the Aramex/Fastway API (`api.myfastway.co.nz`) to generate consignment labels (4x6 format).
+.NET Framework 4.6.1 Windows service: dropship orders via EDIS FTP + Aramex/Fastway API for consignment labels.
 
----
-
-## Infrastructure
+### Infrastructure
 
 | Component | Production | Test |
 |---|---|---|
 | FTP (EDIS VAN) | `ftp://post.edis.co.nz` `/FromEDIS`, `/ToEDIS` | `/Test/FromEDIS`, `/Test/ToEDIS` |
 | Odoo XML-RPC | `https://10.0.0.35:8443/MML_Production/xmlrpc/2` | `https://10.0.0.35:8443/ODOOTEST/xmlrpc/2` |
-| PostgreSQL (Odoo DB) | `10.0.0.35:5432` `MML_Production` | `10.0.0.35:5432` `ODOOTEST` |
-| SQL Server (EDI audit log) | `10.0.0.6` `BriscoesEDI` | `10.0.0.6` `BriscoesEDI_Test` |
-| Local file paths | `C:\BriscoeEDI\{Inbox,Outbox,Processed}` | `C:\BriscoeEDI_TEST\{Inbox,Outbox,Processed}` |
-| Alert emails | `edialert@mml.co.nz` | `george@totalsql.co.nz` |
+| PostgreSQL | `10.0.0.35:5432` `MML_Production` | `10.0.0.35:5432` `ODOOTEST` |
+| SQL Server (audit) | `10.0.0.6` `BriscoesEDI` | `10.0.0.6` `BriscoesEDI_Test` |
 
-**Odoo integration details:**
-- Customer ID for Briscoes Group: `3324`
-- Price list: `"Briscoes Products"`
-- Company: `"MML Limited"`
+**Odoo customer details:** Briscoes Group ID `3324`, pricelist `"Briscoes Products"`, company `"MML Limited"`.
 
----
+### Deployment Notes
 
-## Logging
-
-Three destinations (configured in `log4net.config`):
-1. **Rolling file** — `BriscoesEditOrder.log` (10MB max, 5 backups)
-2. **Windows Event Log** — application name `BriscoesEditOrder` / `DropshipGetTickets`
-3. **SQL Server `Log` table** — real-time, buffered at 1 record; includes `Category` field
-
----
-
-## Deployment Notes
-
-- **`_OldVer/` folders** contain the previous generation (`BriscoesOdooEDI.exe`) — do not restore these
-- **`EDI.MOVEDtoD/`** is a legacy archive with 2014-era sample EDI files and WinSCP FTP scripts from before EDIS VAN; retained for reference only
-- Configuration lives entirely in `*.exe.config` — all credentials, URLs, and paths are in `appSettings`
-- To swap environments (prod ↔ test), the active keys and `x`-prefixed keys in `appSettings` need to be swapped — there is no environment variable or command-line switch
-- The `ServiceSleepMins` key controls polling interval (production: 15 min, test: 1 min)
+- Config lives entirely in `*.exe.config` (`appSettings`) — no env vars or CLI switches
+- Swap prod ↔ test: swap active keys and `x`-prefixed keys in `appSettings`
+- `ServiceSleepMins`: production = 15, test = 1
+- `_OldVer/` folders contain previous-generation binaries — do not restore
+- `EDI.MOVEDtoD/` is a legacy archive (2014-era sample files, WinSCP scripts) — reference only
