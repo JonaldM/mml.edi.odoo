@@ -83,3 +83,20 @@ class TestBriscoesASNGenerator(unittest.TestCase):
         gen = self._get_generator()
         result = gen.generate(self._make_despatch())
         self.assertIn('NAD+BY+9469313000007::14', result)
+
+    def test_special_characters_in_po_number_are_escaped(self):
+        """EDIFACT delimiters in PO number must be escaped with the release character '?'."""
+        gen = self._get_generator()
+        despatch = self._make_despatch()
+        despatch['po_number'] = "4500+038:166"  # contains + and : delimiters
+        result = gen.generate(despatch)
+        # The raw delimiters must NOT appear unescaped in the RFF segment
+        rff_line = next(s for s in result.split("'") if s.startswith('RFF+ON:'))
+        # The PO number after 'RFF+ON:' should have escaped delimiters
+        po_in_output = rff_line[len('RFF+ON:'):]
+        self.assertNotIn('+', po_in_output.replace('?+', ''),
+                         "Unescaped '+' found in PO number segment")
+        self.assertNotIn(':', po_in_output.replace('?:', ''),
+                         "Unescaped ':' found in PO number segment")
+        self.assertIn('?+', po_in_output, "'+' should be escaped as '?+'")
+        self.assertIn('?:', po_in_output, "':' should be escaped as '?:'")
