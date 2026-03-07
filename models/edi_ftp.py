@@ -10,6 +10,7 @@ and trading_partner.get_active_outbox_path().
 import ftplib
 import io
 import logging
+import os
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -128,7 +129,10 @@ class EDIFTPHandler:
                 return [f.filename for f in self._ftp.listdir_attr(inbox)
                         if not f.filename.startswith(".")]
             else:
-                return self._ftp.nlst(inbox)
+                return [
+                    os.path.basename(f) for f in self._ftp.nlst(inbox)
+                    if os.path.basename(f) and not os.path.basename(f).startswith('.')
+                ]
         except Exception as exc:
             raise EDIFTPError("list_files failed on %s: %s" % (inbox, exc)) from exc
 

@@ -59,6 +59,11 @@ class EDIOrderReview(models.Model):
         store=True,
         string="Blocking Issues",
     )
+    warning_count = fields.Integer(
+        compute="_compute_issue_counts",
+        store=True,
+        string="Warnings",
+    )
 
     # File metadata
     edi_file_hash = fields.Char(string="File Hash (SHA-256)")
@@ -118,6 +123,9 @@ class EDIOrderReview(models.Model):
             rec.issue_count = len(rec.issue_ids)
             rec.blocking_issue_count = len(
                 rec.issue_ids.filtered(lambda i: i.severity == "blocking")
+            )
+            rec.warning_count = len(
+                rec.issue_ids.filtered(lambda i: i.severity == "warning")
             )
 
     # ── State Machine Actions ─────────────────────────────────────────────

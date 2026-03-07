@@ -1,37 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="1">
+    <!--
+        Briscoes Group trading partner configuration must be created manually
+        post-install via the EDI > Trading Partners form view.
 
-        <!--
-            Briscoes Group default trading partner configuration.
-            FTP credentials (ftp_username, ftp_password) and alert_email_ids
-            must be set manually post-install — they vary per environment and
-            must not be committed to source control.
-            partner_id (res.partner Many2one) must also be set post-install
-            as the partner record ID varies per database.
-        -->
-        <record id="edi_trading_partner_briscoes" model="edi.trading.partner">
-            <field name="name">Briscoes Group</field>
-            <field name="code">BRISCOES</field>
-            <field name="edi_format">edifact_d96a</field>
-            <field name="parser_class">mml_edi.parsers.briscoes.BriscoesParser</field>
-            <field name="ftp_host">post.edis.co.nz</field>
-            <field name="ftp_port">21</field>
-            <field name="ftp_protocol">ftp</field>
-            <field name="ftp_inbox_path">/FromEDIS</field>
-            <field name="ftp_outbox_path">/ToEDIS</field>
-            <field name="ftp_test_inbox_path">/Test/FromEDIS</field>
-            <field name="ftp_test_outbox_path">/Test/ToEDIS</field>
-            <field name="environment">production</field>
-            <field name="price_tolerance_pct">0.0</field>
-            <field name="auto_confirm_clean" eval="True"/>
-            <field name="poll_interval_minutes">15</field>
-            <field name="order_split_mode">per_store</field>
-            <field name="product_match_field">barcode</field>
-            <field name="client_ref_template">{po_number}_{store_code}</field>
-            <field name="alert_on_issues" eval="True"/>
-            <field name="active" eval="True"/>
-        </record>
+        Required fields to set:
+          - partner_id: Briscoes Group res.partner record (ID varies per database)
+          - ftp_user / ftp_password: EDIS VAN credentials (never commit to source control)
+          - alert_email_ids: email recipients for review alerts
 
-    </data>
+        Suggested values:
+          name: Briscoes Group
+          code: BRISCOES
+          edi_format: edifact_d96a
+          parser_class: mml_edi.parsers.briscoes.BriscoesParser
+          ftp_host: post.edis.co.nz
+          ftp_port: 21
+          ftp_protocol: ftp
+          ftp_inbox_path: /FromEDIS
+          ftp_outbox_path: /ToEDIS
+          ftp_test_inbox_path: /Test/FromEDIS
+          ftp_test_outbox_path: /Test/ToEDIS
+          environment: production
+          poll_interval_minutes: 15
+          order_split_mode: per_store
+          client_ref_template: {po_number}_{store_code}
+          auto_confirm_clean: True
+          alert_on_issues: True
+    -->
 </odoo>

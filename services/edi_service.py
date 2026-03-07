@@ -45,10 +45,7 @@ class EDIService:
             )
             return
 
-        partner = self.env['edi.trading.partner'].search([
-            ('partner_id', '=', sale_order.partner_id.id),
-            ('active', '=', True),
-        ], limit=1)
+        partner = sale_order.edi_trading_partner_id
         if not partner:
             _logger.info(
                 'EDI ASN: no EDI trading partner for SO %s — skipping', sale_order.name
@@ -66,7 +63,7 @@ class EDIService:
                 'EDI ASN: failed to generate/upload ASN for picking %s', picking.name
             )
             self.env['edi.log'].log(
-                partner, 'outbound', 'error', picking.name,
+                partner, 'outbound', 'error', 'error',
                 'ASN generation failed for picking %s' % picking.name,
                 detail='See server log for traceback.',
             )
@@ -152,7 +149,8 @@ class EDIService:
         })
         picking.message_post(body='ASN sent to Briscoes: %s' % filename)
         self.env['edi.log'].log(
-            partner, 'outbound', 'ack_sent', filename,
+            partner, 'outbound', 'ack_sent', 'success',
             'DESADV uploaded to EDIS VAN: %s (%d bytes)' % (filename, len(asn_content)),
+            filename=filename,
         )
         _logger.info('EDI ASN: uploaded %s (%d bytes)', filename, len(asn_content))
