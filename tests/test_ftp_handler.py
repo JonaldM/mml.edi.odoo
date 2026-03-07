@@ -94,3 +94,80 @@ class TestEDIFTPHandlerFTP:
             with handler.connection():
                 raise ValueError("test error")
         handler.disconnect.assert_called_once()
+
+
+class TestEDIFTPHandlerSFTP:
+    """Tests for SFTP-specific behaviour in EDIFTPHandler.
+
+    paramiko may not be installed in all test environments, so tests that need
+    to reach the host-key check (which comes after the paramiko import) mock
+    the import using sys.modules.
+    """
+
+    def _make_mock_paramiko(self):
+        """Return a MagicMock that stands in for the paramiko module."""
+        mock_paramiko = MagicMock()
+        mock_paramiko.SSHException = Exception
+        return mock_paramiko
+
+    def test_sftp_rejects_connection_when_no_host_key(self):
+        """_connect_sftp() must raise EDIFTPError when sftp_host_key is blank."""
+        import sys
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        from mml_edi.parsers.base_parser import EDIFTPError
+
+        partner = make_mock_partner(protocol="sftp")
+        partner.sftp_host_key = ''  # no host key configured
+
+        mock_paramiko = self._make_mock_paramiko()
+        with patch.dict(sys.modules, {'paramiko': mock_paramiko}):
+            handler = EDIFTPHandler(partner)
+            with pytest.raises(EDIFTPError, match="SFTP host key not configured"):
+                handler._connect_sftp()
+
+    def test_sftp_rejects_connection_when_host_key_is_none(self):
+        """_connect_sftp() must raise EDIFTPError when sftp_host_key is None."""
+        import sys
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        from mml_edi.parsers.base_parser import EDIFTPError
+
+        partner = make_mock_partner(protocol="sftp")
+        partner.sftp_host_key = None
+
+        mock_paramiko = self._make_mock_paramiko()
+        with patch.dict(sys.modules, {'paramiko': mock_paramiko}):
+            handler = EDIFTPHandler(partner)
+            with pytest.raises(EDIFTPError, match="SFTP host key not configured"):
+                handler._connect_sftp()
+
+    def test_sftp_raises_when_paramiko_missing(self):
+        """_connect_sftp() must raise EDIFTPError when paramiko is not installed."""
+        import sys
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        from mml_edi.parsers.base_parser import EDIFTPError
+
+        partner = make_mock_partner(protocol="sftp")
+        partner.sftp_host_key = 'somekey'
+
+        # Remove paramiko from sys.modules to simulate it not being installed
+        with patch.dict(sys.modules, {'paramiko': None}):
+            handler = EDIFTPHandler(partner)
+            with pytest.raises(EDIFTPError, match="paramiko is required"):
+                handler._connect_sftp()
+
+    def test_sftp_rejects_invalid_host_key_format(self):
+        """_connect_sftp() must raise EDIFTPError when sftp_host_key is not valid base64 RSA key."""
+        import sys
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        from mml_edi.parsers.base_parser import EDIFTPError
+
+        partner = make_mock_partner(protocol="sftp")
+        # Valid base64 but not a valid RSA key — RSAKey(data=...) will raise
+        partner.sftp_host_key = 'bm90YXZhbGlka2V5'  # base64 of 'notavalidkey'
+
+        mock_paramiko = self._make_mock_paramiko()
+        mock_paramiko.RSAKey.side_effect = Exception("Not a valid RSA key")
+        with patch.dict(sys.modules, {'paramiko': mock_paramiko}):
+            handler = EDIFTPHandler(partner)
+            with pytest.raises(EDIFTPError, match="Invalid sftp_host_key format"):
+                handler._connect_sftp()
