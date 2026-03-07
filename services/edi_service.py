@@ -99,7 +99,7 @@ class EDIService:
                 continue
             deliveries.setdefault(store_gln, []).append({
                 'ean13': barcode,
-                'qty': move.quantity_done,
+                'qty': move.quantity,
                 'seq': seq,
             })
             seq += 10

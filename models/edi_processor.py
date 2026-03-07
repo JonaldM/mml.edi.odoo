@@ -164,10 +164,9 @@ class EDIProcessor(models.AbstractModel):
 
         delivery_partner = self._resolve_delivery_partner(partner, order)
 
-        so = self.env["sale.order"].create({
+        so_vals = {
             "partner_id": delivery_partner.id,
             "partner_invoice_id": partner.partner_id.id,
-            "pricelist_id": partner.pricelist_id.id if partner.pricelist_id else False,
             "client_order_ref": client_ref,
             "commitment_date": (
                 fields.Datetime.to_datetime(str(order.requested_delivery_date))
@@ -175,7 +174,15 @@ class EDIProcessor(models.AbstractModel):
             ),
             "edi_trading_partner_id": partner.id,
             "company_id": self.env.company.id,
-        })
+        }
+        # pricelist_id is only available when sale_management is installed (Odoo 17+)
+        if (
+            'pricelist_id' in self.env['sale.order']._fields
+            and hasattr(partner, 'pricelist_id')
+            and partner.pricelist_id
+        ):
+            so_vals['pricelist_id'] = partner.pricelist_id.id
+        so = self.env["sale.order"].create(so_vals)
 
         blocking_issues = []
 
@@ -547,18 +554,26 @@ class EDIProcessor(models.AbstractModel):
     def _get_pricelist_price(
         self, product, quantity: float, partner
     ) -> float | None:
-        """Get pricelist price. Returns None if no pricelist configured."""
-        if not partner.pricelist_id:
+        """Get pricelist price. Returns None if no pricelist configured.
+
+        Odoo 17+: _get_product_price(product, quantity) — partner arg was removed.
+        Falls back to product.list_price on any exception.
+        """
+        if not hasattr(partner, 'pricelist_id') or not partner.pricelist_id:
             return None
         try:
-            return partner.pricelist_id._get_product_price(
-                product, quantity, partner.partner_id
-            )
-        except Exception as exc:
-            _logger.warning(
-                "[EDI] Pricelist price lookup failed for %s: %s", product.name, exc
-            )
-            return None
+            return partner.pricelist_id._get_product_price(product, quantity)
+        except Exception:
+            # Further fallback: try with the old 3-arg signature for older Odoo versions
+            try:
+                return partner.pricelist_id._get_product_price(
+                    product, quantity, partner.partner_id
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "[EDI] Pricelist price lookup failed for %s: %s", product.name, exc
+                )
+                return product.list_price
 
     def _compute_change_summary(self, existing_so, order) -> str:
         """Generate human-readable summary of what changed."""
