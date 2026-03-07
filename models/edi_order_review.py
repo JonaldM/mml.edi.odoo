@@ -14,7 +14,7 @@ class EDIOrderReview(models.Model):
     _inherit = ["mail.thread", "mail.activity.mixin"]
 
     name = fields.Char(
-        default=lambda self: self.env["ir.sequence"].next_by_code("edi.order.review"),
+        default=lambda self: self.env["ir.sequence"].sudo().next_by_code("edi.order.review"),
         copy=False,
         readonly=True,
         string="Reference",
