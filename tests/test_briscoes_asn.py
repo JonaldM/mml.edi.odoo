@@ -31,7 +31,7 @@ class TestBriscoesASNGenerator(unittest.TestCase):
         return base
 
     def _get_generator(self):
-        from parsers.briscoes_asn import BriscoesASNGenerator
+        from mml_edi.parsers.briscoes_asn import BriscoesASNGenerator
         return BriscoesASNGenerator()
 
     def test_generate_contains_required_segments(self):
