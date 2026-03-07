@@ -27,6 +27,8 @@ DESADV structure:
 import logging
 from datetime import datetime, timezone
 
+from .briscoes import _edifact_escape
+
 _logger = logging.getLogger(__name__)
 
 _BRISCOES_GLN = '9469313000007'
@@ -71,11 +73,11 @@ class BriscoesASNGenerator:
         # Interchange header
         segments.append(
             'UNB+UNOA:3+{mml}:14+{briscoes}:14+{date}:{time}+{ref}++DESADV'.format(
-                mml=despatch['mml_edis_id'],
+                mml=_edifact_escape(despatch['mml_edis_id']),
                 briscoes=_BRISCOES_GLN,
                 date=date_yymmdd,
                 time=time_hhmm,
-                ref=despatch['ctrl_ref'],
+                ref=_edifact_escape(despatch['ctrl_ref']),
             )
         )
 
@@ -83,7 +85,7 @@ class BriscoesASNGenerator:
         segments.append('UNH+1+DESADV:D:96A:UN:EAN008')
 
         # Beginning of message (351 = despatch advice)
-        segments.append('BGM+351+{ref}+9'.format(ref=despatch['despatch_ref']))
+        segments.append('BGM+351+{ref}+9'.format(ref=_edifact_escape(despatch['despatch_ref'])))
 
         # Document date
         segments.append('DTM+137:{date}:102'.format(date=despatch['despatch_date']))
@@ -92,13 +94,13 @@ class BriscoesASNGenerator:
         segments.append('DTM+11:{date}:102'.format(date=despatch['despatch_date']))
 
         # Seller (MML)
-        segments.append('NAD+SE+{mml}::14'.format(mml=despatch['mml_edis_id']))
+        segments.append('NAD+SE+{mml}::14'.format(mml=_edifact_escape(despatch['mml_edis_id'])))
 
         # Buyer (Briscoes Group)
         segments.append('NAD+BY+{gln}::14'.format(gln=_BRISCOES_GLN))
 
         # PO reference
-        segments.append('RFF+ON:{po}'.format(po=despatch['po_number']))
+        segments.append('RFF+ON:{po}'.format(po=_edifact_escape(despatch['po_number'])))
 
         # Deliveries (one consignment packing sequence per store)
         lin_count = 0
@@ -128,7 +130,7 @@ class BriscoesASNGenerator:
         segments.append('UNT+{n}+1'.format(n=seg_count_for_unt))
 
         # Interchange trailer
-        segments.append('UNZ+1+{ref}'.format(ref=despatch['ctrl_ref']))
+        segments.append('UNZ+1+{ref}'.format(ref=_edifact_escape(despatch['ctrl_ref'])))
 
         return _SEG_TERM.join(segments) + _SEG_TERM
 
