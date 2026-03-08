@@ -152,3 +152,10 @@ Odoo integration tests (requiring `self.env`) must be run via `odoo-bin --test-e
 - `ServiceSleepMins`: production = 15, test = 1
 - `_OldVer/` folders contain previous-generation binaries — do not restore
 - `EDI.MOVEDtoD/` is a legacy archive (2014-era sample files, WinSCP scripts) — reference only
+
+## Available Commands
+
+- `/tdd` — write parser tests first; pure-Python tests run without Odoo
+- `/plan` — implementation plan before adding new parsers or pipeline stages
+- `/code-review` — review before enabling production EDI flows
+- `/security-scan` — check FTP path traversal guards, HMAC validation, allowlists

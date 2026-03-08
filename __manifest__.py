@@ -9,7 +9,7 @@
         Phase 2: Real EDIFACT D96A parsing (awaiting partner technical spec).
     """,
     "author": "MML Consumer Products Ltd",
-    "website": "https://github.com/JonaldM/mml.edi.odoo",
+    "website": "https://www.mmlconsumerproducts.co.nz",
     "category": "Operations",
     "license": "LGPL-3",
     "depends": ["mml_base", "sale", "account", "stock", "mail"],
