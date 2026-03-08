@@ -81,6 +81,14 @@ def _split_segments(raw: bytes) -> List[List[List[str]]]:
     """
     # Decode as Windows-1252 (superset of latin-1) to preserve 0x92 as a character
     text = raw.decode("cp1252", errors="replace")
+    replacement_count = text.count('\ufffd')
+    if replacement_count:
+        _logger.warning(
+            'EDI: file contains %d byte(s) invalid in Windows-1252 encoding. '
+            'Data may be corrupt. If the trading partner uses a different encoding '
+            '(e.g. UTF-8, ISO-8859-1), contact IT to update encoding configuration.',
+            replacement_count,
+        )
 
     # Skip UNA service string if present (always 9 chars: "UNA:+.? '")
     if text.startswith("UNA"):
