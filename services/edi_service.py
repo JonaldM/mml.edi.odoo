@@ -89,11 +89,15 @@ class EDIService:
                 continue
             barcode = move.product_id.barcode or ''
             if len(barcode) != 13:
-                _logger.warning(
-                    'EDI ASN: product %s has no valid EAN-13 — line skipped',
-                    move.product_id.display_name,
+                from odoo.exceptions import UserError
+                raise UserError(
+                    "Cannot generate ASN: product '%s' "
+                    "(ref: %s) has no valid EAN-13 barcode. "
+                    "Assign a barcode before confirming despatch." % (
+                        move.product_id.display_name,
+                        move.product_id.default_code or 'N/A',
+                    )
                 )
-                continue
             deliveries.setdefault(store_gln, []).append({
                 'ean13': barcode,
                 'qty': move.quantity,
