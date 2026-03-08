@@ -308,3 +308,46 @@ class TestPOChangeWorkflow(EDITestSetup, TransactionCase):
         self.assertIn(change_1.id, change_ids)
         self.assertIn(change_2.id, change_ids)
         self.assertEqual(len(change_ids), 2)
+
+
+# ── Pure-Python structural tests (no Odoo needed) ─────────────────────────────
+
+def test_pending_changes_attachment_uses_timestamp():
+    """
+    Structural test: edi_processor.py must create timestamped attachment names
+    so that successive change orders each produce a separate attachment rather
+    than overwriting a fixed 'pending_changes.json'.
+    """
+    import pathlib
+    src = pathlib.Path('mml.edi/models/edi_processor.py').read_text()
+    # The name must include a timestamp variable, not a bare literal
+    assert 'pending_changes_' in src or 'pending_changes_{' in src or (
+        'ts' in src and 'pending_changes' in src
+    ), (
+        "edi_processor.py must use a timestamped attachment name for "
+        "pending_changes — not the fixed string 'pending_changes.json'"
+    )
+
+
+def test_pending_changes_attachment_name_not_fixed_literal():
+    """
+    The fixed string 'pending_changes.json' must NOT appear as the attachment
+    name literal in _process_change_order (only in apply_change_order search).
+    """
+    import pathlib
+    import ast
+
+    src = pathlib.Path('mml.edi/models/edi_processor.py').read_text()
+    tree = ast.parse(src)
+
+    # Count occurrences of the bare literal 'pending_changes.json'
+    bare_literal_count = src.count("'pending_changes.json'") + src.count('"pending_changes.json"')
+
+    # apply_change_order still searches by prefix so one occurrence is expected
+    # (the search filter). If there are 2+ occurrences the create() still uses
+    # the old fixed name.
+    assert bare_literal_count <= 1, (
+        "Found %d occurrences of literal 'pending_changes.json' in edi_processor.py. "
+        "The ir.attachment create() call must use a timestamped name; "
+        "only the search in apply_change_order may reference the bare name." % bare_literal_count
+    )

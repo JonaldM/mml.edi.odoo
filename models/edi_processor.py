@@ -13,7 +13,7 @@ import hashlib
 import html
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -378,13 +378,17 @@ class EDIProcessor(models.AbstractModel):
             "state": "pending_review",
         })
 
-        # Store pending changes as a JSON attachment for apply_change_order()
+        # Store pending changes as a timestamped JSON attachment for apply_change_order().
+        # Each change order gets its own attachment so history is preserved when
+        # multiple change orders arrive before any is approved.
+        ts = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
         self.env["ir.attachment"].create({
-            "name": "pending_changes.json",
+            "name": f"pending_changes_{ts}.json",
             "res_model": "edi.order.review",
             "res_id": review.id,
             "datas": self._encode_pending_changes(order, existing_so),
             "mimetype": "application/json",
+            "description": f"Change order received {ts}",
         })
 
         self.env["edi.log"].log(
@@ -413,8 +417,8 @@ class EDIProcessor(models.AbstractModel):
         attachment = self.env["ir.attachment"].search([
             ("res_model", "=", "edi.order.review"),
             ("res_id", "=", review.id),
-            ("name", "=", "pending_changes.json"),
-        ], limit=1)
+            ("name", "like", "pending_changes_"),
+        ], order="create_date desc", limit=1)
 
         if not attachment:
             _logger.warning(
