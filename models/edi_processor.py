@@ -626,19 +626,49 @@ class EDIProcessor(models.AbstractModel):
         }
         return base64.b64encode(json.dumps(changes).encode()).decode()
 
+    _ALERT_COOLDOWN_SECONDS = 3600  # 1 alert per hour per module
+
     def _send_cron_alert(self, module_name: str, subject: str, body: str) -> None:
-        """Send an email alert when a scheduled action fails."""
+        """Send an email alert when a scheduled action fails.
+
+        Rate-limited to one alert per hour per module to prevent alert storms.
+        Timestamp stored in ir.config_parameter under mml_edi.last_alert.<module>.
+        """
+        from datetime import datetime, timezone
+
         alert_email = self.env['ir.config_parameter'].sudo().get_param(
             'mml.cron_alert_email', False
         )
         if not alert_email:
             return
+
+        # Rate limiting: suppress if an alert was sent within the cooldown window
+        param_key = 'mml_edi.last_alert.%s' % module_name
+        ICP = self.env['ir.config_parameter'].sudo()
+        last_alert_str = ICP.get_param(param_key, '')
+        if last_alert_str:
+            try:
+                last_alert = datetime.fromisoformat(last_alert_str)
+                if last_alert.tzinfo is None:
+                    last_alert = last_alert.replace(tzinfo=timezone.utc)
+                elapsed = (datetime.now(timezone.utc) - last_alert).total_seconds()
+                if elapsed < self._ALERT_COOLDOWN_SECONDS:
+                    _logger.debug(
+                        'EDI alert suppressed for %s (%.0fs ago, cooldown %ds)',
+                        module_name, elapsed, self._ALERT_COOLDOWN_SECONDS,
+                    )
+                    return
+            except (ValueError, TypeError):
+                pass  # Malformed stored value — send the alert
+
         try:
             self.env['mail.mail'].sudo().create({
                 'subject': '[MML ALERT] %s: %s' % (module_name, subject),
                 'body_html': '<pre>%s</pre>' % html.escape(body),
                 'email_to': alert_email,
             }).send()
+            # Record timestamp only after a successful send
+            ICP.set_param(param_key, datetime.now(timezone.utc).isoformat())
         except Exception:
             _logger.exception('Failed to send cron alert email for %s', module_name)
 
