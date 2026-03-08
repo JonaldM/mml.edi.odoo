@@ -187,7 +187,7 @@ class EDIFTPHandler:
     def _connect_ftp(self):
         ftp = ftplib.FTP(timeout=_CONNECT_TIMEOUT)
         ftp.connect(self.partner.ftp_host, self.partner.ftp_port)
-        ftp.login(self.partner.ftp_user, self.partner.ftp_password)
+        ftp.login(self.partner.ftp_user, self.partner.get_ftp_password())
         ftp.set_pasv(True)
         self._ftp = ftp
 
@@ -226,7 +226,7 @@ class EDIFTPHandler:
                 hostname=self.partner.ftp_host,
                 port=self.partner.ftp_port,
                 username=self.partner.ftp_user,
-                password=self.partner.ftp_password,
+                password=self.partner.get_ftp_password(),
                 timeout=_CONNECT_TIMEOUT,
                 look_for_keys=False,
                 allow_agent=False,

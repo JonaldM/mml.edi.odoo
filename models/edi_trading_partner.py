@@ -6,6 +6,8 @@ import string
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
+from ..utils.credential_store import decrypt_credential, encrypt_credential
+
 _logger = logging.getLogger(__name__)
 
 _ALLOWED_PARSER_CLASSES = frozenset({
@@ -170,6 +172,29 @@ class EDITradingPartner(models.Model):
     _sql_constraints = [
         ("code_unique", "UNIQUE(code)", "Trading partner code must be unique."),
     ]
+
+    # ── ORM overrides (credential encryption) ────────────────────────────
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('ftp_password'):
+                vals['ftp_password'] = encrypt_credential(vals['ftp_password'], self.env)
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if vals.get('ftp_password'):
+            vals['ftp_password'] = encrypt_credential(vals['ftp_password'], self.env)
+        return super().write(vals)
+
+    def get_ftp_password(self) -> str:
+        """Return the decrypted FTP password for this trading partner.
+
+        Use this instead of accessing partner.ftp_password directly to ensure
+        Fernet-encrypted values are transparently decrypted.
+        """
+        self.ensure_one()
+        return decrypt_credential(self.ftp_password, self.env)
 
     # ── Actions ───────────────────────────────────────────────────────────
 
