@@ -10,6 +10,7 @@ AbstractModel — no database table.
 """
 import base64
 import hashlib
+import html
 import json
 import logging
 from datetime import date
@@ -635,7 +636,7 @@ class EDIProcessor(models.AbstractModel):
         try:
             self.env['mail.mail'].sudo().create({
                 'subject': '[MML ALERT] %s: %s' % (module_name, subject),
-                'body_html': '<pre>%s</pre>' % body,
+                'body_html': '<pre>%s</pre>' % html.escape(body),
                 'email_to': alert_email,
             }).send()
         except Exception:
