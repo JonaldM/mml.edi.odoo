@@ -11,6 +11,7 @@ import ftplib
 import io
 import logging
 import os
+import re as _re
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -25,22 +26,27 @@ _CONNECT_TIMEOUT = 30  # seconds
 _TRANSFER_TIMEOUT = 60  # seconds
 
 
-def _safe_filename(filename: str) -> str:
-    """Validate and return a safe filename, rejecting path traversal attempts.
+_SAFE_FILENAME_RE = _re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.\-]*$')
 
-    Accepts only filenames (no directory separators, no parent-dir sequences).
-    Raises EDIFTPError if the filename is invalid.
+
+def _safe_filename(filename: str) -> str:
+    """Validate and return a safe filename using a whitelist pattern.
+
+    Requires the filename to start with an alphanumeric character and contain
+    only letters, digits, underscores, hyphens, and dots. This prevents path
+    traversal via leading dots (.hidden), embedded slashes, backslashes, or
+    double-dot sequences regardless of encoding tricks.
+
+    Raises EDIFTPError if the filename is invalid or empty.
     """
-    if not filename:
-        raise EDIFTPError('Empty filename rejected')
-    # Reject any path component separators or traversal sequences
-    if '/' in filename or '\\' in filename or '..' in filename:
-        raise EDIFTPError(f'Path traversal attempt in filename rejected: {filename!r}')
-    # Strip leading/trailing whitespace that could confuse path joins
-    clean = filename.strip()
-    if not clean:
-        raise EDIFTPError(f'Blank filename rejected: {filename!r}')
-    return clean
+    if not filename or not isinstance(filename, str):
+        raise EDIFTPError(f'Invalid filename: {filename!r}')
+    if not _SAFE_FILENAME_RE.match(filename):
+        raise EDIFTPError(
+            f'Filename rejected — must start with alphanumeric and contain '
+            f'only letters, digits, underscores, hyphens, dots: {filename!r}'
+        )
+    return filename
 
 
 class EDIFTPHandler:

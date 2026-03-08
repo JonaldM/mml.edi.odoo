@@ -32,6 +32,70 @@ def make_mock_partner(protocol="ftp", host="ftp.test.com", port=21,
     return partner
 
 
+class TestSafeFilename:
+    """Tests for the _safe_filename() path traversal guard."""
+
+    def test_safe_filename_rejects_dot_dot_slash_variant(self):
+        """....// must be rejected — not caught by the old blacklist."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        from mml_edi.parsers.base_parser import EDIFTPError
+        with pytest.raises(EDIFTPError):
+            _safe_filename('....//etc/passwd')
+
+    def test_safe_filename_rejects_leading_dot(self):
+        """.hidden must be rejected — leading dot blocked by whitelist."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        from mml_edi.parsers.base_parser import EDIFTPError
+        with pytest.raises(EDIFTPError):
+            _safe_filename('.hidden_file')
+
+    def test_safe_filename_rejects_forward_slash(self):
+        """Filenames containing / must be rejected."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        from mml_edi.parsers.base_parser import EDIFTPError
+        with pytest.raises(EDIFTPError):
+            _safe_filename('subdir/malicious.edi')
+
+    def test_safe_filename_rejects_backslash(self):
+        r"""Filenames containing \ must be rejected."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        from mml_edi.parsers.base_parser import EDIFTPError
+        with pytest.raises(EDIFTPError):
+            _safe_filename('subdir\\malicious.edi')
+
+    def test_safe_filename_rejects_dot_dot(self):
+        """../traversal must be rejected."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        from mml_edi.parsers.base_parser import EDIFTPError
+        with pytest.raises(EDIFTPError):
+            _safe_filename('../etc/passwd')
+
+    def test_safe_filename_rejects_empty_string(self):
+        """Empty filename must be rejected."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        from mml_edi.parsers.base_parser import EDIFTPError
+        with pytest.raises(EDIFTPError):
+            _safe_filename('')
+
+    def test_safe_filename_accepts_normal_edi_filename(self):
+        """Standard EDI filenames must pass through unchanged."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        result = _safe_filename('BRISCOES_PO_20260308_001.edi')
+        assert result == 'BRISCOES_PO_20260308_001.edi'
+
+    def test_safe_filename_accepts_alphanumeric_with_dashes(self):
+        """Hyphenated filenames must be accepted."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        result = _safe_filename('order-2026-03-08.edi')
+        assert result == 'order-2026-03-08.edi'
+
+    def test_safe_filename_accepts_uppercase_filename(self):
+        """All-uppercase EDI filenames must be accepted."""
+        from mml_edi.models.edi_ftp import _safe_filename
+        result = _safe_filename('ORDERS001.EDI')
+        assert result == 'ORDERS001.EDI'
+
+
 class TestEDIFTPHandlerFTP:
     def test_list_files_returns_list(self):
         """list_files() returns filenames from the FTP server."""
