@@ -1,6 +1,7 @@
 # mml.edi/models/edi_trading_partner.py
 import importlib
 import logging
+import re
 import string
 
 from odoo import _, api, fields, models
@@ -9,6 +10,9 @@ from odoo.exceptions import UserError, ValidationError
 from ..utils.credential_store import decrypt_credential, encrypt_credential
 
 _logger = logging.getLogger(__name__)
+
+_ALLOWED_TEMPLATE_VARS = frozenset({'po_number', 'store_code'})
+_TEMPLATE_VAR_RE = re.compile(r'\$\{?(\w+)\}?')
 
 _ALLOWED_PARSER_CLASSES = frozenset({
     'mml_edi.parsers.briscoes.BriscoesParser',
@@ -172,6 +176,22 @@ class EDITradingPartner(models.Model):
     _sql_constraints = [
         ("code_unique", "UNIQUE(code)", "Trading partner code must be unique."),
     ]
+
+    # ── Field validators ──────────────────────────────────────────────────
+
+    @api.constrains('client_ref_template')
+    def _validate_client_ref_template(self):
+        for rec in self:
+            if not rec.client_ref_template:
+                continue
+            found_vars = set(_TEMPLATE_VAR_RE.findall(rec.client_ref_template))
+            unknown = found_vars - _ALLOWED_TEMPLATE_VARS
+            if unknown:
+                raise ValidationError(
+                    "client_ref_template contains unknown variable(s): "
+                    "%s. Allowed: $po_number, $store_code"
+                    % ', '.join(sorted(unknown))
+                )
 
     # ── ORM overrides (credential encryption) ────────────────────────────
 
