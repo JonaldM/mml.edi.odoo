@@ -73,7 +73,6 @@ class EDITradingPartner(models.Model):
     )
     ftp_password = fields.Char(
         string="FTP Password",
-        password=True,
         groups='base.group_system',
         help="NOTE: Migrate to ir.config_parameter for multi-tenant deployments. "
              "Key pattern: mml_edi.{partner_code}.ftp_password",
@@ -173,9 +172,10 @@ class EDITradingPartner(models.Model):
 
     # ── Constraints ───────────────────────────────────────────────────────
 
-    _sql_constraints = [
-        ("code_unique", "UNIQUE(code)", "Trading partner code must be unique."),
-    ]
+    _code_unique = models.Constraint(
+        'UNIQUE(code)',
+        'Trading partner code must be unique.',
+    )
 
     # ── Field validators ──────────────────────────────────────────────────
 
