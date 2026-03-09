@@ -11,14 +11,12 @@
         <!-- EDI User: view dashboard, approve/reject orders, view logs -->
         <record id="group_edi_user" model="res.groups">
             <field name="name">EDI User</field>
-            <field name="category_id" ref="mml_edi.module_category_edi"/>
             <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
         </record>
 
         <!-- EDI Manager: configure trading partners, reset reviews, all logs, bulk actions -->
         <record id="group_edi_manager" model="res.groups">
             <field name="name">EDI Manager</field>
-            <field name="category_id" ref="mml_edi.module_category_edi"/>
             <field name="implied_ids" eval="[(4, ref('mml_edi.group_edi_user'))]"/>
         </record>
     </data>

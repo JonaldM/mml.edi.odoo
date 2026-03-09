@@ -20,6 +20,9 @@
         # Sequences and cron (noupdate=1 inside)
         "data/ir_sequence.xml",
         "data/ir_cron.xml",
+        # Wizard views (must come before main views that reference wizard actions)
+        "wizards/edi_bulk_action_views.xml",
+        "wizards/edi_seed_stores_views.xml",
         # Views
         "views/edi_trading_partner_views.xml",
         "views/edi_order_review_views.xml",
@@ -27,9 +30,6 @@
         "views/edi_log_views.xml",
         "views/sale_order_views.xml",
         "views/stock_location_views.xml",
-        # Wizard views
-        "wizards/edi_bulk_action_views.xml",
-        "wizards/edi_seed_stores_views.xml",
         # Menus (after all view actions are defined)
         "views/menuitems.xml",
         # Seed data (noupdate=1 inside)

@@ -28,7 +28,7 @@
 
                     <separator/>
 
-                    <group expand="0" string="Group By">
+                    <group>
                         <filter name="group_by_trading_partner"
                                 string="Trading Partner"
                                 context="{'group_by': 'trading_partner_id'}"/>
