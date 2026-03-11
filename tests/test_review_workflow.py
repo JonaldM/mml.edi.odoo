@@ -161,7 +161,7 @@ class TestReviewWorkflow(EDITestSetup, TransactionCase):
 
         # Ensure admin has the edi_manager group (not guaranteed in test env)
         edi_manager_group = self.env.ref("mml_edi.group_edi_manager")
-        admin_user.write({"groups_id": [(4, edi_manager_group.id)]})
+        admin_user.write({"group_ids": [(4, edi_manager_group.id)]})
 
         # Create an approved review as admin (admin now has edi_manager)
         review = self._make_review(so=so, state="approved")
@@ -193,7 +193,7 @@ class TestReviewWorkflow(EDITestSetup, TransactionCase):
             "name": "Plain EDI User",
             "login": "plain_edi_user_test@test.local",
         })
-        plain_user.write({"groups_id": [(4, self.env.ref("base.group_user").id)]})
+        plain_user.write({"group_ids": [(4, self.env.ref("base.group_user").id)]})
 
         review_as_plain = review.with_user(plain_user)
         with self.assertRaises(UserError):
