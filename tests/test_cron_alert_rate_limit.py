@@ -3,7 +3,7 @@ import pathlib
 
 
 def test_rate_limiting_uses_config_param():
-    src = pathlib.Path('mml.edi/models/edi_processor.py').read_text()
+    src = (pathlib.Path(__file__).parent.parent / 'models/edi_processor.py').read_text()
     assert 'last_alert' in src, (
         "edi_processor.py must store/check last alert timestamp to implement rate limiting"
     )

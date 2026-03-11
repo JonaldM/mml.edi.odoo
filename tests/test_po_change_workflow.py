@@ -319,7 +319,7 @@ def test_pending_changes_attachment_uses_timestamp():
     than overwriting a fixed 'pending_changes.json'.
     """
     import pathlib
-    src = pathlib.Path('mml.edi/models/edi_processor.py').read_text()
+    src = (pathlib.Path(__file__).parent.parent / 'models/edi_processor.py').read_text()
     # The name must include a timestamp variable, not a bare literal
     assert 'pending_changes_' in src or 'pending_changes_{' in src or (
         'ts' in src and 'pending_changes' in src
@@ -337,7 +337,7 @@ def test_pending_changes_attachment_name_not_fixed_literal():
     import pathlib
     import ast
 
-    src = pathlib.Path('mml.edi/models/edi_processor.py').read_text()
+    src = (pathlib.Path(__file__).parent.parent / 'models/edi_processor.py').read_text()
     tree = ast.parse(src)
 
     # Count occurrences of the bare literal 'pending_changes.json'

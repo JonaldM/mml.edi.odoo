@@ -5,7 +5,7 @@ import pathlib
 import pytest
 
 
-_SRC_PATH = pathlib.Path('mml.edi/models/edi_trading_partner.py')
+_SRC_PATH = pathlib.Path(__file__).parent.parent / 'models/edi_trading_partner.py'
 
 
 def test_client_ref_template_has_constrains_validator():
