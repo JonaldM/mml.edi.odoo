@@ -23,7 +23,10 @@ from pathlib import Path
 from odoo.tests.common import TransactionCase
 
 from .common import EDITestSetup
-from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+try:
+    from odoo.addons.mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+except ImportError:
+    from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -89,13 +92,17 @@ class EDIBriscoesSetup(EDITestSetup):
             "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
             "product_match_field": "barcode",
             "order_split_mode": "per_store",
+            "client_ref_template": "{po_number}_{store_code}",
             "price_tolerance_pct": 100.0,  # Skip price blocking in tests
             "auto_confirm_clean": False,
         })
 
     def _run(self, content: bytes, filename="test.edi"):
         """Parse raw EDIFACT bytes and run each ParsedOrder through the full pipeline."""
-        from mml_edi.parsers.briscoes import BriscoesParser
+        try:
+            from odoo.addons.mml_edi.parsers.briscoes import BriscoesParser
+        except ImportError:
+            from mml_edi.parsers.briscoes import BriscoesParser
         parser = BriscoesParser()
         parsed_orders = parser.parse_file(content, self.trading_partner)
         file_hash = hashlib.sha256(content).hexdigest()
@@ -302,8 +309,8 @@ class TestBriscoesOrdrspIntegration(EDIBriscoesSetup, TransactionCase):
         self.so = self.review_1005.sale_order_id
 
     def _get_ordrsp(self, review) -> str:
-        from mml_edi.parsers.briscoes import _generate_ordrsp
-        return _generate_ordrsp(review).decode("utf-8")
+        parser = self.trading_partner.get_parser_instance()
+        return parser.generate_ack(review).decode("utf-8")
 
     def _bgm_purpose(self, ordrsp_text: str) -> str:
         for line in ordrsp_text.split("\r\n"):
