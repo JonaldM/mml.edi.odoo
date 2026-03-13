@@ -274,7 +274,11 @@ class EDITradingPartner(models.Model):
             )
         try:
             module_path, class_name = self.parser_class.rsplit(".", 1)
-            module = importlib.import_module(module_path)
+            try:
+                module = importlib.import_module(module_path)
+            except ImportError:
+                # Inside Odoo, modules live under odoo.addons.* namespace
+                module = importlib.import_module("odoo.addons." + module_path)
             cls = getattr(module, class_name)
             return cls()
         except (ImportError, AttributeError, ValueError) as e:

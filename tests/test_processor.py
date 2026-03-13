@@ -39,7 +39,10 @@ from .common import (
     make_product_not_found_parsed_order,
     make_parsed_line,
 )
-from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+try:
+    from odoo.addons.mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+except ImportError:
+    from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
 
 # True only when the real Odoo TransactionCase (with .env) is present.
 # The conftest stub has no 'env' attribute, so this correctly gates the tests.

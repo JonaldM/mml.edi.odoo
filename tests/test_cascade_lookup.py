@@ -41,7 +41,7 @@ class TestCascadeLookup(EDITestSetup, TransactionCase):
             "name": "Cascade Test Product",
             "default_code": internal_ref,
             "list_price": 9.99,
-            "type": "product",
+            "type": "consu",
             # Intentionally NO barcode field set
         })
 
@@ -50,7 +50,7 @@ class TestCascadeLookup(EDITestSetup, TransactionCase):
         product = self.env["product.product"].create({
             "name": "Supplier Code Test Product",
             "list_price": 9.99,
-            "type": "product",
+            "type": "consu",
         })
         self.env["product.supplierinfo"].create({
             "partner_id": self.trading_partner.partner_id.id,

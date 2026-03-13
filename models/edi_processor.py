@@ -295,9 +295,11 @@ class EDIProcessor(models.AbstractModel):
             })
 
         # Stock check (warning, non-blocking)
-        qty_available = product.with_context(
-            warehouse=so.warehouse_id.id
-        ).qty_available
+        # warehouse_id is added by sale_stock; fall back to no warehouse context if absent
+        wh_ctx = {}
+        if 'warehouse_id' in self.env['sale.order']._fields and so.warehouse_id:
+            wh_ctx = {'warehouse': so.warehouse_id.id}
+        qty_available = product.with_context(**wh_ctx).qty_available
         if qty_available < parsed_line.quantity:
             shortfall = parsed_line.quantity - qty_available
             sol.edi_qty_shortfall = shortfall

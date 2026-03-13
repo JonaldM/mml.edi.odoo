@@ -11,7 +11,10 @@ Usage:
 from datetime import date, timedelta
 
 # Import dataclasses for use in tests — these don't need Odoo
-from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+try:
+    from odoo.addons.mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+except ImportError:
+    from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
 
 
 def make_parsed_line(
@@ -106,7 +109,7 @@ class EDITestSetup:
             "name": "EDI Test Product",
             "barcode": "TEST001",
             "list_price": 9.99,
-            "type": "product",
+            "type": "consu",
         })
 
         self.env["product.pricelist.item"].create({

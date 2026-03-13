@@ -13,7 +13,7 @@ class EDILog(models.Model):
     _log_access = False  # Don't add create_uid/write_uid overhead
 
     name = fields.Char(
-        default=lambda self: self.env["ir.sequence"].next_by_code("edi.log"),
+        default=lambda self: self.env["ir.sequence"].sudo().next_by_code("edi.log"),
         copy=False,
         readonly=True,
         string="Reference",
