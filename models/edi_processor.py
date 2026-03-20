@@ -13,12 +13,18 @@ import hashlib
 import html
 import json
 import logging
+import secrets
 from datetime import date, datetime
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+
+
+def build_session_id() -> str:
+    """Generate a short unique ID for correlating log messages within one poll run."""
+    return secrets.token_hex(4)
 
 
 class EDIProcessor(models.AbstractModel):
@@ -77,13 +83,15 @@ class EDIProcessor(models.AbstractModel):
         from .edi_ftp import EDIFTPHandler
         from ..parsers.base_parser import EDIFTPError
 
-        _logger.info("[EDI] Polling %s", partner.code)
+        sid = build_session_id()
+        prefix = "[EDI:%s]" % sid
+        _logger.info("%s Polling %s", prefix, partner.code)
         handler = EDIFTPHandler(partner)
 
         try:
             with handler.connection():
                 files = handler.list_files()
-                _logger.info("[EDI] %s: %d file(s) in inbox", partner.code, len(files))
+                _logger.info("%s %s: %d file(s) in inbox", prefix, partner.code, len(files))
 
                 for filename in files:
                     try:
@@ -103,7 +111,7 @@ class EDIProcessor(models.AbstractModel):
 
                     except Exception as exc:
                         _logger.exception(
-                            "[EDI] Error processing file %s for %s", filename, partner.code
+                            "%s Error processing file %s for %s", prefix, filename, partner.code
                         )
                         self.env["edi.log"].log(
                             partner, "inbound", "error", "error",
@@ -112,6 +120,7 @@ class EDIProcessor(models.AbstractModel):
                         )
 
         except EDIFTPError as exc:
+            _logger.error("%s FTP connection failed for %s: %s", prefix, partner.code, exc)
             self.env["edi.log"].log(
                 partner, "inbound", "ftp_connection", "error",
                 "FTP connection failed: %s" % str(exc),
