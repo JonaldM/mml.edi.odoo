@@ -85,12 +85,98 @@ def _ensure_odoo_test_stubs() -> None:
     # 'from odoo import fields' in test files does not raise.
     if "odoo" not in sys.modules:
         odoo_mod = types.ModuleType("odoo")
-        odoo_fields = types.ModuleType("odoo.fields")
+
+        # Stub odoo.fields with a catch-all __getattr__ for any field type,
+        # plus a special Datetime that also exposes a .now() class method.
+        class _FieldStub:
+            """Callable stub returned for any odoo.fields.* descriptor."""
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class _DatetimeField(_FieldStub):
+            @staticmethod
+            def now():
+                from datetime import datetime, timezone
+                return datetime.now(timezone.utc)
+
+        class _OdooFieldsModule(types.ModuleType):
+            """Module whose missing attributes return a callable field stub."""
+            Datetime = _DatetimeField
+
+            def __getattr__(self, name):
+                setattr(self, name, _FieldStub)
+                return _FieldStub
+
+        odoo_fields = _OdooFieldsModule("odoo.fields")
+
+        # Stub odoo.models with minimal base classes and a catch-all for any others.
+        class _ModelStub:
+            pass
+
+        class _AbstractModelStub:
+            pass
+
+        class _ConstraintStub:
+            def __init__(self, *args, **kwargs):
+                pass
+
+        class _OdooModelsModule(types.ModuleType):
+            """Module whose missing attributes return a model stub class."""
+            Model = _ModelStub
+            AbstractModel = _AbstractModelStub
+            TransientModel = _ModelStub
+            Constraint = _ConstraintStub
+
+            def __getattr__(self, name):
+                setattr(self, name, _ModelStub)
+                return _ModelStub
+
+        odoo_models = _OdooModelsModule("odoo.models")
+
+        # Stub odoo.api with decorators that are no-ops
+        odoo_api = types.ModuleType("odoo.api")
+
+        def _noop_decorator(*args, **kwargs):
+            if len(args) == 1 and callable(args[0]):
+                return args[0]
+            def decorator(fn):
+                return fn
+            return decorator
+
+        odoo_api.model = _noop_decorator
+        odoo_api.model_create_multi = _noop_decorator
+        odoo_api.constrains = _noop_decorator
+        odoo_api.depends = _noop_decorator
+
+        # Stub odoo.exceptions
+        odoo_exceptions = types.ModuleType("odoo.exceptions")
+
+        class ValidationError(Exception):
+            pass
+
+        class UserError(Exception):
+            pass
+
+        odoo_exceptions.ValidationError = ValidationError
+        odoo_exceptions.UserError = UserError
+
+        # Wire everything together
         odoo_mod.fields = odoo_fields
+        odoo_mod.models = odoo_models
+        odoo_mod.api = odoo_api
+        odoo_mod.exceptions = odoo_exceptions
+        odoo_mod._ = lambda s: s  # translation stub
+
         sys.modules["odoo"] = odoo_mod
         sys.modules["odoo.fields"] = odoo_fields
+        sys.modules["odoo.models"] = odoo_models
+        sys.modules["odoo.api"] = odoo_api
+        sys.modules["odoo.exceptions"] = odoo_exceptions
     else:
         odoo_mod = sys.modules["odoo"]
+        # Ensure _ is available even if odoo was partially stubbed before
+        if not hasattr(odoo_mod, "_"):
+            odoo_mod._ = lambda s: s
 
     odoo_mod.tests = odoo_tests
     sys.modules["odoo.tests"] = odoo_tests
@@ -129,4 +215,11 @@ _register_module(
     "mml_edi.services.edi_service",
     os.path.join(services_dir, "edi_service.py"),
     mml_edi_services,
+)
+
+# 7. mml_edi.models.edi_trading_partner — exports circuit_is_open (pure function)
+_register_module(
+    "mml_edi.models.edi_trading_partner",
+    os.path.join(models_dir, "edi_trading_partner.py"),
+    mml_edi_models,
 )

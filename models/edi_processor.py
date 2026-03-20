@@ -30,13 +30,34 @@ class EDIProcessor(models.AbstractModel):
     @api.model
     def run_scheduled_poll(self):
         """Called by ir.cron. Polls all active trading partners."""
+        from .edi_trading_partner import circuit_is_open
         partners = self.env["edi.trading.partner"].search([("active", "=", True)])
         _logger.info("[EDI] Scheduled poll: %d active partner(s)", len(partners))
         for partner in partners:
+            if circuit_is_open(partner):
+                _logger.info(
+                    "[EDI] Circuit breaker OPEN for %s — skipping poll "
+                    "(failures=%d, open_since=%s, cooldown=%dmin)",
+                    partner.code,
+                    partner.circuit_failure_count,
+                    partner.circuit_open_since,
+                    partner.circuit_cooldown_minutes,
+                )
+                continue
             try:
                 self.poll_trading_partner(partner)
+                partner.write({"circuit_failure_count": 0, "circuit_open_since": False})
             except Exception as exc:
                 _logger.exception("[EDI] Poll failed for partner %s", partner.code)
+                new_count = partner.circuit_failure_count + 1
+                vals = {"circuit_failure_count": new_count}
+                if new_count >= partner.circuit_failure_threshold and not partner.circuit_open_since:
+                    vals["circuit_open_since"] = fields.Datetime.now()
+                    _logger.error(
+                        "[EDI] Circuit breaker TRIPPED for %s after %d consecutive failures",
+                        partner.code, new_count,
+                    )
+                partner.write(vals)
                 self.env["edi.log"].log(
                     partner, "inbound", "error", "error",
                     "Scheduled poll failed: %s" % str(exc),

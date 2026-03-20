@@ -154,6 +154,30 @@ class EDITradingPartner(models.Model):
         help="Send email when orders are routed to manual review",
     )
 
+    # ── Circuit Breaker ───────────────────────────────────────────────────
+
+    circuit_failure_count = fields.Integer(
+        default=0,
+        string="Consecutive Poll Failures",
+        readonly=True,
+        help="Number of consecutive FTP poll failures since last success.",
+    )
+    circuit_open_since = fields.Datetime(
+        string="Circuit Open Since",
+        readonly=True,
+        help="Timestamp when the circuit breaker tripped. Cleared on successful poll.",
+    )
+    circuit_failure_threshold = fields.Integer(
+        default=5,
+        string="Failure Threshold",
+        help="Number of consecutive failures before the circuit opens and polling pauses.",
+    )
+    circuit_cooldown_minutes = fields.Integer(
+        default=60,
+        string="Cooldown (minutes)",
+        help="Minutes to wait before retrying after the circuit trips.",
+    )
+
     # ── Computed ──────────────────────────────────────────────────────────
 
     def get_active_inbox_path(self):
@@ -294,3 +318,25 @@ class EDITradingPartner(models.Model):
         template_str = template_str.replace('{po_number}', '$po_number').replace('{store_code}', '$store_code')
         t = string.Template(template_str)
         return t.safe_substitute(po_number=po_number, store_code=store_code or '')
+
+
+def circuit_is_open(partner) -> bool:
+    """
+    Return True if the circuit breaker is open (polling should be skipped).
+
+    States:
+      CLOSED:    failure_count < threshold — poll normally
+      OPEN:      failure_count >= threshold AND within cooldown — skip
+      HALF-OPEN: failure_count >= threshold AND cooldown expired — allow one attempt
+    """
+    if partner.circuit_failure_count < partner.circuit_failure_threshold:
+        return False
+    if not partner.circuit_open_since:
+        return False
+    from datetime import datetime, timezone, timedelta
+    cooldown = timedelta(minutes=partner.circuit_cooldown_minutes)
+    open_since = partner.circuit_open_since
+    if not open_since.tzinfo:
+        open_since = open_since.replace(tzinfo=timezone.utc)
+    elapsed = datetime.now(timezone.utc) - open_since
+    return elapsed < cooldown
