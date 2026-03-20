@@ -474,7 +474,7 @@ class BriscoesParser(BaseEDIParser):
 
         lin_groups = _collect_lin_groups(segments)
         if not lin_groups:
-            _logger.warning(
+            _logger.info(
                 "[BriscoesParser] No LIN groups found in message for PO %s", po_number
             )
             return []

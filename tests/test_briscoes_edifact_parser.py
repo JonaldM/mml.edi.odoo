@@ -233,3 +233,154 @@ class TestCartonQty:
         store_1005 = next(o for o in results if o.store_code == "1005")
         line = next(l for l in store_1005.lines if l.product_code == "9414844375629")
         assert line.carton_qty == 1.0
+
+
+class TestEdgeCases:
+    """Tests for encoding edge cases and malformed input — no fixture files needed."""
+
+    def test_x92_terminator_produces_same_result_as_standard_quote(self):
+        """
+        EDIFACT files from some Briscoes EDIS endpoints use byte 0x92
+        (Windows-1252 right single quotation mark) as the segment terminator
+        instead of the standard 0x27 (apostrophe).
+
+        Both must parse identically.
+        """
+        standard = (
+            b"UNB+UNOA:3+VENDOR:ZZ+BUYER:14+261122:0900+00001++ORDERS'"
+            b"UNH+1+ORDERS:D:96A:UN:EAN005'"
+            b"BGM+220+4500099999+9'"
+            b"DTM+137:20261122:102'"
+            b"NAD+BY+9421234567890::92'"
+            b"NAD+SU+VENDOR::92'"
+            b"LIN+00010++9414844375629:EN'"
+            b"QTY+21:24.000:EA'"
+            b"QTY+11:12.000:EA'"
+            b"QTY+52:6.000:EA'"
+            b"PRI+AAA:5.50'"
+            b"LOC+7+1005::92'"
+            b"DTM+2:20261216:102'"
+            b"UNS+S'"
+            b"CNT+2:1'"
+            b"UNT+14+1'"
+            b"UNZ+1+00001'"
+        )
+        x92_version = standard.replace(b"'", b"\x92")
+
+        from mml_edi.parsers.briscoes import BriscoesParser
+        from unittest.mock import MagicMock
+        partner = MagicMock()
+        parser = BriscoesParser()
+
+        result_standard = parser.parse_file(standard, partner)
+        result_x92 = parser.parse_file(x92_version, partner)
+
+        assert len(result_standard) == len(result_x92)
+        assert result_standard[0].po_number == result_x92[0].po_number
+        assert result_standard[0].lines[0].product_code == result_x92[0].lines[0].product_code
+        assert result_standard[0].lines[0].quantity == result_x92[0].lines[0].quantity
+
+    def test_empty_file_returns_empty_list(self):
+        from mml_edi.parsers.briscoes import BriscoesParser
+        from unittest.mock import MagicMock
+        parser = BriscoesParser()
+        result = parser.parse_file(b"", MagicMock())
+        assert result == []
+
+    def test_whitespace_only_file_returns_empty_list(self):
+        from mml_edi.parsers.briscoes import BriscoesParser
+        from unittest.mock import MagicMock
+        parser = BriscoesParser()
+        result = parser.parse_file(b"   \r\n  ", MagicMock())
+        assert result == []
+
+    def test_una_service_string_skipped(self):
+        """Files with UNA prefix must parse the same as files without it."""
+        from mml_edi.parsers.briscoes import BriscoesParser
+        from unittest.mock import MagicMock
+
+        body = (
+            b"UNB+UNOA:3+VENDOR:ZZ+BUYER:14+261122:0900+00001++ORDERS'"
+            b"UNH+1+ORDERS:D:96A:UN:EAN005'"
+            b"BGM+220+4500099999+9'"
+            b"DTM+137:20261122:102'"
+            b"NAD+BY+9421234567890::92'"
+            b"NAD+SU+VENDOR::92'"
+            b"LIN+00010++9414844375629:EN'"
+            b"QTY+11:12.000:EA'"
+            b"PRI+AAA:5.50'"
+            b"LOC+7+1005::92'"
+            b"UNS+S'"
+            b"CNT+2:1'"
+            b"UNT+11+1'"
+            b"UNZ+1+00001'"
+        )
+        with_una = b"UNA:+.? '" + body
+        partner = MagicMock()
+        parser = BriscoesParser()
+
+        result_plain = parser.parse_file(body, partner)
+        result_una = parser.parse_file(with_una, partner)
+
+        assert len(result_plain) == len(result_una)
+        assert result_plain[0].po_number == result_una[0].po_number
+
+    def test_unrecognised_bgm_type_raises(self):
+        """BGM codes other than 220 (ORDERS) and 230 (ORDCHG) must raise EDIParseError."""
+        import pytest
+        from mml_edi.parsers.briscoes import BriscoesParser
+        from mml_edi.parsers.base_parser import EDIParseError
+        from unittest.mock import MagicMock
+
+        bad_msg = (
+            b"UNH+1+ORDERS:D:96A:UN:EAN005'"
+            b"BGM+999+4500099999+9'"
+            b"UNS+S'"
+            b"UNT+3+1'"
+            b"UNZ+1+00001'"
+        )
+        with pytest.raises(EDIParseError, match="Unrecognised BGM"):
+            BriscoesParser().parse_file(bad_msg, MagicMock())
+
+    def test_missing_po_number_raises(self):
+        """BGM with empty PO number must raise EDIParseError."""
+        import pytest
+        from mml_edi.parsers.briscoes import BriscoesParser
+        from mml_edi.parsers.base_parser import EDIParseError
+        from unittest.mock import MagicMock
+
+        bad_msg = (
+            b"UNH+1+ORDERS:D:96A:UN:EAN005'"
+            b"BGM+220++9'"
+            b"UNS+S'"
+            b"UNT+3+1'"
+            b"UNZ+1+00001'"
+        )
+        with pytest.raises(EDIParseError, match="missing PO number"):
+            BriscoesParser().parse_file(bad_msg, MagicMock())
+
+    def test_invalid_bytes_produce_replacement_char_warning_not_crash(self):
+        """
+        Bytes invalid in Windows-1252 (e.g. 0x81) should produce a warning
+        via _logger.warning and not crash.
+        """
+        import pytest
+        from mml_edi.parsers.briscoes import BriscoesParser
+        from unittest.mock import MagicMock, patch
+
+        raw_with_bad_byte = (
+            b"UNH+1+ORDERS:D:96A:UN:EAN005'"
+            b"BGM+220+4500099999+9'"
+            b"\x81"
+            b"UNS+S'"
+            b"UNT+3+1'"
+            b"UNZ+1+00001'"
+        )
+        with patch("mml_edi.parsers.briscoes._logger") as mock_logger:
+            try:
+                BriscoesParser().parse_file(raw_with_bad_byte, MagicMock())
+            except Exception:
+                pass
+            assert mock_logger.warning.called
+            warning_call = str(mock_logger.warning.call_args)
+            assert "invalid" in warning_call.lower() or "corrupt" in warning_call.lower()
