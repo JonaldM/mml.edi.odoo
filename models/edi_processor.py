@@ -343,9 +343,19 @@ class EDIProcessor(models.AbstractModel):
                 "sale_order_line_id": sol.id,
             })
 
-        # Price comparison (blocking if outside tolerance)
+        # Price comparison (blocking if outside tolerance).
+        # NOTE: EDI prices from Briscoes are ex-GST (trade/wholesale net prices).
+        # If the Briscoes pricelist in Odoo is configured with GST-inclusive prices,
+        # the comparison will show a systematic ~15% discrepancy on every line.
+        # Ensure the pricelist assigned to the Briscoes trading partner uses ex-GST
+        # (tax-exclusive) prices to avoid false-positive price_discrepancy issues.
         system_price = self._get_pricelist_price(product, parsed_line.quantity, partner)
         if system_price is not None:
+            _logger.debug(
+                '[EDI] Price check for %s: EDI=%.4f system=%.4f '
+                '(EDI prices are ex-GST; ensure pricelist is also ex-GST)',
+                product.name, parsed_line.unit_price, system_price,
+            )
             sol.edi_system_price = system_price
             tolerance = partner.price_tolerance_pct / 100.0
             if system_price > 0:
