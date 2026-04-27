@@ -345,10 +345,11 @@ class EDIProcessor(models.AbstractModel):
 
         # Price comparison (blocking if outside tolerance).
         # NOTE: EDI prices from Briscoes are ex-GST (trade/wholesale net prices).
-        # If the Briscoes pricelist in Odoo is configured with GST-inclusive prices,
-        # the comparison will show a systematic ~15% discrepancy on every line.
-        # Ensure the pricelist assigned to the Briscoes trading partner uses ex-GST
-        # (tax-exclusive) prices to avoid false-positive price_discrepancy issues.
+        # GST-inclusive pricelists would cause a systematic ~15% discrepancy on
+        # every line and are now rejected at write-time by
+        # edi.trading.partner._validate_pricelist_gst (api.constrains). The
+        # debug log below is retained as a belt-and-braces diagnostic for
+        # operators reading server logs.
         system_price = self._get_pricelist_price(product, parsed_line.quantity, partner)
         if system_price is not None:
             _logger.debug(
