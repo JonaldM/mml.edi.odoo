@@ -217,6 +217,37 @@ class EDITradingPartner(models.Model):
                     % ', '.join(sorted(unknown))
                 )
 
+    @api.constrains('pricelist_id')
+    def _validate_pricelist_gst(self):
+        """Reject pricelists that resolve to GST-inclusive prices.
+
+        EDI prices from retail trading partners (Briscoes, etc.) are quoted
+        ex-GST. If the assigned pricelist references products whose
+        ``taxes_id`` includes any ``account.tax`` with
+        ``price_include=True``, every line will show a systematic ~15%
+        discrepancy and produce false-positive ``price_discrepancy``
+        issues that block otherwise-clean orders.
+
+        Hard fail at the boundary so the misconfiguration is impossible
+        by construction.
+        """
+        for rec in self:
+            pricelist = rec.pricelist_id
+            if not pricelist:
+                continue
+            for item in pricelist.item_ids or ():
+                target = item.product_id or item.product_tmpl_id
+                if not target:
+                    continue
+                for tax in target.taxes_id or ():
+                    if getattr(tax, 'price_include', False):
+                        raise ValidationError(
+                            "EDI pricelists must be GST-exclusive (ex-GST). "
+                            "Pricelist '%s' resolves to GST-inclusive prices, "
+                            "which would cause a 15%% discrepancy with "
+                            "Briscoes net prices." % pricelist.display_name
+                        )
+
     # ── ORM overrides (credential encryption) ────────────────────────────
 
     @api.model_create_multi
