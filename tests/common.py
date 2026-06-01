@@ -18,7 +18,7 @@ except ImportError:
 
 
 def make_parsed_line(
-    product_code="TEST001",
+    product_code="9780000000002",
     description="Test Product",
     quantity=10.0,
     unit_price=9.99,
@@ -87,8 +87,8 @@ class EDITestSetup:
 
     Creates:
     - A test customer partner
-    - A test pricelist with one item for TEST001 product at 9.99
-    - A test product with barcode=TEST001 and list_price=9.99
+    - A test pricelist with one item for the test product at 9.99
+    - A test product with barcode=9780000000002 (valid EAN-13) and list_price=9.99
     - A test trading partner linked to the above
 
     All records are rolled back after each test method (TransactionCase behaviour).
@@ -107,7 +107,12 @@ class EDITestSetup:
 
         self.test_product = self.env["product.product"].create({
             "name": "EDI Test Product",
-            "barcode": "TEST001",
+            # Valid EAN-13 with correct check digit (978-0-000000-0-2).
+            # "TEST001" was not a valid EAN-13, causing _validate_ean13_for_ordrsp
+            # to raise UserError whenever an ORDRSP was generated for an SO that
+            # included this product (e.g. auto-approved new-order reviews and
+            # TestBriscoesOrdrspIntegration happy-path tests).
+            "barcode": "9780000000002",
             "list_price": 9.99,
             "type": "consu",
         })

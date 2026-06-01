@@ -184,9 +184,9 @@ class TestCascadeLookup(EDITestSetup, TransactionCase):
         Primary barcode match succeeds. edi_matched_by='barcode', no fallback issue.
         (Regression: cascade must not trigger for primary matches.)
         """
-        # self.test_product from EDITestSetup has barcode='TEST001'
+        # self.test_product from EDITestSetup has barcode='9780000000002'
         order = make_fallback_lookup_order(
-            primary_ean="TEST001",  # matches self.test_product.barcode
+            primary_ean="9780000000002",  # matches self.test_product.barcode
             vendor_code="SOME_CODE",
         )
         review = self.env["edi.order.review"].create({
