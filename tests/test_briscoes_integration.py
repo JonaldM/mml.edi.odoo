@@ -20,7 +20,7 @@ import hashlib
 import unittest
 from pathlib import Path
 
-from odoo.tests.common import TransactionCase
+from odoo.tests.common import TransactionCase, tagged
 
 from .common import EDITestSetup
 try:
@@ -126,6 +126,7 @@ class EDIBriscoesSetup(EDITestSetup):
 # ── ORDERS (BGM+220) ─────────────────────────────────────────────────────────
 
 @unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime")
+@tagged("post_install", "-at_install")  # run after ALL modules load (e.g. website_sale's product fields)
 class TestBriscoesOrdersIntegration(EDIBriscoesSetup, TransactionCase):
     """Test ORDERS (BGM+220) new PO → sale order creation."""
 
@@ -202,6 +203,7 @@ class TestBriscoesOrdersIntegration(EDIBriscoesSetup, TransactionCase):
 # ── ORDCHG (BGM+230) ─────────────────────────────────────────────────────────
 
 @unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime")
+@tagged("post_install", "-at_install")  # run after ALL modules load (e.g. website_sale's product fields)
 class TestBriscoesOrdchgIntegration(EDIBriscoesSetup, TransactionCase):
     """Test ORDCHG (BGM+230) change order flow."""
 
@@ -288,6 +290,7 @@ class TestBriscoesOrdchgIntegration(EDIBriscoesSetup, TransactionCase):
 # ── ORDRSP (BGM+231) — all 5 scenarios ───────────────────────────────────────
 
 @unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime")
+@tagged("post_install", "-at_install")  # run after ALL modules load (e.g. website_sale's product fields)
 class TestBriscoesOrdrspIntegration(EDIBriscoesSetup, TransactionCase):
     """
     Test all 5 outbound ORDRSP scenarios against live Odoo DB.

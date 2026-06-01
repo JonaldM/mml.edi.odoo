@@ -29,7 +29,7 @@ import hashlib
 import unittest
 from datetime import date
 
-from odoo.tests.common import TransactionCase
+from odoo.tests.common import TransactionCase, tagged
 
 from .common import (
     EDITestSetup,
@@ -50,6 +50,7 @@ _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
 
 @unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime — run with odoo-bin --test-enable")
+@tagged("post_install", "-at_install")  # run after ALL modules load (e.g. website_sale's product fields)
 class TestEDIProcessor(EDITestSetup, TransactionCase):
 
     def setUp(self):

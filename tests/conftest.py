@@ -76,10 +76,19 @@ def _ensure_odoo_test_stubs() -> None:
         """Stub — real Odoo TransactionCase has an 'env' attribute."""
         pass
 
+    def tagged(*args, **kwargs):
+        """Stub for Odoo's test-tag decorator — a no-op class decorator under
+        pytest. Real Odoo uses it to schedule tests at_install/post_install."""
+        def _decorator(cls):
+            return cls
+        return _decorator
+
     odoo_tests_common = types.ModuleType("odoo.tests.common")
     odoo_tests_common.TransactionCase = TransactionCase
+    odoo_tests_common.tagged = tagged
     odoo_tests = types.ModuleType("odoo.tests")
     odoo_tests.common = odoo_tests_common
+    odoo_tests.tagged = tagged
 
     # Also stub the bare 'odoo' package if not already present so that
     # 'from odoo import fields' in test files does not raise.
