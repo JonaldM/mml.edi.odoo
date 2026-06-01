@@ -4,7 +4,7 @@
 
         <!-- TOP-LEVEL MENU -->
         <menuitem id="menu_edi_root"
-                  name="EDI"
+                  name="MML EDI"
                   sequence="100"/>
 
 
