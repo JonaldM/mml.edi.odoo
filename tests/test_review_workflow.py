@@ -188,10 +188,15 @@ class TestReviewWorkflow(EDITestSetup, TransactionCase):
         so = self._make_so(state="draft")
         review = self._make_review(so=so, state="approved")
 
-        # Create a plain internal user without the edi_manager group
+        # Create a plain internal user without the edi_manager group.
+        # Explicitly set company_id/company_ids so the auto-created
+        # project_todo "Welcome" task (project.task) satisfies the
+        # NOT NULL constraint on project_task.company_id (Odoo 19).
         plain_user = self.env["res.users"].create({
             "name": "Plain EDI User",
             "login": "plain_edi_user_test@test.local",
+            "company_id": self.env.company.id,
+            "company_ids": [(6, 0, [self.env.company.id])],
         })
         plain_user.write({"group_ids": [(4, self.env.ref("base.group_user").id)]})
 
