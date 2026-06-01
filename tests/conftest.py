@@ -178,6 +178,7 @@ def _ensure_odoo_test_stubs() -> None:
         if not hasattr(odoo_mod, "_"):
             odoo_mod._ = lambda s: s
 
+    odoo_mod._stubbed = True
     odoo_mod.tests = odoo_tests
     sys.modules["odoo.tests"] = odoo_tests
     sys.modules["odoo.tests.common"] = odoo_tests_common
