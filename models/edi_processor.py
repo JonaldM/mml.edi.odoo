@@ -586,12 +586,15 @@ class EDIProcessor(models.AbstractModel):
                 [("barcode", "=", code)], limit=1
             ) or None
         elif strategy == "default_code":
+            # Case-insensitive exact match: retail EDI codes arrive in mixed case
+            # (e.g. iDOC 'HESPG' vs Odoo 'hespg'); the legacy .NET handler matched
+            # case-insensitively. '=ilike' with no wildcards = exact, case-insensitive.
             return self.env["product.product"].search(
-                [("default_code", "=", code)], limit=1
+                [("default_code", "=ilike", code)], limit=1
             ) or None
         elif strategy == "supplier_sku":
             info = self.env["product.supplierinfo"].search(
-                [("product_code", "=", code)], limit=1
+                [("product_code", "=ilike", code)], limit=1
             )
             if not info:
                 return None

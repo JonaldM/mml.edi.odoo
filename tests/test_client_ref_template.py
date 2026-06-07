@@ -54,3 +54,30 @@ def test_unknown_variable_rejected_by_regex():
     assert pattern.findall('$unknown_var') == ['unknown_var']
     # Empty template — no vars
     assert pattern.findall('ORDER-REF-ONLY') == []
+
+
+def test_render_client_ref_substitutes_with_underscore_separator():
+    """Regression: '{po_number}_{store_code}' must fully substitute.
+
+    Previously the '_' separator was absorbed into the '$po_number' identifier
+    (string.Template read 'po_number_' as the name), leaving the literal
+    '$po_number_1050' as the client reference — which also collided across POs.
+    """
+    from mml_edi.models.edi_trading_partner import EDITradingPartner
+
+    class _P:
+        def __init__(self, tmpl):
+            self.client_ref_template = tmpl
+
+        def ensure_one(self):
+            pass
+
+    # per-store template with an underscore separator (Briscoes multi-store)
+    assert EDITradingPartner.render_client_ref(
+        _P('{po_number}_{store_code}'), '4500176574', '1050') == '4500176574_1050'
+    # dollar-style equivalent
+    assert EDITradingPartner.render_client_ref(
+        _P('$po_number_$store_code'), '7010168258', '1050') == '7010168258_1050'
+    # single-order template (no store)
+    assert EDITradingPartner.render_client_ref(
+        _P('{po_number}'), '700123', None) == '700123'

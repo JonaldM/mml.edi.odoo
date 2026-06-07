@@ -344,9 +344,21 @@ class EDITradingPartner(models.Model):
     def render_client_ref(self, po_number: str, store_code: str | None = None) -> str:
         """Render SO client reference from template."""
         self.ensure_one()
-        template_str = self.client_ref_template or '$po_number'
-        # Support both {po_number} and $po_number style templates
-        template_str = template_str.replace('{po_number}', '$po_number').replace('{store_code}', '$store_code')
+        template_str = self.client_ref_template or '${po_number}'
+        # Support both {po_number} and $po_number style templates. Use BRACED
+        # placeholders (${po_number}) so a following separator char does not get
+        # absorbed into the identifier — e.g. "{po_number}_{store_code}" must not
+        # become "$po_number_..." (string.Template reads "po_number_" as the name,
+        # leaving "$po_number_" unsubstituted).
+        template_str = (
+            template_str
+            .replace('{po_number}', '${po_number}')
+            .replace('{store_code}', '${store_code}')
+            .replace('$po_number', '${po_number}')
+            .replace('$store_code', '${store_code}')
+            .replace('${{po_number}}', '${po_number}')      # guard double-brace
+            .replace('${{store_code}}', '${store_code}')
+        )
         t = string.Template(template_str)
         return t.safe_substitute(po_number=po_number, store_code=store_code or '')
 
