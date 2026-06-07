@@ -76,8 +76,10 @@ class TestSingleStoreParsing:
 
     def test_product_codes(self):
         line0 = self.orders[0].lines[0]
-        assert line0.product_code == "19419416111909"     # GTIN (QUALF 003)
-        assert line0.vendor_code == "HESPG"               # MML code (QUALF 002)
+        # match key = MML internal code (QUALF 002 -> default_code), NOT the
+        # carton/shipper GTIN-14 (QUALF 003 = 19419416111909, the case barcode)
+        assert line0.product_code == "HESPG"
+        assert line0.vendor_code == "HESPG"
         assert line0.buyer_article_no == "1023632"        # Briscoes art (QUALF 001, zero-stripped)
         assert line0.description == "Soap Pump VOL Heron Gry"
         assert line0.uom == "EA"
@@ -164,6 +166,27 @@ class TestParseEdgeCases:
         assert orders[0].document_type == "change_order"
         # The ACTION=003 line is dropped → only POSEX 10 remains.
         assert [l.line_number for l in orders[0].lines] == [10]
+
+    def test_full_cancellation_yields_lineless_store_order(self):
+        # ORDCHG where EVERY line is ACTION=003 (cancel the whole store): the
+        # store is still returned with no lines so the engine's diff removes all
+        # existing lines (full cancellation) rather than silently doing nothing.
+        cancel = (
+            '<?xml version="1.0"?><ORDERSEXT><IDOC BEGIN="1">'
+            '<EDI_DC40 SEGMENT="1"><MESTYP>ORDCHG</MESTYP></EDI_DC40>'
+            '<E1EDK01 SEGMENT="1"><BELNR>7010168258</BELNR></E1EDK01>'
+            '<E1EDKA1 SEGMENT="1"><PARVW>WE</PARVW><LIFNR>1050</LIFNR></E1EDKA1>'
+            '<E1EDP01 SEGMENT="1"><POSEX>00010</POSEX><ACTION>003</ACTION>'
+            '<BMNG2>6.000</BMNG2><WERKS>1050</WERKS></E1EDP01>'
+            '<E1EDP01 SEGMENT="1"><POSEX>00020</POSEX><ACTION>003</ACTION>'
+            '<BMNG2>4.000</BMNG2><WERKS>1050</WERKS></E1EDP01>'
+            '</IDOC></ORDERSEXT>'
+        ).encode()
+        orders = BriscoesIDOCParser().parse_file(cancel, _partner())
+        assert len(orders) == 1
+        assert orders[0].store_code == "1050"
+        assert orders[0].document_type == "change_order"
+        assert orders[0].lines == []
 
 
 # ── generate_ack: ORDRSP ─────────────────────────────────────────────────────

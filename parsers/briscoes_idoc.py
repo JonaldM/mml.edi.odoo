@@ -27,19 +27,24 @@ iDOC structure (one <IDOC> per order document):
                WERKS   plant/store
                E1EDPA1 per-line ship-to (PARVW WE, LIFNR=store) — multi-store
                E1EDP20 EDATU = requested delivery date for this line
-               E1EDP19 product ids: QUALF 003=GTIN/EAN, 002=MML/vendor code,
-                                    001=Briscoes buyer article no (+ KTEXT desc)
+               E1EDP19 product ids: QUALF 003 = CASE/SHIPPER GTIN-14 (carton
+                                    barcode, NOT the retail EAN-13),
+                                    002 = MML internal code, 001 = Briscoes buyer
+                                    article no (+ KTEXT description)
   E1EDS01    summary (SUMME = order total)
 
 Store handling: one ParsedOrder per ship-to store. Store code is taken from the
 line's E1EDPA1[WE].LIFNR (multi-store), else the header E1EDKA1[WE].LIFNR
 (single store), else WERKS. A single-store ZNR collapses to one ParsedOrder.
 
-Product matching: product_code is set to the GTIN (QUALF 003) as the primary key,
-with vendor_code = MML code (QUALF 002) and buyer_article_no = Briscoes article
-(QUALF 001) so the processor's match cascade can fall back to default_code /
-supplier_sku. The proven .NET match is on the MML code (QUALF 002 -> default_code),
-which the cascade reaches via vendor_code.
+Product matching: product_code = the MML internal code (QUALF 002), matched to
+Odoo's product.default_code (case-insensitively) — the proven .NET match. The
+QUALF 003 value is the CASE/SHIPPER GTIN-14 (Briscoes uses separate shipper vs
+retail barcodes); it is NOT Odoo's retail product.barcode and does not reliably
+reduce to it, so it is not used for matching. vendor_code repeats the MML code and
+buyer_article_no carries the Briscoes article (QUALF 001) so the processor's match
+cascade can also resolve via default_code / supplier_sku for differently
+configured partners.
 """
 from __future__ import annotations
 
@@ -177,39 +182,53 @@ class BriscoesIDOCParser(BaseEDIParser):
         store_seq: list = []
 
         for p01 in idoc.findall("E1EDP01"):
-            action = _text(p01, "ACTION")
-            # In a change order, a deleted line (ACTION 003) is omitted so the
-            # processor's diff treats it as a removed line (matches .NET).
-            if document_type == "change_order" and action == _ACTION_DELETE:
-                continue
-
             store = (
                 _we_lifnr(p01, "E1EDPA1")
                 or header_store
                 or (_text(p01, "WERKS") or None)
             )
+            # Register the store up-front — even for a deleted line — so that a
+            # fully-cancelled store (every line ACTION=003) still yields a
+            # line-less ParsedOrder the engine can act on (its change-order diff
+            # then sees all existing lines as removed → cancellation).
+            if store not in store_lines:
+                store_lines[store] = []
+                store_seq.append(store)
+
+            action = _text(p01, "ACTION")
+            # In a change order, a deleted line (ACTION 003) is omitted from the
+            # line list so the processor's diff treats it as removed (matches .NET).
+            if document_type == "change_order" and action == _ACTION_DELETE:
+                continue
 
             p20 = p01.find("E1EDP20")
             line_due = (
                 _parse_idoc_date(_text(p20, "EDATU")) if p20 is not None else None
             ) or header_due
 
-            gtin = mml_code = buyer_article = ""
+            carton_gtin = mml_code = buyer_article = ""
             description = ""
             for p19 in p01.findall("E1EDP19"):
                 qualf = _text(p19, "QUALF")
                 idtnr = _text(p19, "IDTNR")
                 if qualf == "003":
-                    gtin = idtnr
+                    carton_gtin = idtnr          # CASE/shipper GTIN-14 (not retail)
                 elif qualf == "002":
-                    mml_code = idtnr
+                    mml_code = idtnr             # MML internal code -> Odoo default_code
                 elif qualf == "001":
                     buyer_article = idtnr.lstrip("0")
                     description = _text(p19, "KTEXT")
 
+            # Product match key = the MML internal code (QUALF 002 -> default_code),
+            # the proven .NET match. QUALF 003 is the CASE/SHIPPER GTIN-14, NOT the
+            # retail EAN-13 Odoo stores on product.barcode, and it does not reliably
+            # reduce to it (Briscoes assigns some carton barcodes off an independent
+            # base — verified on real data), so it must not be used as the match key.
+            # vendor_code repeats the MML code so the processor's cascade still
+            # resolves the product if a partner is configured to match on barcode.
             menge = _to_float(_text(p01, "MENGE"))   # carton count
             line = ParsedOrderLine(
-                product_code=gtin or mml_code,        # primary match key (GTIN)
+                product_code=mml_code or carton_gtin,
                 description=description,
                 quantity=_to_float(_text(p01, "BMNG2")),   # EACH count
                 unit_price=_to_float(_text(p01, "VPREI")),
@@ -220,9 +239,6 @@ class BriscoesIDOCParser(BaseEDIParser):
                 vendor_code=mml_code or None,          # cascade -> default_code
             )
 
-            if store not in store_lines:
-                store_lines[store] = []
-                store_seq.append(store)
             store_lines[store].append(line)
             if store not in store_due and line_due:
                 store_due[store] = line_due
