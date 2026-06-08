@@ -151,6 +151,8 @@ class EDIOrderReview(models.Model):
                 "reviewed_by": self.env.user.id,
                 "reviewed_date": fields.Datetime.now(),
             })
+            # State is now final → send the per-PO ACK (no-op until all stores done).
+            rec._queue_ack()
 
     def action_approve_corrected(self):
         """
@@ -162,12 +164,12 @@ class EDIOrderReview(models.Model):
                 raise UserError(_("Only 'Pending Review' records can be approved."))
             if rec.sale_order_id and rec.sale_order_id.state == "draft":
                 rec.sale_order_id.action_confirm()
-            rec._queue_ack()
             rec.write({
                 "state": "approved",
                 "reviewed_by": self.env.user.id,
                 "reviewed_date": fields.Datetime.now(),
             })
+            rec._queue_ack()
             self.env["edi.log"].log(
                 rec.trading_partner_id, "internal", "review_approved", "success",
                 "Review approved with corrections: %s" % rec.name,
@@ -182,12 +184,12 @@ class EDIOrderReview(models.Model):
                 raise UserError(_("Only 'Pending Review' records can be rejected."))
             if rec.sale_order_id and rec.sale_order_id.state in ("draft", "sent"):
                 rec.sale_order_id.action_cancel()
-            rec._queue_ack(rejected=True)
             rec.write({
                 "state": "rejected",
                 "reviewed_by": self.env.user.id,
                 "reviewed_date": fields.Datetime.now(),
             })
+            rec._queue_ack(rejected=True)
             self.env["edi.log"].log(
                 rec.trading_partner_id, "internal", "review_rejected", "success",
                 "Review rejected: %s" % rec.name,
@@ -214,7 +216,7 @@ class EDIOrderReview(models.Model):
         pending_issues.action_accept()
         if self.sale_order_id and self.sale_order_id.state == "draft":
             self.sale_order_id.action_confirm()
-        self._queue_ack()
+        # ACK is sent per-PO by the caller after the review state is written.
         self.env["edi.log"].log(
             self.trading_partner_id, "internal", "review_approved", "success",
             "Review approved: %s" % self.name,
@@ -226,7 +228,7 @@ class EDIOrderReview(models.Model):
         """Apply the parsed change diff to the existing SO."""
         self.ensure_one()
         self.env["edi.processor"].apply_change_order(self)
-        self._queue_ack()
+        # ACK is sent per-PO by the caller after the review state is written.
         self.env["edi.log"].log(
             self.trading_partner_id, "internal", "po_change_applied", "success",
             "Change order applied to SO: %s — %s" % (
@@ -239,34 +241,70 @@ class EDIOrderReview(models.Model):
 
     def _queue_ack(self, rejected: bool = False):
         """
-        Queue ACK generation for this review.
-        Currently implemented synchronously; swap for queue_job if needed.
+        Send ONE acknowledgement for the WHOLE PO, once every store-review for it
+        is resolved.
+
+        Briscoes (and EDI partners generally) expect a single per-PO response —
+        verified against real Briscoes ORDRSPs, where one response covered all 47
+        stores of a PO. Because we split a PO into one review per store, this is:
+
+        - **per-PO**: the parser's generate_ack echoes the full PO (all stores);
+        - **send-once**: a PO-keyed filename + an edi.log check make the upload
+          idempotent no matter which store-review triggers it;
+        - **deferred**: nothing is sent until every store-review of the PO has
+          left 'pending_review', so the response reflects final accept/reject/qty
+          for all stores.
+
+        Callers must write the review's final state BEFORE calling this. The
+        `rejected` arg is retained for call-compatibility only — per-line
+        accept/reject is derived by the parser from each store-review's state.
         """
         self.ensure_one()
-        try:
-            parser = self.trading_partner_id.get_parser_instance()
-            ack_bytes = parser.generate_ack(self)
-            filename = "ACK_%s_%s_%s.edi" % (
-                self.trading_partner_id.code,
-                self.customer_po_number,
-                self.id,
+        partner = self.trading_partner_id
+        po = self.customer_po_number
+
+        siblings = self.search([
+            ("trading_partner_id", "=", partner.id),
+            ("customer_po_number", "=", po),
+        ])
+        pending = siblings.filtered(lambda r: r.state == "pending_review")
+        if pending:
+            _logger.info(
+                "[EDI] Per-PO ACK for %s deferred — %d of %d store-review(s) still pending",
+                po, len(pending), len(siblings),
             )
+            return
+
+        # Idempotency: one ACK file per PO, uploaded at most once.
+        filename = "ACK_%s_%s.edi" % (partner.code, po)
+        if self.env["edi.log"].search_count([
+            ("trading_partner_id", "=", partner.id),
+            ("event_type", "=", "ack_sent"),
+            ("status", "=", "success"),
+            ("filename", "=", filename),
+        ]):
+            _logger.info("[EDI] Per-PO ACK already sent for %s (%s) — skipping", po, filename)
+            return
+
+        try:
+            parser = partner.get_parser_instance()
+            ack_bytes = parser.generate_ack(self)
 
             from .edi_ftp import EDIFTPHandler
-            handler = EDIFTPHandler(self.trading_partner_id)
+            handler = EDIFTPHandler(partner)
             with handler.connection():
                 handler.upload_file(filename, ack_bytes)
 
             self.env["edi.log"].log(
-                self.trading_partner_id, "outbound", "ack_sent", "success",
-                "ACK sent: %s" % filename,
+                partner, "outbound", "ack_sent", "success",
+                "ACK sent (per-PO, %d store-order(s)): %s" % (len(siblings), filename),
                 filename=filename,
                 review=self,
             )
         except Exception as e:
-            _logger.exception("Failed to send ACK for review %s", self.name)
+            _logger.exception("Failed to send per-PO ACK for PO %s", po)
             self.env["edi.log"].log(
-                self.trading_partner_id, "outbound", "ack_sent", "error",
+                partner, "outbound", "ack_sent", "error",
                 "ACK generation/upload failed: %s" % str(e),
                 review=self,
                 detail=str(e),

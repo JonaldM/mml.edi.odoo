@@ -155,6 +155,19 @@ class EDIProcessor(models.AbstractModel):
             with self.env.cr.savepoint():
                 self.process_parsed_order(order, partner, filename, file_hash)
 
+        # Per-PO ACK: every store of this PO has now been processed. Send a single
+        # ORDRSP if the order auto-approved cleanly; this is a no-op (deferred)
+        # while any store-review is still in manual review, and idempotent so it
+        # uploads at most once per PO. (Briscoes expects one ORDRSP per PO.)
+        if parsed_orders:
+            po_number = parsed_orders[0].po_number
+            any_review = self.env["edi.order.review"].search([
+                ("trading_partner_id", "=", partner.id),
+                ("customer_po_number", "=", po_number),
+            ], order="id desc", limit=1)
+            if any_review:
+                any_review._queue_ack()
+
     @api.model
     def process_parsed_order(self, order, partner, filename: str, file_hash: str):
         """
@@ -237,7 +250,8 @@ class EDIProcessor(models.AbstractModel):
         if not blocking_issues and partner.auto_confirm_clean:
             so.action_confirm()
             review.write({"state": "auto_approved"})
-            review._queue_ack()
+            # ACK is sent once per PO after the whole file is processed
+            # (see _process_file) — Briscoes expects a single per-PO ORDRSP.
             self.env["edi.log"].log(
                 partner, "inbound", "order_created", "success",
                 "Auto-approved: SO %s from %s" % (so.name, filename),
@@ -586,12 +600,15 @@ class EDIProcessor(models.AbstractModel):
                 [("barcode", "=", code)], limit=1
             ) or None
         elif strategy == "default_code":
+            # Case-insensitive exact match: retail EDI codes arrive in mixed case
+            # (e.g. iDOC 'HESPG' vs Odoo 'hespg'); the legacy .NET handler matched
+            # case-insensitively. '=ilike' with no wildcards = exact, case-insensitive.
             return self.env["product.product"].search(
-                [("default_code", "=", code)], limit=1
+                [("default_code", "=ilike", code)], limit=1
             ) or None
         elif strategy == "supplier_sku":
             info = self.env["product.supplierinfo"].search(
-                [("product_code", "=", code)], limit=1
+                [("product_code", "=ilike", code)], limit=1
             )
             if not info:
                 return None
