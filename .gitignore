@@ -7,3 +7,7 @@ build/
 *.log
 .env
 .venv/
+
+# Vendored .NET service configs — contain live credentials, must never be tracked.
+# Files remain on disk for the legacy services; rotate any creds already in history.
+*.exe.config
