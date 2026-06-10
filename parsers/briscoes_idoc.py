@@ -321,9 +321,38 @@ class BriscoesIDOCParser(BaseEDIParser):
                 ("trading_partner_id", "=", review_record.trading_partner_id.id),
             ])) or [review_record]
             has_review_data = True
-        except Exception:
+        except (AttributeError, TypeError):
+            # No Odoo env on the record (pure unit-test / mock path): there is no
+            # ORM to query, so review data legitimately cannot exist. Echoing the
+            # ordered quantity as full supply is the intended test behaviour.
             reviews = [review_record]
             has_review_data = False
+        except Exception as exc:
+            # An UNEXPECTED error reading real review data (ORM/DB hiccup, access
+            # error, registry failure, ...). Do NOT silently degrade into
+            # echo-all — that would tell Briscoes we will fully supply lines we
+            # may have rejected or short-supplied. Fail ACK generation so it is
+            # retried rather than fabricating a full-supply ORDRSP.
+            po = getattr(review_record, "customer_po_number", "") or ""
+            try:
+                review_record.env["edi.log"].log(
+                    getattr(review_record, "trading_partner_id", None),
+                    "outbound",
+                    "ack_generate",
+                    "error",
+                    "Failed reading order-review data for ORDRSP (PO %s); "
+                    "aborting ACK to avoid a false full-supply confirmation" % po,
+                    review=review_record,
+                    detail=repr(exc),
+                )
+            except Exception:
+                # edi.log itself is unavailable — fall back to the Python logger
+                # but still raise (never swallow the error into echo-all).
+                _logger.critical(
+                    "[EDI] ORDRSP ACK aborted: failed reading review data for "
+                    "PO %s: %r", po, exc,
+                )
+            raise
 
         confirmed: dict = {}
         for rev in reviews:

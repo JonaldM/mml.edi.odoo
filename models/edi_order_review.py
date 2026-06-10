@@ -68,7 +68,7 @@ class EDIOrderReview(models.Model):
     # File metadata
     edi_file_hash = fields.Char(string="File Hash (SHA-256)")
     edi_filename = fields.Char(string="EDI Filename")
-    edi_raw_data = fields.Text(string="Raw EDI Data")
+    edi_raw_data = fields.Text(string="Raw EDI Data", groups="mml_edi.group_edi_manager")
     received_date = fields.Datetime(
         default=fields.Datetime.now,
         required=True,

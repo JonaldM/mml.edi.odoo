@@ -305,6 +305,51 @@ class TestPerPoAck:
             assert l.find("E1EDP02/ZEILE").text == l.find("POSEX").text
 
 
+# ── _gather_confirmations: error vs legitimately-empty review data ───────────
+
+class _NoEnvReview:
+    """Pure-Python review stub with NO ``env`` attribute (unit-test path)."""
+
+    def __init__(self, po, so):
+        self.customer_po_number = po
+        self.state = "approved"
+        self.sale_order_id = so
+
+
+class TestGatherConfirmationsErrorHandling:
+    """An UNEXPECTED error reading review data must abort the ACK (raise),
+    never silently degrade into an echo-all full-supply confirmation."""
+
+    def test_orm_error_raises_instead_of_echo_all(self):
+        # Real-looking env whose recordset search blows up (e.g. DB hiccup).
+        r = MagicMock()
+        r.customer_po_number = "7010168258"
+        r.state = "approved"
+        r.sale_order_id = _MockSO([])
+
+        review_model = MagicMock()
+        review_model.search.side_effect = RuntimeError("simulated ORM/DB failure")
+        log_model = MagicMock()
+
+        def _getitem(name):
+            return review_model if name == "edi.order.review" else log_model
+
+        r.env.__getitem__.side_effect = _getitem
+
+        with pytest.raises(RuntimeError):
+            BriscoesIDOCParser()._gather_confirmations(r)
+        # The abort was logged via edi.log (status=error) before re-raising.
+        assert log_model.log.called
+
+    def test_no_env_path_echoes_full_supply(self):
+        # No Odoo env at all -> review data legitimately cannot exist; the
+        # ordered quantity is echoed (has_review_data False).
+        r = _NoEnvReview("7010168258", _MockSO([]))
+        confirmed, has_review_data = BriscoesIDOCParser()._gather_confirmations(r)
+        assert has_review_data is False
+        assert confirmed == {}
+
+
 # ── round-trip: parse a generated ACK is recognised as a response ────────────
 
 class TestRoundTrip:
