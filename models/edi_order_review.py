@@ -275,8 +275,15 @@ class EDIOrderReview(models.Model):
             )
             return
 
-        # Idempotency: one ACK file per PO, uploaded at most once.
-        filename = "ACK_%s_%s.edi" % (partner.code, po)
+        # Idempotency: one ACK file per PO *per exchange*, uploaded at most once.
+        # The exchange identity (the triggering review's inbound file hash) is
+        # part of the key so that each DISTINCT exchange for the same PO — an
+        # approved ORDCHG, a re-order after cancellation, a correction arriving as
+        # a new file — gets its own ORDRSP. A PO-only key would skip every ACK
+        # after the first one. Every store-review of one inbound file shares that
+        # file's hash, so a multi-store PO still yields exactly one ACK per file.
+        exchange_key = (self.edi_file_hash or str(self.id))[:8]
+        filename = "ACK_%s_%s_%s.edi" % (partner.code, po, exchange_key)
         if self.env["edi.log"].search_count([
             ("trading_partner_id", "=", partner.id),
             ("event_type", "=", "ack_sent"),

@@ -286,7 +286,7 @@ class BriscoesIDOCParser(BaseEDIParser):
         # carried 1173 lines across 47 stores). Confirmations are therefore
         # aggregated across ALL of this PO's store-reviews, and every line is
         # echoed (no per-store filter).
-        confirmed = self._gather_confirmations(review_record)
+        confirmed, has_review_data = self._gather_confirmations(review_record)
 
         now = datetime.now()
         serial = now.strftime("%Y%m%d%H%M%S")
@@ -294,24 +294,36 @@ class BriscoesIDOCParser(BaseEDIParser):
         out = ['<?xml version="1.0" encoding="UTF-8"?>', "<ORDERSEXT>"]
         idocs = root.findall("IDOC") or ([root] if root.tag == "IDOC" else [])
         for idoc in idocs:
-            out.extend(self._build_ordrsp(idoc, po_ref, confirmed, now, serial))
+            out.extend(self._build_ordrsp(
+                idoc, po_ref, confirmed, now, serial, has_review_data,
+            ))
         out.append("</ORDERSEXT>")
         return ("\n".join(out) + "\n").encode("utf-8")
 
-    def _gather_confirmations(self, review_record) -> dict:
+    def _gather_confirmations(self, review_record):
         """
         Collect confirmed each-quantities per POSEX across ALL store-reviews of
-        this PO (per-PO ACK). Returns {posex:int -> (confirmed_each:float,
-        rejected:bool)}. Falls back to this single review when no Odoo env is
-        available (unit tests / mocks).
+        this PO (per-PO ACK). Returns a tuple
+        ``(confirmed, has_review_data)`` where ``confirmed`` is
+        {posex:int -> (confirmed_each:float, rejected:bool)} and
+        ``has_review_data`` is True when the PO's reviews were resolved against a
+        live Odoo env (the authoritative production path).
+
+        ``has_review_data`` governs the default for a POSEX that has NO
+        confirmation row (see _build_ordrsp): with review data present a missing
+        POSEX is a line MML never processed → it is rejected (0 + ABGRU) rather
+        than silently confirmed in full. It is False only on the pure unit-test /
+        mock path (no Odoo env), where echoing the ordered quantity is intended.
         """
         try:
             reviews = list(review_record.env["edi.order.review"].search([
                 ("customer_po_number", "=", review_record.customer_po_number),
                 ("trading_partner_id", "=", review_record.trading_partner_id.id),
             ])) or [review_record]
+            has_review_data = True
         except Exception:
             reviews = [review_record]
+            has_review_data = False
 
         confirmed: dict = {}
         for rev in reviews:
@@ -325,9 +337,9 @@ class BriscoesIDOCParser(BaseEDIParser):
                         float(getattr(sol, "product_uom_qty", 0) or 0),
                         rejected,
                     )
-        return confirmed
+        return confirmed, has_review_data
 
-    def _build_ordrsp(self, idoc, po_ref, confirmed, now, serial):
+    def _build_ordrsp(self, idoc, po_ref, confirmed, now, serial, has_review_data=False):
         dc40 = idoc.find("EDI_DC40")
         k01 = idoc.find("E1EDK01")
         docnum = _text(dc40, "DOCNUM")
@@ -398,7 +410,16 @@ class BriscoesIDOCParser(BaseEDIParser):
 
             conf = confirmed.get(posex_int)
             if conf is None:
-                confirmed_each, rej_line = ordered_each, False   # default: full supply
+                if has_review_data:
+                    # The PO was reviewed but this POSEX produced no confirmed
+                    # line (e.g. its store failed mid-file, or the line was never
+                    # processed). Do NOT promise full supply — reject it so we
+                    # never tell Briscoes we will ship a line we never handled.
+                    confirmed_each, rej_line = 0.0, True
+                else:
+                    # No review data at all (pure mock / no Odoo env): echo the
+                    # ordered quantity as full supply.
+                    confirmed_each, rej_line = ordered_each, False
             else:
                 confirmed_each, rej_line = conf
             if rej_line:

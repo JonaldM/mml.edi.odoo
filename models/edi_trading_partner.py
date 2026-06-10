@@ -15,7 +15,13 @@ _ALLOWED_TEMPLATE_VARS = frozenset({'po_number', 'store_code'})
 _TEMPLATE_VAR_RE = re.compile(r'\$\{?(\w+)\}?')
 
 _ALLOWED_PARSER_CLASSES = frozenset({
-    'mml_edi.parsers.briscoes.BriscoesParser',
+    # NOTE: 'mml_edi.parsers.briscoes.BriscoesParser' (EDIFACT D96A) is
+    # deliberately NOT allow-listed. It ships carton quantities as eaches — the
+    # CT->EA conversion that was applied to the iDOC path (the production path)
+    # was never ported to EDIFACT, and the processor ignores parsed_line.uom /
+    # carton_qty — so an EDIFACT order would under/over-state quantities to the
+    # customer. Re-enable ONLY after the EDIFACT quantity (CT->EA) logic is fixed
+    # and verified against real samples. Briscoes currently sends SAP iDOC XML.
     'mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser',
 })
 

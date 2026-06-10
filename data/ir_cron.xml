@@ -10,8 +10,28 @@
             <field name="user_id" ref="base.user_root"/>
             <field name="interval_number">15</field>
             <field name="interval_type">minutes</field>
-            <field name="active" eval="True"/>
+            <!-- Ships DISABLED. Go-live safety gate (PROD_CUTOVER.md §5): only ONE
+                 process may poll the live /FromEDIS mailbox. Enable in Settings ▸
+                 Technical ▸ Scheduled Actions after the legacy .NET poller is
+                 stopped, to avoid double-polling the live mailbox. -->
+            <field name="active" eval="False"/>
             <field name="priority">5</field>
+        </record>
+
+        <!-- Safety net for deferred ACKs: re-queue ORDRSPs for fully-resolved POs
+             that have no successful ack_sent log row (e.g. the deferred upload hit
+             a transient FTP failure). Idempotent and per-exchange keyed, so it is
+             safe to ship ACTIVE even before the poll cron is enabled. -->
+        <record id="cron_edi_retry_acks" model="ir.cron">
+            <field name="name">EDI: Retry Pending ACKs</field>
+            <field name="model_id" ref="model_edi_processor"/>
+            <field name="state">code</field>
+            <field name="code">model.retry_pending_acks()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">30</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+            <field name="priority">10</field>
         </record>
 
     </data>

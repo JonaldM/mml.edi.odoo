@@ -29,6 +29,9 @@ def make_mock_partner(protocol="ftp", host="ftp.test.com", port=21,
     # Use methods instead of properties (matching the fixed model)
     partner.get_active_inbox_path.return_value = inbox
     partner.get_active_outbox_path.return_value = outbox
+    # EDIFTPHandler.__init__ calls trading_partner.sudo(); a real recordset
+    # returns an equivalent recordset, so make the mock return itself.
+    partner.sudo.return_value = partner
     return partner
 
 

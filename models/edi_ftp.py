@@ -62,7 +62,13 @@ class EDIFTPHandler:
     """
 
     def __init__(self, trading_partner):
-        self.partner = trading_partner
+        # sudo() so the elevated credential fields (ftp_user, ftp_password,
+        # sftp_host_key — all groups='base.group_system') are readable even when
+        # the handler runs as a non-admin user. Without this, _queue_ack(),
+        # triggered by a clicking EDI user, hits AccessError on the credential
+        # read and the ORDRSP is silently never sent. The view-level group
+        # restriction on those fields is unchanged.
+        self.partner = trading_partner.sudo()
         self._ftp = None  # ftplib.FTP or paramiko.SFTPClient
         self._transport = None  # paramiko.Transport (SFTP only)
 

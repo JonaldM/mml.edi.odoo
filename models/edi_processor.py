@@ -27,6 +27,23 @@ def build_session_id() -> str:
     return secrets.token_hex(4)
 
 
+def _escape_ilike(value: str) -> str:
+    """Escape LIKE/ILIKE wildcards so an '=ilike' acts as an exact (but
+    case-insensitive) match.
+
+    A product code containing '_' or '%' (both legal in default_code /
+    supplierinfo codes) would otherwise be treated as a wildcard by '=ilike'
+    and match the WRONG product. PostgreSQL LIKE uses backslash as the default
+    escape char, so escape the backslash first, then '%' and '_'.
+    """
+    return (
+        (value or "")
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
 class EDIProcessor(models.AbstractModel):
     _name = "edi.processor"
     _description = "EDI Processing Engine"
@@ -75,6 +92,75 @@ class EDIProcessor(models.AbstractModel):
                     str(exc),
                 )
 
+    # ── Deferred-ACK retry safety net ─────────────────────────────────────
+
+    @api.model
+    def retry_pending_acks(self):
+        """Re-queue ORDRSP/ACKs that should have been sent but weren't.
+
+        A deferred ACK upload can fail (FTP down, transient error) and is logged
+        ack_sent/error but never retried — Briscoes then never gets a response.
+        This cron finds POs whose store-reviews are ALL resolved (none still in
+        pending_review) yet have no successful ack_sent log row, and re-queues the
+        ACK. Idempotent: _queue_ack() defers while any sibling is pending and is
+        keyed per-exchange (see fix #5 / edi_file_hash), so re-running is safe.
+        Called by ir.cron (cron_edi_retry_acks).
+        """
+        Review = self.env["edi.order.review"]
+        Log = self.env["edi.log"]
+
+        # Candidate exchanges: resolved reviews (left pending_review) for active
+        # partners. One ACK is sent per (partner, PO, inbound-file) exchange, so
+        # group by that triple — mirrors _queue_ack's per-exchange idempotency key.
+        resolved = Review.search([
+            ("state", "in", ("approved", "rejected", "auto_approved")),
+            ("trading_partner_id.active", "=", True),
+        ], order="id")
+
+        seen_exchanges = set()
+        requeued = 0
+        for review in resolved:
+            partner = review.trading_partner_id
+            po = review.customer_po_number
+            exchange = (partner.id, po, review.edi_file_hash or review.id)
+            if exchange in seen_exchanges:
+                continue
+            seen_exchanges.add(exchange)
+
+            # Skip if this PO still has any store-review in manual review — the
+            # ACK is legitimately deferred and not yet due.
+            if Review.search_count([
+                ("trading_partner_id", "=", partner.id),
+                ("customer_po_number", "=", po),
+                ("state", "=", "pending_review"),
+            ]):
+                continue
+
+            # Skip if an ACK for this exact exchange already uploaded successfully.
+            exchange_key = (review.edi_file_hash or str(review.id))[:8]
+            filename = "ACK_%s_%s_%s.edi" % (partner.code, po, exchange_key)
+            if Log.search_count([
+                ("trading_partner_id", "=", partner.id),
+                ("event_type", "=", "ack_sent"),
+                ("status", "=", "success"),
+                ("filename", "=", filename),
+            ]):
+                continue
+
+            # There is at least one prior failed/absent ACK for a fully-resolved
+            # exchange — re-queue it (no-op-safe if it now succeeds or is deferred).
+            try:
+                review._queue_ack()
+                requeued += 1
+            except Exception:
+                _logger.exception(
+                    "[EDI] retry_pending_acks: re-queue failed for PO %s (%s)",
+                    po, partner.code,
+                )
+
+        if requeued:
+            _logger.info("[EDI] retry_pending_acks: re-queued %d ACK(s)", requeued)
+
     # ── Per-partner poll ──────────────────────────────────────────────────
 
     @api.model
@@ -98,14 +184,49 @@ class EDIProcessor(models.AbstractModel):
                         content = handler.download_file(filename)
                         file_hash = hashlib.sha256(content).hexdigest()
 
+                        # Dedup BEFORE writing any success row: a genuinely
+                        # re-sent file (same hash) carries a file_download/success
+                        # row from an earlier poll, so it is skipped here. The
+                        # current file has no such row yet — we only write it
+                        # AFTER _process_file succeeds (below), so a file is never
+                        # flagged as a duplicate of itself within its own poll.
+                        if self._is_file_duplicate(file_hash, partner):
+                            self.env["edi.log"].log(
+                                partner, "inbound", "duplicate_skipped", "warning",
+                                "Duplicate file skipped (hash already processed): %s" % filename,
+                                filename=filename, file_hash=file_hash,
+                            )
+                            handler.move_to_processed(filename)
+                            continue
+
+                        # _process_file isolates each store-order in its own
+                        # savepoint and returns the list of stores that failed.
+                        # We do NOT wrap the whole call in a rollback savepoint —
+                        # stores that succeeded must persist so a retry can skip
+                        # them via SO-ref dedup.
+                        failures = self._process_file(content, file_hash, filename, partner)
+
+                        if failures:
+                            # Leave the file in the inbox for retry and withhold
+                            # the dedup marker (file_download/success). On the next
+                            # poll the same file is re-downloaded; succeeded stores
+                            # are skipped by SO-ref dedup and only the failed ones
+                            # are re-attempted.
+                            self.env["edi.log"].log(
+                                partner, "inbound", "error", "error",
+                                "%d store-order(s) failed in %s — file left for retry"
+                                % (len(failures), filename),
+                                filename=filename, file_hash=file_hash,
+                            )
+                            continue
+
+                        # Mark the file processed (the dedup marker) only after
+                        # EVERY store-order succeeded.
                         self.env["edi.log"].log(
                             partner, "inbound", "file_download", "success",
                             "Downloaded: %s (%d bytes)" % (filename, len(content)),
                             filename=filename, file_hash=file_hash,
                         )
-
-                        with self.env.cr.savepoint():
-                            self._process_file(content, file_hash, filename, partner)
 
                         handler.move_to_processed(filename)
 
@@ -130,15 +251,20 @@ class EDIProcessor(models.AbstractModel):
 
     # ── File processing ───────────────────────────────────────────────────
 
-    def _process_file(self, content: bytes, file_hash: str, filename: str, partner):
-        """Parse a downloaded file and dispatch each ParsedOrder."""
+    def _process_file(self, content: bytes, file_hash: str, filename: str, partner) -> list:
+        """Parse a downloaded file and dispatch each ParsedOrder.
+
+        Returns a list of (store_code, error) tuples for store-orders that failed
+        — empty when the whole file processed cleanly. The poll path uses this to
+        decide whether to write the dedup marker / move the file to processed.
+        """
         if self._is_file_duplicate(file_hash, partner):
             self.env["edi.log"].log(
                 partner, "inbound", "duplicate_skipped", "warning",
                 "Duplicate file skipped (hash already processed): %s" % filename,
                 filename=filename, file_hash=file_hash,
             )
-            return
+            return []
 
         parser = partner.get_parser_instance()
         raw_text = content.decode("utf-8", errors="replace")
@@ -150,16 +276,40 @@ class EDIProcessor(models.AbstractModel):
             filename=filename, file_hash=file_hash,
         )
 
+        # Process each store-order in its own savepoint AND its own try/except so
+        # one bad store cannot abort the rest of the PO (which would silently lose
+        # every remaining store). Each store that succeeds commits independently;
+        # failures are collected and RETURNED to the caller, which then leaves the
+        # whole file in the inbox for retry (and withholds the dedup marker). On
+        # retry the already-created stores are skipped by SO-ref dedup, so only the
+        # previously-failed store(s) are re-attempted — no duplicate SOs.
+        failures = []
         for order in parsed_orders:
             order.raw_data = raw_text
-            with self.env.cr.savepoint():
-                self.process_parsed_order(order, partner, filename, file_hash)
+            try:
+                with self.env.cr.savepoint():
+                    self.process_parsed_order(order, partner, filename, file_hash)
+            except Exception as exc:
+                _logger.exception(
+                    "[EDI] Failed to process store '%s' of PO %s from %s",
+                    order.store_code, order.po_number, filename,
+                )
+                self.env["edi.log"].log(
+                    partner, "inbound", "error", "error",
+                    "Failed to process store '%s' of PO %s in %s: %s" % (
+                        order.store_code, order.po_number, filename, str(exc)),
+                    filename=filename, file_hash=file_hash, detail=str(exc),
+                )
+                failures.append((order.store_code, str(exc)))
 
         # Per-PO ACK: every store of this PO has now been processed. Send a single
         # ORDRSP if the order auto-approved cleanly; this is a no-op (deferred)
         # while any store-review is still in manual review, and idempotent so it
         # uploads at most once per PO. (Briscoes expects one ORDRSP per PO.)
-        if parsed_orders:
+        # Skip the ACK when any store failed — the PO is not yet fully processed,
+        # and the deferred-ACK retry cron (see retry_pending_acks) will pick it up
+        # once the file is retried and all stores have resolved.
+        if parsed_orders and not failures:
             po_number = parsed_orders[0].po_number
             any_review = self.env["edi.order.review"].search([
                 ("trading_partner_id", "=", partner.id),
@@ -167,6 +317,8 @@ class EDIProcessor(models.AbstractModel):
             ], order="id desc", limit=1)
             if any_review:
                 any_review._queue_ack()
+
+        return failures
 
     @api.model
     def process_parsed_order(self, order, partner, filename: str, file_hash: str):
@@ -206,7 +358,7 @@ class EDIProcessor(models.AbstractModel):
                 )
                 return
 
-        delivery_partner = self._resolve_delivery_partner(partner, order)
+        delivery_partner, store_unknown = self._resolve_delivery_partner(partner, order)
 
         so_vals = {
             "partner_id": delivery_partner.id,
@@ -241,6 +393,25 @@ class EDIProcessor(models.AbstractModel):
             "document_type": "new_order",
         })
         so.edi_review_id = review.id
+
+        # Unknown store (per_store mode, store child not found): the SO fell back
+        # to the head-office/parent partner. Raise a BLOCKING unknown_store issue
+        # so the order lands in review for an operator to fix the delivery address
+        # instead of silently auto-confirming to the wrong (parent) address.
+        if store_unknown:
+            self.env["edi.order.issue"].create({
+                "review_id": review.id,
+                "issue_type": "unknown_store",
+                "severity": "blocking",
+                "description": (
+                    "Store code '%s' not found as a child contact (ref) of %s. "
+                    "Delivery defaulted to the parent partner — set the correct "
+                    "store contact before confirming." % (
+                        order.store_code, partner.partner_id.name,
+                    )
+                ),
+            })
+            blocking_issues.append({"type": "unknown_store"})
 
         for parsed_line in order.lines:
             line_blocking = self._process_order_line(parsed_line, so, partner, review)
@@ -541,6 +712,11 @@ class EDIProcessor(models.AbstractModel):
         Resolve delivery partner.
         Per-store: look up child contact by ref=store_code.
         Single: use trading_partner.partner_id directly.
+
+        Returns (partner_record, store_unknown): store_unknown is True only when
+        per_store mode was requested with a store_code that did not resolve to a
+        child contact — the caller then raises a blocking unknown_store issue so
+        the order is reviewed instead of auto-confirmed to the parent address.
         """
         if partner.order_split_mode == "per_store" and order.store_code:
             store_partner = self.env["res.partner"].search([
@@ -548,12 +724,13 @@ class EDIProcessor(models.AbstractModel):
                 ("ref", "=", order.store_code),
             ], limit=1)
             if store_partner:
-                return store_partner
+                return store_partner, False
             _logger.warning(
                 "[EDI] Store code '%s' not found as child of partner %s",
                 order.store_code, partner.partner_id.name,
             )
-        return partner.partner_id
+            return partner.partner_id, True
+        return partner.partner_id, False
 
     def _find_product(self, parsed_line, partner):
         """
@@ -602,13 +779,14 @@ class EDIProcessor(models.AbstractModel):
         elif strategy == "default_code":
             # Case-insensitive exact match: retail EDI codes arrive in mixed case
             # (e.g. iDOC 'HESPG' vs Odoo 'hespg'); the legacy .NET handler matched
-            # case-insensitively. '=ilike' with no wildcards = exact, case-insensitive.
+            # case-insensitively. '=ilike' with wildcards escaped = exact,
+            # case-insensitive (so a code with '_'/'%' can't match the wrong product).
             return self.env["product.product"].search(
-                [("default_code", "=ilike", code)], limit=1
+                [("default_code", "=ilike", _escape_ilike(code))], limit=1
             ) or None
         elif strategy == "supplier_sku":
             info = self.env["product.supplierinfo"].search(
-                [("product_code", "=ilike", code)], limit=1
+                [("product_code", "=ilike", _escape_ilike(code))], limit=1
             )
             if not info:
                 return None
@@ -634,10 +812,16 @@ class EDIProcessor(models.AbstractModel):
                     product, quantity, partner.partner_id
                 )
             except Exception as exc:
+                # A pricelist IS configured but the lookup failed. Fall back to
+                # the product's list price (as the docstring promises) rather than
+                # returning None — None would make the caller SKIP the price-sanity
+                # check entirely, defeating the purpose of having one.
                 _logger.warning(
-                    "[EDI] Pricelist price lookup failed for %s: %s", product.name, exc
+                    "[EDI] Pricelist price lookup failed for %s: %s — "
+                    "falling back to list_price for the price check",
+                    product.name, exc,
                 )
-                return None
+                return product.list_price
 
     def _compute_change_summary(self, existing_so, order) -> str:
         """Generate human-readable summary of what changed."""
