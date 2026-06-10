@@ -1,6 +1,6 @@
 # mml_edi — Electronic Data Interchange for Odoo 19
 
-Odoo 19 module for automated EDI order exchange with retail partners. Replaces a legacy .NET Windows service that handled Briscoes Group purchase orders manually.
+Odoo 19 module for automated EDI order exchange with retail partners. Replaces the legacy .NET Briscoes EDI bridge at the Odoo 15→19 cutover — see `docs/PROD_CUTOVER.md` for the authoritative go-live runbook (double-poll guard, test-mailbox sequencing, rollback).
 
 **Company:** MML Consumer Products Ltd (NZ) · **Platform:** `mml_base`
 
@@ -10,13 +10,23 @@ Odoo 19 module for automated EDI order exchange with retail partners. Replaces a
 
 Retail partners send purchase orders electronically (SFTP/FTP or email pickup). This module:
 
-1. Polls configured FTP/SFTP paths for inbound order files
-2. Parses each file using the partner's document profile
-3. Routes the parsed order to an existing `sale.order` (update) or creates a new one
-4. Lands any routing exceptions in a review queue for manual resolution
-5. Emits an `edi.order.processed` event (billing ledger entry per order line)
+1. Polls configured FTP/SFTP paths for inbound order files (duplicate files are
+   skipped by content hash; the processed marker is only written after **every**
+   store-order in a file succeeds, so partial failures retry safely)
+2. Parses each file using the partner's allow-listed parser class
+3. Splits per store, routes to an existing `sale.order` (update/cancel via ORDCHG)
+   or creates new ones — unknown store codes raise a **blocking review issue**
+   rather than silently delivering to head office
+4. Lands exceptions (price discrepancy, product not found, uom mismatch…) in a
+   review queue for manual resolution
+5. Generates one ORDRSP (ACK) per PO **per exchange** — deferred until all of the
+   PO's store-orders are resolved, idempotent per exchange (ORDCHG/re-orders get
+   their own response), with a 30-min retry cron for failed uploads
+6. Emits an `edi.order.processed` event (billing ledger entry per order)
 
-On despatch confirmation (`3pl.despatch.confirmed`), the EDI service sends an ASN back to the partner — wired via `mml_base` event subscriptions when `mml_freight` and `stock_3pl_core` are also installed.
+**ASN status:** outbound ASN on despatch confirmation is designed but **not yet
+wired** — there is no `3pl.despatch.confirmed` emitter in the 3PL modules yet and
+`mml_edi.asn_enabled` defaults off. Treat ASN as roadmap, not a working flow.
 
 ---
 
@@ -26,24 +36,40 @@ On despatch confirmation (`3pl.despatch.confirmed`), the EDI service sends an AS
 mml_edi/
 ├── __manifest__.py
 ├── hooks.py                    ← registers EDIService + capabilities on install
+├── docs/
+│   └── PROD_CUTOVER.md         ← 15→19 go-live runbook (authoritative)
 ├── models/
-│   ├── edi_trading_partner.py  ← partner profile (FTP config, document format, mapping)
-│   ├── edi_processor.py        ← inbound order processing engine
-│   ├── edi_order_review.py     ← review queue for orders needing attention
+│   ├── edi_trading_partner.py  ← partner profile (FTP/SFTP config, parser allowlist,
+│   │                             environment flag, circuit breaker, Fernet-encrypted creds)
+│   ├── edi_processor.py        ← inbound engine (poll, hash-dedup, per-store savepoints,
+│   │                             ACK retry cron method)
+│   ├── edi_ftp.py              ← FTP/SFTP transport (host-key pinning, filename allowlist;
+│   │                             credentials read via sudo so non-admin approvers can upload)
+│   ├── edi_order_review.py     ← review queue + deferred per-PO/per-exchange ORDRSP
 │   ├── edi_order_issue.py      ← line-level issue tracking
-│   └── edi_log.py              ← processing log (one entry per file received)
+│   ├── edi_log.py              ← append-only processing log (file hashes, ACK status)
+│   ├── sale_order.py / stock_location_ext.py
 ├── services/
 │   └── edi_service.py          ← EDIService (registered with mml.registry as 'edi')
 ├── parsers/
-│   └── briscoes_parser.py      ← Briscoes-specific document parser (Phase 1 stub)
+│   ├── base_parser.py
+│   ├── briscoes_idoc.py        ← Briscoes iDOC XML parser + ORDRSP generator (PRODUCTION path)
+│   ├── briscoes.py             ← EDIFACT D96A parser — NOT allow-listed (ships carton qty
+│   │                             as eaches; re-enable only after CT→EA conversion is ported)
+│   └── briscoes_asn.py         ← ASN builder (unwired — see ASN status above)
 ├── wizards/
-│   └── edi_bulk_action.py      ← bulk approve / reprocess / reject wizard
+│   ├── edi_bulk_action.py      ← bulk approve / reprocess / reject wizard
+│   └── edi_seed_stores.py      ← seed Briscoes store partners
+├── migrations/
 ├── security/
 ├── views/
+├── tests/                      ← pure-Python parser/processor tests + Odoo integration tests
 └── data/
     ├── edi_trading_partner_briscoes.xml  ← Briscoes seed record
-    ├── ir_cron.xml                       ← polling cron (every 15 min, inactive by default)
-    └── ir_sequence.xml                   ← EDI document reference sequence
+    ├── ir_cron.xml   ← "EDI: Poll Trading Partners" (15 min, ships INACTIVE — the runbook's
+    │                    double-poll gate) + "EDI: Retry Pending ACKs" (30 min, active)
+    ├── ir_sequence.xml                   ← EDI document reference sequence
+    └── mail_template.xml
 ```
 
 ---
@@ -65,12 +91,10 @@ Other modules can call EDI operations without a hard dependency — if `mml_edi`
 
 | Partner | Status | Format | Transport |
 |---------|--------|--------|-----------|
-| Briscoes Group (Briscoes, Rebel Sport, Living & Giving) | Phase 1 — stub parser | CSV (EDIFACT Phase 2 pending partner spec) | SFTP |
+| Briscoes Group (Briscoes, Rebel Sport, Living & Giving) | **Production-grade** — iDOC XML parser + per-PO/per-exchange ORDRSP, validated against real order fixtures (each-vs-carton and MML-code-vs-shipper-GTIN handling locked by tests). Cutover pending per `docs/PROD_CUTOVER.md`. | iDOC XML (EDIFACT D96A parser exists but is **de-listed** until CT→EA conversion is ported) | FTP/SFTP (EDIS VAN) |
 | Harvey Norman NZ | Scoped — awaiting partner spec | EDIFACT | SFTP / VAN |
 | Animates | Scoped — format TBC | CSV initially | TBC |
 | PetStock (AU/NZ) | Early scope | TBC | TBC |
-
-Phase 2 adds full EDIFACT D96A parsing once partner technical specifications are confirmed.
 
 ---
 
@@ -87,9 +111,13 @@ odoo-bin -d <db> -i mml_edi --stop-after-init
 ### Post-install configuration
 
 1. Go to **EDI → Configuration → Trading Partners** and review the Briscoes seed record
-2. Set SFTP host, username, and password on the Briscoes trading partner record
-3. Enable the polling cron in **Settings → Technical → Scheduled Actions → EDI: Poll Inbound Orders**
-4. Run a manual poll to verify connectivity before enabling the cron
+2. Set FTP/SFTP host, username, and password on the Briscoes trading partner record
+   (verify `BriscoeId` partner id and the exact pricelist name against production data)
+3. Run a manual poll (**Run Poll Now**) against the partner's *test* mailbox to verify
+   connectivity and parsing
+4. Only at go-live, per `docs/PROD_CUTOVER.md`: stop the legacy .NET poller FIRST
+   (double-poll guard), then enable **Settings → Technical → Scheduled Actions →
+   EDI: Poll Trading Partners** (it ships inactive for exactly this reason)
 
 ---
 
@@ -99,21 +127,22 @@ Orders that cannot be automatically processed land in **EDI → Orders → Pendi
 
 | Status | Meaning |
 |--------|---------|
-| `pending` | Awaiting review |
-| `approved` | Manually approved and linked to a sale order |
-| `rejected` | Rejected with reason (partner will be notified if configured) |
-| `reprocessed` | Sent back through the parser after data correction |
+| `pending_review` | Awaiting review (blocking issues: unknown store, product not found, price discrepancy…) |
+| `approved` | Manually approved — sale order confirmed, ORDRSP queued once all of the PO's stores are resolved |
+| `auto_approved` | Clean order auto-confirmed (when the partner's `auto_confirm_clean` is on) |
+| `rejected` | Rejected with reason — reflected as a rejection (ABGRU) in the ORDRSP |
 
-The bulk action wizard lets you approve, reject, or reprocess multiple orders at once.
+The bulk action wizard lets you approve or reject multiple orders at once; a manager
+can also reset a review and re-approve, which generates a fresh per-exchange ORDRSP.
 
 ---
 
 ## Running tests
 
 ```bash
-# Structural tests (no Odoo instance required)
-cd briscoes.edi
-pytest mml.edi/tests/ -m "not odoo_integration" -v
+# Structural tests (no Odoo instance required) — from the module directory:
+cd mml_edi
+pytest -m "not odoo_integration" -q     # 128 pass as of 2026-06-10
 
 # Odoo integration tests
 odoo-bin --test-enable --stop-after-init -d testdb \

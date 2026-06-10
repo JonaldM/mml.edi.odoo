@@ -84,9 +84,14 @@ BriscoesASNGenerator   (parsers/briscoes_asn.py)    — Generates EDIFACT DESADV
 - File-level deduplication via SHA-256 hash checked against `edi.log` (`event_type=file_download, status=success`)
 - EAN-13 check digit validation is enforced before ORDRSP and DESADV generation — missing/invalid barcodes raise `UserError` to prevent silent partner rejection
 
-### Outbound ASN (DESADV) Flow
+### Outbound ASN (DESADV) Flow — ⚠️ NOT YET WIRED (design only)
 
-Triggered by `mml.event` `3pl.despatch.confirmed`:
+No module emits `3pl.despatch.confirmed` yet, no `mml.event.subscription` is
+registered for it (the uninstall hook deregisters one that install never creates),
+and `mml_edi.asn_enabled` defaults off. The components below exist but the flow
+does not run end-to-end — treat as roadmap (2026-06-10 review, finding M4).
+
+Designed trigger: `mml.event` `3pl.despatch.confirmed`:
 1. `EDIService.on_3pl_despatch_confirmed(event)` looks up `stock.picking`
 2. Validates picking has a linked `sale.order` with an active `edi.trading.partner`
 3. Groups `stock.move` lines by `location_dest_id.edi_store_gln` (custom field on `stock.location`)
