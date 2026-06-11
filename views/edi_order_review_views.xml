@@ -73,6 +73,7 @@
                     <field name="state"/>
                     <field name="issue_count"/>
                     <field name="blocking_issue_count"/>
+                    <field name="ack_status"/>
                     <field name="received_date"/>
 
                     <progressbar field="blocking_issue_count"
@@ -163,6 +164,11 @@
                            decoration-warning="state == 'pending_review' and blocking_issue_count == 0 and issue_count > 0"
                            decoration-success="state in ('approved', 'auto_approved')"
                            decoration-muted="state == 'rejected'"/>
+                    <field name="ack_status" string="ORDRSP" widget="badge"
+                           decoration-success="ack_status == 'sent'"
+                           decoration-danger="ack_status == 'failed'"
+                           decoration-info="ack_status == 'queued'"
+                           decoration-muted="ack_status == 'pending'"/>
                     <field name="blocking_issue_count" string="Blocking" optional="show"/>
                     <field name="issue_count" string="Issues" optional="show"/>
                     <field name="sale_order_id" optional="show"/>
@@ -252,6 +258,16 @@
                                        readonly="1"
                                        widget="badge"/>
                                 <field name="sale_order_id" readonly="1"/>
+                                <field name="ack_status"
+                                       readonly="1"
+                                       widget="badge"
+                                       string="ORDRSP Status"
+                                       decoration-success="ack_status == 'sent'"
+                                       decoration-danger="ack_status == 'failed'"
+                                       decoration-info="ack_status == 'queued'"
+                                       decoration-muted="ack_status == 'pending'"/>
+                                <field name="ack_date" readonly="1"
+                                       invisible="ack_status != 'sent'"/>
                                 <field name="blocking_issue_count"
                                        readonly="1"
                                        string="Blocking Issues"/>

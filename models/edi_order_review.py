@@ -110,6 +110,52 @@ class EDIOrderReview(models.Model):
         string="Change Orders",
     )
 
+    # ── ORDRSP / ACK status ───────────────────────────────────────────────
+
+    ack_status = fields.Selection(
+        [
+            ("pending", "Review Pending"),
+            ("queued", "Queued"),
+            ("sent", "Sent"),
+            ("failed", "Failed"),
+        ],
+        compute="_compute_ack_status", string="ORDRSP",
+        help="Status of the outbound order response (ORDRSP/ACK) for this PO. "
+             "One response covers all store-orders of a PO and is only sent once "
+             "every store-review is resolved.",
+    )
+    ack_date = fields.Datetime(compute="_compute_ack_status", string="ORDRSP Sent")
+
+    def _compute_ack_status(self):
+        Log = self.env["edi.log"]
+        for rec in self:
+            if rec.state == "pending_review":
+                rec.ack_status = "pending"
+                rec.ack_date = False
+                continue
+            # The ACK filename is deterministic per (partner, PO, inbound-file).
+            # All store-reviews of one inbound file share that file's hash, so
+            # every sibling computes the same filename — and thus the same status.
+            exchange_key = (rec.edi_file_hash or str(rec.id))[:8]
+            filename = "ACK_%s_%s_%s.edi" % (
+                rec.trading_partner_id.code, rec.customer_po_number, exchange_key,
+            )
+            logs = Log.search([
+                ("trading_partner_id", "=", rec.trading_partner_id.id),
+                ("event_type", "=", "ack_sent"),
+                ("filename", "=", filename),
+            ], order="timestamp desc")
+            success = logs.filtered(lambda l: l.status == "success")[:1]
+            if success:
+                rec.ack_status = "sent"
+                rec.ack_date = success.timestamp
+            elif logs:  # only error rows so far
+                rec.ack_status = "failed"
+                rec.ack_date = False
+            else:
+                rec.ack_status = "queued"
+                rec.ack_date = False
+
     # ── Computed ──────────────────────────────────────────────────────────
 
     @api.depends("sale_order_id.order_line")

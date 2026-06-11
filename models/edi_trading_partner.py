@@ -3,6 +3,7 @@ import importlib
 import logging
 import re
 import string
+from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -183,6 +184,110 @@ class EDITradingPartner(models.Model):
         string="Cooldown (minutes)",
         help="Minutes to wait before retrying after the circuit trips.",
     )
+
+    # ── Dashboard / health (computed, non-stored) ─────────────────────────
+
+    last_poll_date = fields.Datetime(
+        compute="_compute_health", string="Last Inbound Activity",
+        help="Timestamp of the most recent inbound EDI log entry for this partner.",
+    )
+    pending_review_count = fields.Integer(
+        compute="_compute_health", string="Orders Awaiting Review",
+    )
+    error_recent_count = fields.Integer(
+        compute="_compute_health", string="Errors (24h)",
+    )
+    health_state = fields.Selection(
+        [
+            ("never", "Never Polled"),
+            ("circuit_open", "Circuit Open"),
+            ("error", "Recent Errors"),
+            ("review", "Awaiting Review"),
+            ("ok", "Healthy"),
+        ],
+        compute="_compute_health", string="Health",
+        help="At-a-glance connection health: circuit-breaker state, recent "
+             "errors, and pending reviews, worst-first.",
+    )
+
+    # ── Setup checklist (computed, non-stored) ────────────────────────────
+
+    setup_credentials_ok = fields.Boolean(compute="_compute_setup")
+    setup_pricelist_ok = fields.Boolean(compute="_compute_setup")
+    setup_stores_ok = fields.Boolean(compute="_compute_setup")
+    setup_tested_ok = fields.Boolean(compute="_compute_setup")
+    setup_complete = fields.Boolean(compute="_compute_setup", string="Setup Complete")
+
+    def _compute_health(self):
+        Log = self.env["edi.log"]
+        Review = self.env["edi.order.review"]
+        now = fields.Datetime.now()
+        cutoff = now - timedelta(hours=24)
+        for partner in self:
+            last_in = Log.search(
+                [("trading_partner_id", "=", partner.id), ("direction", "=", "inbound")],
+                order="timestamp desc", limit=1,
+            )
+            partner.last_poll_date = last_in.timestamp if last_in else False
+            partner.pending_review_count = Review.search_count([
+                ("trading_partner_id", "=", partner.id),
+                ("state", "=", "pending_review"),
+            ])
+            partner.error_recent_count = Log.search_count([
+                ("trading_partner_id", "=", partner.id),
+                ("status", "=", "error"),
+                ("timestamp", ">=", cutoff),
+            ])
+            if partner.circuit_open_since:
+                partner.health_state = "circuit_open"
+            elif not partner.last_poll_date:
+                partner.health_state = "never"
+            elif partner.error_recent_count:
+                partner.health_state = "error"
+            elif partner.pending_review_count:
+                partner.health_state = "review"
+            else:
+                partner.health_state = "ok"
+
+    def _compute_setup(self):
+        for partner in self:
+            sudo = partner.sudo()  # credential fields are group-restricted
+            partner.setup_credentials_ok = bool(
+                partner.ftp_host and sudo.ftp_user and sudo.ftp_password
+            )
+            partner.setup_pricelist_ok = bool(partner.pricelist_id)
+            if partner.order_split_mode == "per_store":
+                partner.setup_stores_ok = bool(
+                    partner.partner_id and partner.partner_id.child_ids
+                )
+            else:
+                partner.setup_stores_ok = True
+            partner.setup_tested_ok = bool(self.env["edi.log"].search_count([
+                ("trading_partner_id", "=", partner.id),
+                ("event_type", "in", ("ftp_connection", "file_download")),
+                ("status", "=", "success"),
+            ]))
+            partner.setup_complete = (
+                partner.setup_credentials_ok
+                and partner.setup_pricelist_ok
+                and partner.setup_stores_ok
+                and partner.setup_tested_ok
+            )
+
+    def action_open_pending_reviews(self):
+        """Smart-button: open this partner's pending review queue."""
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Pending Reviews — %s") % self.name,
+            "res_model": "edi.order.review",
+            "view_mode": "list,form",
+            "domain": [
+                ("trading_partner_id", "=", self.id),
+                ("state", "=", "pending_review"),
+            ],
+            "context": {"search_default_trading_partner_id": self.id},
+        }
 
     # ── Computed ──────────────────────────────────────────────────────────
 
