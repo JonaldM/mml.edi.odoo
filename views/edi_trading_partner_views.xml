@@ -181,9 +181,6 @@
                             <strong><i class="fa fa-list-check me-1" role="img" aria-label="Checklist"/> Setup checklist</strong>
                             <div class="mt-2">
                                 <div>
-                                    <i t-att-class="''"
-                                       class="fa fa-fw"
-                                       role="img"/>
                                     <field name="setup_credentials_ok" widget="boolean" readonly="1" class="me-1"/>
                                     1. Enter FTP/SFTP credentials (Host, Username, Password) on the
                                     <strong>FTP Configuration</strong> tab
