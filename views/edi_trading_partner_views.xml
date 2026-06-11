@@ -111,13 +111,34 @@
                             <!-- FTP Configuration tab -->
                             <page string="FTP Configuration" name="ftp_config">
 
+                                <div class="text-muted mb-2">
+                                    Credential fields (username, password, SFTP host key)
+                                    are visible to <strong>Settings-level administrators
+                                    only</strong> — if you cannot see them below, ask an
+                                    administrator to enter them. Passwords are encrypted
+                                    at rest. Use <em>Test FTP Connection</em> in the header
+                                    after any change.
+                                </div>
+
                                 <group string="Connection">
                                     <field name="ftp_protocol" string="Protocol"/>
                                     <field name="ftp_host" string="Host"/>
                                     <field name="ftp_port" string="Port"/>
                                     <field name="ftp_user" string="Username"/>
                                     <field name="ftp_password"
-                                           string="Password"/>
+                                           string="Password"
+                                           password="True"/>
+                                    <field name="sftp_host_key"
+                                           string="SFTP Host Key (base64)"
+                                           invisible="ftp_protocol != 'sftp'"
+                                           help="Pinned host key — SFTP connections to an unknown or changed key are REJECTED. Get it from: ssh-keyscan -t ed25519 &lt;host&gt;"/>
+                                </group>
+
+                                <group string="Connection Health">
+                                    <field name="circuit_open_since"
+                                           string="Circuit Breaker Tripped Since"
+                                           readonly="1"
+                                           help="Set when repeated poll failures trip the circuit breaker; cleared automatically on the next successful poll."/>
                                 </group>
 
                                 <group string="Production Paths">
@@ -153,7 +174,8 @@
                                                string="Client Reference Template"
                                                placeholder="{po_number}_{store_code}"/>
                                         <field name="poll_interval_minutes"
-                                               string="Poll Interval (minutes)"/>
+                                               string="Poll Interval (minutes)"
+                                               help="Currently informational only — polling runs on the global 'EDI: Poll Trading Partners' scheduled action (15 min); a per-partner interval is not yet enforced."/>
                                     </group>
                                     <group string="Order Processing &amp; Pricing">
                                         <field name="price_tolerance_pct"
