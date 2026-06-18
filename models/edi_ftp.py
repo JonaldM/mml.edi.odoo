@@ -134,16 +134,26 @@ class EDIFTPHandler:
     # ── File operations ───────────────────────────────────────────────────
 
     def list_files(self) -> list:
-        """List files in the active inbox directory. Returns filenames only."""
+        """List unprocessed files in the active inbox. Returns filenames only.
+
+        Files already archived by move_to_processed carry a '.processed.<ts>'
+        marker in their name; they are excluded so they are not re-downloaded
+        and re-renamed on every poll (move_to_processed renames in place, so an
+        un-filtered listing would re-surface them indefinitely).
+        """
         inbox = self.partner.get_active_inbox_path()
+
+        def _keep(name):
+            return bool(name) and not name.startswith('.') and '.processed.' not in name
+
         try:
             if self.partner.ftp_protocol == "sftp":
                 return [f.filename for f in self._ftp.listdir_attr(inbox)
-                        if not f.filename.startswith(".")]
+                        if _keep(f.filename)]
             else:
                 return [
                     os.path.basename(f) for f in self._ftp.nlst(inbox)
-                    if os.path.basename(f) and not os.path.basename(f).startswith('.')
+                    if _keep(os.path.basename(f))
                 ]
         except Exception as exc:
             raise EDIFTPError("list_files failed on %s: %s" % (inbox, exc)) from exc

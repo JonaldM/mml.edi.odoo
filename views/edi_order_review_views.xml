@@ -48,6 +48,12 @@
                         <filter name="group_by_received_date"
                                 string="Received Date"
                                 context="{'group_by': 'received_date:day'}"/>
+                        <filter name="group_by_week"
+                                string="Week"
+                                context="{'group_by': 'received_date:week'}"/>
+                        <filter name="group_by_po"
+                                string="Master Order (PO)"
+                                context="{'group_by': 'customer_po_number'}"/>
                     </group>
                 </search>
             </field>
@@ -76,11 +82,11 @@
                     <field name="ack_status"/>
                     <field name="received_date"/>
 
-                    <progressbar field="blocking_issue_count"
+                    <progressbar field="blocking_issue_count" colors='{"0": "success", "1": "warning", "2": "danger"}'
                                  sum_field="blocking_issue_count"/>
 
                     <templates>
-                        <t t-name="kanban-card">
+                        <t t-name="card">
                             <div class="oe_kanban_card oe_kanban_global_click p-2">
 
                                 <!-- Top row: PO number + document type badge -->
@@ -153,6 +159,10 @@
                       decoration-success="state in ('approved', 'auto_approved')"
                       decoration-muted="state == 'rejected'"
                       multi_edit="1">
+                    <header>
+                        <button name="%(action_edi_bulk_approve_wizard)d" type="action"
+                                string="Bulk Approve" class="btn-primary"/>
+                    </header>
                     <field name="received_date" widget="date" string="Received"/>
                     <field name="name" string="Reference"/>
                     <field name="trading_partner_id"/>
@@ -417,7 +427,7 @@
         <record id="action_edi_order_review" model="ir.actions.act_window">
             <field name="name">EDI Order Reviews</field>
             <field name="res_model">edi.order.review</field>
-            <field name="view_mode">kanban,list,form</field>
+            <field name="view_mode">list,kanban,form</field>
             <field name="context">{'search_default_needs_review': 1}</field>
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">
@@ -436,6 +446,7 @@
             <field name="res_model">edi.order.review</field>
             <field name="view_mode">list,kanban,form</field>
             <field name="domain">[('state', '=', 'pending_review')]</field>
+            <field name="context">{'search_default_group_by_week': 1, 'search_default_group_by_po': 1}</field>
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">
                     No orders pending review

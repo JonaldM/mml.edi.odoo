@@ -371,6 +371,16 @@ class EDIProcessor(models.AbstractModel):
             "edi_trading_partner_id": partner.id,
             "company_id": self.env.company.id,
         }
+        # Carry the clean customer PO number onto the SO. Per-store SOs otherwise
+        # only have the suffixed client_order_ref (e.g. "4500180080_1080"); the
+        # full Briscoes PO must be visible per store for matching, packing slips
+        # and downstream Enabling reports. Set both the standard field and the
+        # legacy Studio field when present (guarded so other DBs don't break).
+        _so_fields = self.env['sale.order']._fields
+        if 'customer_po_number' in _so_fields:
+            so_vals['customer_po_number'] = order.po_number
+        if 'x_edi_ponumber' in _so_fields:
+            so_vals['x_edi_ponumber'] = order.po_number
         # pricelist_id is only available when sale_management is installed (Odoo 17+)
         if (
             'pricelist_id' in self.env['sale.order']._fields
@@ -921,8 +931,14 @@ class EDIProcessor(models.AbstractModel):
             _logger.exception('Failed to send cron alert email for %s', module_name)
 
     def _send_review_alert(self, partner, review):
-        """Send alert email to configured recipients."""
-        if not partner.alert_email_ids:
+        """Send alert email to configured recipients.
+
+        The mail template's email_to is intentionally blank — recipients come
+        from the trading partner's Alert Email Recipients, injected here so a
+        partner can be re-pointed without editing the template.
+        """
+        recipients = partner.alert_email_ids.filtered('email')
+        if not recipients:
             return
         try:
             template = self.env.ref(
@@ -930,6 +946,9 @@ class EDIProcessor(models.AbstractModel):
                 raise_if_not_found=False,
             )
             if template:
-                template.send_mail(review.id, force_send=True)
+                template.send_mail(
+                    review.id, force_send=True,
+                    email_values={'email_to': ','.join(recipients.mapped('email'))},
+                )
         except Exception as exc:
             _logger.warning("[EDI] Failed to send review alert: %s", exc)
