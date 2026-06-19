@@ -940,6 +940,20 @@ class EDIProcessor(models.AbstractModel):
         except Exception:
             _logger.exception('Failed to send cron alert email for %s', module_name)
 
+    def _edi_mailer(self):
+        """(from_addr, mail_server) for outbound EDI notifications.
+
+        Office365 denies 'send as' for the company/notifications address
+        (SendAsDenied), so route EDI alerts and OOS summaries through the
+        noreply mailbox, which is the permitted relay. From-address is
+        overridable via ir.config_parameter ``mml_edi.notify_from``.
+        """
+        ICP = self.env['ir.config_parameter'].sudo()
+        from_addr = ICP.get_param('mml_edi.notify_from') or 'MML EDI <noreply@mml.co.nz>'
+        server = self.env['ir.mail_server'].sudo().search(
+            [('name', 'ilike', 'noreply')], limit=1)
+        return from_addr, server
+
     def _send_review_alert(self, partner, review):
         """Send alert email to configured recipients.
 
@@ -956,10 +970,14 @@ class EDIProcessor(models.AbstractModel):
                 raise_if_not_found=False,
             )
             if template:
-                template.send_mail(
-                    review.id, force_send=True,
-                    email_values={'email_to': ','.join(recipients.mapped('email'))},
-                )
+                from_addr, server = self._edi_mailer()
+                ev = {
+                    'email_to': ','.join(recipients.mapped('email')),
+                    'email_from': from_addr,
+                }
+                if server:
+                    ev['mail_server_id'] = server.id
+                template.send_mail(review.id, force_send=True, email_values=ev)
         except Exception as exc:
             _logger.warning("[EDI] Failed to send review alert: %s", exc)
 
@@ -1014,9 +1032,14 @@ class EDIProcessor(models.AbstractModel):
             '</div>'
         ) % (html.escape(str(po_number)), len(shortfalls), rows, extra)
 
-        self.env["mail.mail"].sudo().create({
+        from_addr, server = self._edi_mailer()
+        vals = {
             "subject": "EDI stock shortfall: PO %s (%d line(s) short)" % (
                 po_number, len(shortfalls)),
             "body_html": body,
+            "email_from": from_addr,
             "email_to": ",".join(recipients.mapped("email")),
-        }).send()
+        }
+        if server:
+            vals["mail_server_id"] = server.id
+        self.env["mail.mail"].sudo().create(vals).send()
