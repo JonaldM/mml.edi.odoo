@@ -317,6 +317,16 @@ class EDIProcessor(models.AbstractModel):
             ], order="id desc", limit=1)
             if any_review:
                 any_review._queue_ack()
+            # Stock-shortfall (OOS) heads-up: one summary email per PO. OOS lines
+            # do not block — the order is accepted in full and the short qty
+            # backorders — so this is informational, not a review request.
+            try:
+                self._send_oos_summary(partner, po_number)
+            except Exception:
+                _logger.warning(
+                    "[EDI] OOS summary email failed for PO %s", po_number,
+                    exc_info=True,
+                )
 
         return failures
 
@@ -952,3 +962,61 @@ class EDIProcessor(models.AbstractModel):
                 )
         except Exception as exc:
             _logger.warning("[EDI] Failed to send review alert: %s", exc)
+
+    def _send_oos_summary(self, partner, po_number):
+        """Email a per-PO summary of stock-shortfall (OOS) lines after import.
+
+        OOS lines are non-blocking warnings: the order is accepted in full and
+        the short quantity backorders, so the ORDRSP confirms it and no manual
+        review is needed. This is a heads-up for operations, not an approval
+        request — sent to the partner's Alert Email Recipients. Fires once per
+        file import (re-polls of the same file are dedup-skipped before here).
+        """
+        recipients = partner.alert_email_ids.filtered('email')
+        if not recipients:
+            return
+        reviews = self.env["edi.order.review"].search([
+            ("trading_partner_id", "=", partner.id),
+            ("customer_po_number", "=", po_number),
+        ])
+        shortfalls = self.env["edi.order.issue"].search([
+            ("review_id", "in", reviews.ids),
+            ("issue_type", "=", "qty_shortfall"),
+        ], order="id")
+        if not shortfalls:
+            return
+
+        cap = 200
+        rows = "".join(
+            '<tr><td style="padding:4px 10px;border:1px solid #ddd;">%s</td>'
+            '<td style="padding:4px 10px;border:1px solid #ddd;">%s</td></tr>'
+            % (html.escape(iss.review_id.store_code or ""),
+               html.escape(iss.description or ""))
+            for iss in shortfalls[:cap]
+        )
+        more = len(shortfalls) - cap
+        extra = ('<p style="color:#888;">… and %d more line(s).</p>' % more
+                 if more > 0 else "")
+        body = (
+            '<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:680px;">'
+            '<h2 style="color:#e67e22;border-bottom:2px solid #e67e22;padding-bottom:6px;">'
+            'Stock shortfall summary — PO %s</h2>'
+            '<p>%d line(s) on this auto-approved order are short on available stock. '
+            'The order was accepted in full and acknowledged to the customer; the '
+            'short quantity will backorder. No action is required unless you want to '
+            'expedite stock.</p>'
+            '<table style="border-collapse:collapse;margin:12px 0;">'
+            '<thead><tr>'
+            '<th style="padding:4px 10px;border:1px solid #ddd;text-align:left;background:#f7f7f7;">Store</th>'
+            '<th style="padding:4px 10px;border:1px solid #ddd;text-align:left;background:#f7f7f7;">Shortfall</th>'
+            '</tr></thead><tbody>%s</tbody></table>%s'
+            '<p style="color:#999;font-size:12px;">Automated summary from the MML EDI system.</p>'
+            '</div>'
+        ) % (html.escape(str(po_number)), len(shortfalls), rows, extra)
+
+        self.env["mail.mail"].sudo().create({
+            "subject": "EDI stock shortfall: PO %s (%d line(s) short)" % (
+                po_number, len(shortfalls)),
+            "body_html": body,
+            "email_to": ",".join(recipients.mapped("email")),
+        }).send()
