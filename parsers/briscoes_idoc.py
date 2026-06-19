@@ -492,7 +492,11 @@ class BriscoesIDOCParser(BaseEDIParser):
             # E1EDP20 — schedule
             p20 = p01.find("E1EDP20")
             seg.append('<E1EDP20 SEGMENT="1">')
-            seg.append("<WMENG>%.3f</WMENG>" % confirmed_each)
+            # WMENG is the confirmed quantity in the ORDER unit (MENEE = CT /
+            # cartons), NOT the EA base qty. The proven .NET ACK and every
+            # Briscoes-accepted ORDRSP set WMENG == MENGE (cartons); emitting the
+            # EA value (BMNG2) here over-confirms every line by the carton factor.
+            seg.append("<WMENG>%.3f</WMENG>" % conf_cartons)
             seg.append("<AMENG>0.000</AMENG>")
             seg.append("<EDATU>%s</EDATU>" % (_text(p20, "EDATU") if p20 is not None else ""))
             seg.append("</E1EDP20>")
@@ -506,6 +510,21 @@ class BriscoesIDOCParser(BaseEDIParser):
                     seg.append("</E1EDP19>")
             seg.append("</E1EDP01>")
             line_count += 1
+
+        # E1EDS01 order-value summary — echo the PO's summary segment(s). The
+        # proven .NET ACK (and every Briscoes-accepted ORDRSP) carries
+        # SUMID=002 / SUMME=<order value> / SUNIT=<currency>; omitting it
+        # diverges from the format Briscoes expects.
+        for s01 in idoc.findall("E1EDS01"):
+            seg.append('<E1EDS01 SEGMENT="1">')
+            sumid = _text(s01, "SUMID")
+            if sumid:
+                seg.append("<SUMID>%s</SUMID>" % sumid)
+            seg.append("<SUMME>%s</SUMME>" % _text(s01, "SUMME"))
+            sunit = _text(s01, "SUNIT")
+            if sunit:
+                seg.append("<SUNIT>%s</SUNIT>" % sunit)
+            seg.append("</E1EDS01>")
 
         seg.append("</IDOC>")
         return seg
