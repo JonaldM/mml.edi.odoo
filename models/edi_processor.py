@@ -397,6 +397,13 @@ class EDIProcessor(models.AbstractModel):
             and partner.pricelist_id
         ):
             so_vals['pricelist_id'] = partner.pricelist_id.id
+        # Route new orders to the trading partner's fulfilment warehouse when set
+        # (otherwise the SO inherits the EDI user's default warehouse, = AKL).
+        if (
+            'warehouse_id' in self.env['sale.order']._fields
+            and partner.warehouse_id
+        ):
+            so_vals['warehouse_id'] = partner.warehouse_id.id
         so = self.env["sale.order"].create(so_vals)
 
         blocking_issues = []

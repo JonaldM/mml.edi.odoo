@@ -112,6 +112,12 @@ class EDITradingPartner(models.Model):
         string="Pricelist",
         help="Used for price comparison on inbound orders",
     )
+    warehouse_id = fields.Many2one(
+        "stock.warehouse",
+        string="Fulfilment Warehouse",
+        help="Warehouse new orders for this trading partner are created on "
+        "(overrides the EDI user default). Blank = company default.",
+    )
     price_tolerance_pct = fields.Float(
         default=0.0,
         string="Price Tolerance (%)",

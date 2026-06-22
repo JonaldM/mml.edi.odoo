@@ -245,6 +245,8 @@
                                 <field name="auto_confirm_clean"
                                        widget="boolean_toggle"
                                        string="Auto-Confirm Clean Orders"/>
+                                <field name="warehouse_id" string="Fulfilment Warehouse"
+                                       help="Warehouse that new orders for this partner are created on (overrides the EDI user default). Blank = company default. Phase 1 will derive the destination island DC from each store delivery address."/>
                             </group>
                         </group>
 
