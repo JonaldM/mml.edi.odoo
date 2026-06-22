@@ -5,7 +5,8 @@
         <!-- TOP-LEVEL MENU -->
         <menuitem id="menu_edi_root"
                   name="MML EDI"
-                  sequence="100"/>
+                  web_icon="mml_edi,static/description/icon.png"
+                  sequence="46"/>
 
 
         <!-- DASHBOARD -->
