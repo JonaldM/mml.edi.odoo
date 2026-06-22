@@ -397,13 +397,22 @@ class EDIProcessor(models.AbstractModel):
             and partner.pricelist_id
         ):
             so_vals['pricelist_id'] = partner.pricelist_id.id
-        # Route new orders to the trading partner's fulfilment warehouse when set
-        # (otherwise the SO inherits the EDI user's default warehouse, = AKL).
-        if (
-            'warehouse_id' in self.env['sale.order']._fields
-            and partner.warehouse_id
-        ):
-            so_vals['warehouse_id'] = partner.warehouse_id.id
+        # Route new orders to a fulfilment warehouse. Prefer the destination
+        # island's DC (per-island model) via the ROQ resolver when available,
+        # derived from the store's delivery address; then the trading partner's
+        # configured fulfilment warehouse; else the EDI user's default (= AKL).
+        # Called defensively so mml_edi does not hard-depend on mml_roq_forecast.
+        if 'warehouse_id' in self.env['sale.order']._fields:
+            target_wh_id = False
+            wh_model = self.env['stock.warehouse']
+            if hasattr(wh_model, '_resolve_island_dc'):
+                dc = wh_model._resolve_island_dc(delivery_partner)
+                if dc:
+                    target_wh_id = dc.id
+            if not target_wh_id and partner.warehouse_id:
+                target_wh_id = partner.warehouse_id.id
+            if target_wh_id:
+                so_vals['warehouse_id'] = target_wh_id
         so = self.env["sale.order"].create(so_vals)
 
         blocking_issues = []
