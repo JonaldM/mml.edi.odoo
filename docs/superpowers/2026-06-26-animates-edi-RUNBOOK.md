@@ -73,8 +73,47 @@ VERDICT: architecturally sound + precision correct, but the above (esp. C1/C2/C3
 - [x] Grounding workflow (9 agents) → sprint plan
 - [x] Spec + runbook committed (41e9b9c)
 - [x] Octo review of plan (2 personas) — corrections folded in above (v2)
-- [ ] B1 envelope + partner config + fixtures + allowlist
-- [ ] B2 ORDERS inbound parser (+ ISC match)
-- [ ] B3 ORDRSP · [ ] B4 DESADV+SSCC · [ ] B5 INVOIC · [ ] B6 CONTRL
-- [ ] B7 store seed · [ ] B8 sequencing/compliance gates · [ ] B9 integration tests
-- [ ] Local pytest green (baseline pre-existing failures) → branch ready for review/cert
+- [x] **B1 EDIFACT engine** `parsers/animates_edifact.py` — UNA tokenizer honouring `?`
+      release (single unescape at leaf), envelope builders (ZZZ/14, CONTRL no-tail),
+      control-count/qualifier validators, normalized compare. 6 golden fixtures
+      extracted. + `AnimatesParser` allowlisted. (d7a5518, 25 tests)
+- [x] **B2 ORDERS inbound parser** `parsers/animates.py` — D01B ORDERS→ParsedOrder,
+      ISC→buyer_article_no / MML→product_code+vendor_code (cascade-friendly). (ca8fdf9, 4 tests)
+- [x] **B3-B6 outbound builders** ORDRSP/DESADV/INVOIC/CONTRL — pure
+      `build_<msg>(payload)->bytes`, fixture-verified via assert_equivalent +
+      validate_interchange. (76b1a8e, +parse_contrl)
+- [x] **ORDRSP ack adapter** `generate_ack` review→payload (re-parse edi_raw_data for
+      ISC + SO for confirmed qty/shortfall/state → action 5/3/7). (7dadb25, 3 tests)
+- [x] **Partner-dispatched outbound seam** `base_parser.build_outbound` +
+      `AnimatesParser.build_outbound` (DESADV/INVOIC/CONTRL/ORDRSP). (2d8856f, 2 tests)
+- [x] Local pure suite GREEN: 60 Animates tests; whole `mml_edi` pure suite
+      **190 passed / 55 skipped, no regressions**.
+
+### REMAINING — needs the Odoo runtime (test DB) to build+verify
+Everything above is pure-Python and fully unit-tested without Odoo. The rest is
+Odoo-coupled (models/XML/triggers) and should be done with the test DB so `-u` and
+the B9 integration tests can actually run:
+- **edi_service ASN generalisation** (`edi_service.py:131`): replace the hardcoded
+  `BriscoesASNGenerator` dispatch with `partner_parser.build_outbound(msg_type, payload)`.
+  Keep Briscoes ASN working (run the Briscoes integration tests as regression). Gate
+  per-partner via `ir.config_parameter mml_edi.asn_enabled` (edi_service.py:24-28 pattern).
+- **Outbound triggers + source→payload adapters** (Odoo): stock.picking validated →
+  DESADV (with SSCC mint), account.move posted → INVOIC, ORDERS received → CONTRL.
+- **B4-model SSCC register** `edi.sscc.register`: pure check-digit helper (mod-10 over
+  first 17, sample `00 39342835 0015329463`) + ir.sequence serial + UNIQUE(sscc)/UNIQUE
+  (serial) INSERT-retry (no read-max). The pure helper is unit-testable now; the model wraps it.
+- **B1-rest wiring**: partner config XML stub (NO store PII — empty like Briscoes),
+  ir.sequence records (ORDRSP/DESADV/INVOIC/CONTRL ctrl-refs + SSCC serial), manifest
+  data/ACL entries.
+- **B7 store seed**: runtime xlsx upload wizard (clone `wizards/edi_seed_stores.py`); the
+  66 stores + emails/phones are PII → upload at runtime, never commit (Briscoes precedent).
+- **B8 gates**: ASN-enabled config gate + sequencing/compliance pre-flight.
+- **B9 integration tests**: full pipeline on the Odoo test DB (ORDERS file → SO → ORDRSP
+  bytes; picking → DESADV; invoice → INVOIC), mirroring `test_briscoes_integration.py`.
+
+### Cert blockers (external — config placeholders only, not build-gating)
+Transport endpoint, MML's GLN, Animates supplier code, GS1 company prefix, ISC↔SKU map,
+NZBN — all supplied by SPS/Animates at enablement. Re-verify the ORDRSP + INVOIC golden
+fixtures against SPS's authoritative samples (my pdftotext extraction dropped a
+`QTY+21:48:EA` in ORDRSP and a `CNT+2:1` in INVOIC — the latter restored, the former
+handled by normalizing the defective UNT count in the test).
