@@ -6,6 +6,8 @@ Run: pytest tests/test_animates_ack.py -q
 from pathlib import Path
 from types import SimpleNamespace as NS
 
+import pytest
+
 from mml_edi.parsers.animates import AnimatesParser
 from mml_edi.parsers import animates_edifact as edifact
 
@@ -66,3 +68,20 @@ def test_shortfall_sets_action_3_changed():
     assert _seg(segs, "LIN")[0].comp(1, 0) == "3"
     qty113 = [q for q in _seg(segs, "QTY") if q.comp(0, 0) == "113"][0]
     assert qty113.comp(0, 1) == "1"                           # ordered 2 - shortfall 1
+
+
+# --- build_outbound partner-dispatched seam ---
+def test_build_outbound_routes_known_types_to_their_builders():
+    p = AnimatesParser()
+    for mt in ("ORDRSP", "DESADV", "INVOIC", "CONTRL"):
+        try:
+            p.build_outbound(mt, {})
+        except NotImplementedError:
+            pytest.fail("%s must route to its builder, not the dispatch default" % mt)
+        except Exception:
+            pass  # builder-level error on an empty payload is fine — routing happened
+
+
+def test_build_outbound_rejects_unknown_type():
+    with pytest.raises(NotImplementedError):
+        AnimatesParser().build_outbound("APERAK", {})

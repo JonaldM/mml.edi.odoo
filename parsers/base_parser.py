@@ -120,6 +120,19 @@ class BaseEDIParser(ABC):
         """
         raise NotImplementedError
 
+    def build_outbound(self, msg_type: str, payload) -> bytes:
+        """Build an outbound document OTHER than the ORDRSP ack (e.g. DESADV/INVOIC/
+        CONTRL). Partner-dispatched outbound seam.
+
+        Not abstract: parsers that only emit an ORDRSP ack (via ``generate_ack``)
+        need not override it. ``payload`` is a partner-specific dict assembled by the
+        caller from the relevant Odoo record (stock.picking, account.move, the inbound
+        interchange, ...). Returns the serialized message bytes for the FTP outbox.
+        """
+        raise NotImplementedError(
+            "%s does not emit outbound %s" % (type(self).__name__, msg_type)
+        )
+
 
 class EDIParseError(Exception):
     """Raised when an EDI file is structurally invalid."""

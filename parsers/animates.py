@@ -152,6 +152,29 @@ class AnimatesParser(BaseEDIParser):
         from .animates_ordrsp import build_ordrsp
         return build_ordrsp(_review_to_ordrsp_payload(review_record))
 
+    def build_outbound(self, msg_type, payload) -> bytes:
+        """Partner-dispatched outbound builder for the non-ack messages.
+
+        ``payload`` is the message-specific dict (see each builder's docstring),
+        assembled upstream from a stock.picking (DESADV), account.move (INVOIC) or
+        an inbound interchange (CONTRL). ORDRSP is normally emitted via generate_ack
+        but is dispatchable here too for completeness.
+        """
+        mt = (msg_type or "").upper()
+        if mt == "ORDRSP":
+            from .animates_ordrsp import build_ordrsp
+            return build_ordrsp(payload)
+        if mt == "DESADV":
+            from .animates_desadv import build_desadv
+            return build_desadv(payload)
+        if mt == "INVOIC":
+            from .animates_invoic import build_invoic
+            return build_invoic(payload)
+        if mt == "CONTRL":
+            from .animates_contrl import build_contrl
+            return build_contrl(payload)
+        raise NotImplementedError("Animates does not emit outbound %s" % msg_type)
+
 
 def _qty_str(v) -> str:
     """Animates quantities are eaches (integers on the wire)."""
