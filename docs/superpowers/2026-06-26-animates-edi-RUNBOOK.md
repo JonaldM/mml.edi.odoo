@@ -40,10 +40,39 @@ R1 transport+endpoints+creds (if AS2/API, EDIFTPHandler gap) · R2 MML supplier 
 ## Reference files
 base_parser.py · parsers/briscoes.py + briscoes_asn.py + briscoes_idoc.py (pattern, D96A — NOT reusable code, structure only) · services/edi_service.py:131 (ASN to generalise) · models/edi_order_review.py:288-365 (_queue_ack) · edi_processor.py:771-830 (_find_product cascade) · wizards/edi_seed_stores.py (seed pattern) · data/edi_trading_partner_briscoes.xml · tests/conftest.py + common.py + fixtures/loader.py (TDD harness).
 
+## OCTO REVIEW CORRECTIONS (v2 — these SUPERSEDE the detail above)
+Two octo personas verified the plan against real code + the MIGs. Build MUST follow these:
+
+CRITICAL (message-generation):
+- C1 ENVELOPE QUALIFIERS: recipient `ANIMATES` uses qualifier **`ZZZ`**, supplier uses **`14`**. Outbound: `UNB+UNOC:3+SUPPLIER_GLN:14+ANIMATES:ZZZ+...`; inbound/CONTRL invert. Do NOT copy Briscoes' `:14`-on-both (`briscoes_asn.py:75`). Add write-invariant UNB0007==14 / recipient qual==ZZZ.
+- C2 CONTRL ENVELOPE: CONTRL UNB OMITS the trailing application-ref/ack-request tail (`++++1`) — DE0031 not included (CONTRL MIG p13). Envelope builder needs a `contrl=True`/msg_type branch that omits trailing composites. CONTRL UNB ends at control reference.
+- C3 NO BYTE-EQUALITY TESTS: MIG samples are internally inconsistent on UNH/UNT 0062 padding (some `0001`, some `1`) → strict byte-match is unsatisfiable. Builder padding policy = zero-pad `0001`. Assert the INVARIANT (UNH0062==UNT0062), not literal bytes.
+
+HIGH:
+- H-ISC (overrides §"product cascade"): do NOT add a new product field or new match strategy. ISC = buyer item code → store on `product.supplierinfo.product_code` keyed to the Animates supplier; the EXISTING `supplier_sku` strategy reads it. Map PIA+IN(ISC)→ParsedOrderLine.buyer_article_no, PIA+SA(MML)→vendor_code; partner.product_match_field='supplier_sku'. ZERO change to _lookup_by_strategy/selection/schema. For ORDRSP/INVOIC build, source ISC from supplierinfo at build time.
+- H-SEAM (overrides §A): add ONE non-abstract `build_message(self, msg_type, payload, trading_partner) -> bytes` on BaseEDIParser (default raises NotImplementedError). Generalise `edi_service.py:~131` to resolve via the EXISTING `partner.get_parser_instance().build_message(...)` (keeps `_ALLOWED_PARSER_CLASSES` as the single gated loader). Do NOT add `get_asn_builder()`/`get_*_builder()` (bypasses allowlist). Wrap Briscoes ASN behind the seam too (regression baseline). **Build this seam in B1** (B3 ORDRSP via generate_ack; B4 DESADV + B5 INVOIC + B6 CONTRL all need the seam).
+- H-PII: do NOT commit store data. Briscoes precedent = empty `<odoo/>` partner XML with config as a COMMENT (manual create post-install) + seed wizard reads an OPERATOR-UPLOADED file at runtime (`edi_seed_stores.py`). Animates partner XML = stub-comment; seed wizard reads the xlsx at runtime (attachment/configured path), NEVER inline 66 stores+emails+phones into committed code. (docs/animates is already gitignored.)
+- H-WIRING (add to B1): ir.model.access.csv rows for edi.sscc.register (+ any new Model); manifest `data` entries in correct order (sequences BEFORE partner XML, AFTER security); ir.sequence records (interchange ctrl-ref numeric, ORDRSP/INVOIC/DESADV doc nums, SSCC serial); seed wizard view+menu+manifest+__init__.
+- H-DESADV shape: LIN carries GTIN `LIN+n++<gtin>:SRV` (optional/conditional — p58 has it, p57 doesn't) → LIN must be GTIN-aware. DESADV NAD order is **BY/ST/SU** (differs from ORDRSP/INVOIC/ORDERS = BY/SU/ST). ALI reason in 3rd elem: `ALI+++165`. QVR = `QVR+<qty>:66+BP` + `DTM+17:<date>:102`.
+- H-SSCC: SSCC-18 = extension digit + GS1 company prefix + serial + mod-10 check (weights 3,1 from right over first 17). Unit-test check digit vs label-spec sample `00 39342835 0015329463`. Concurrency: `ir.sequence` for serial → format → check → INSERT with UNIQUE(sscc)+UNIQUE(serial), retry on IntegrityError; NO read-max-then-increment. Register purpose = exhaustion/no-reuse audit (monotonic serial already prevents reuse).
+- H-COMPARE: test helper = tokenize expected+actual via the SAME tokenizer, compare ordered (tag, composites) tuples; assert control invariants (counts/refs) not literal bytes; assert formatted decimal strings for money. Keep one raw byte-snapshot as a canary only.
+- H-INVARIANTS (add): UNB qualifiers (C1); UCI0020==originating UNB0020 (CONTRL correlation); DESADV `CNT+2` counts LIN across ALL CPS groups; INVOIC summary MOA (39/128/369) reconciles to Σ line MOA at 2dp.
+
+MEDIUM:
+- M-ROUND: Decimal ROUND_HALF_UP; summaries = sum-then-round (4dp lines → 2dp summary). Multi-line rounding test.
+- M-CONTRL-UCI: UCI parties = the ORIGINAL interchange's UNB sender/recipient verbatim (reverse of the CONTRL envelope's). Test both directions.
+- M-TOKENIZER: Briscoes `_split_segments` does NOT honor `?` release — the Animates tokenizer is genuinely NEW. Read separators from UNA. Test vectors: `??`→`?`, `?+`→`+`, `?:`→`:`, `?'`→`'`, trailing lone `?`, `???+`, round-trip escape(parse(x))==x.
+- M-CT-EA: DESADV `QTY+12` is ALWAYS item count in EA; carton/pallet counts live in `PAC` (CT), never in QTY. Test a multi-carton despatch.
+- ASN/outbound gating: reuse the `ir.config_parameter mml_edi.asn_enabled` gate pattern (`edi_service.py:24-28`), per-partner, so outbound can't fire before cert.
+
+LOW: ORDERS total = MOA+86 (inbound); UNT 0074 count by construction, golden values 39/32/39(p57)/27(p58)/3 as oracles; CUX rate qualifier differs (:9 ORDRSP/ORDERS, :4 INVOIC); CONTRL missing/negative → define timeout window + ≠8 handling.
+
+VERDICT: architecturally sound + precision correct, but the above (esp. C1/C2/C3, H-ISC, H-PII, H-SEAM, H-WIRING) must be applied. B1 now also includes: build_message seam + manifest/ACL/sequence wiring + the normalized-compare test helper + fixture extraction.
+
 ## Progress
 - [x] Grounding workflow (9 agents) → sprint plan
-- [x] Spec + runbook committed
-- [ ] Octo review of plan (personas) — NEXT
+- [x] Spec + runbook committed (41e9b9c)
+- [x] Octo review of plan (2 personas) — corrections folded in above (v2)
 - [ ] B1 envelope + partner config + fixtures + allowlist
 - [ ] B2 ORDERS inbound parser (+ ISC match)
 - [ ] B3 ORDRSP · [ ] B4 DESADV+SSCC · [ ] B5 INVOIC · [ ] B6 CONTRL
