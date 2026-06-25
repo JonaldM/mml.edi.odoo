@@ -142,6 +142,102 @@ class AnimatesParser(BaseEDIParser):
         return result
 
     def generate_ack(self, review_record) -> bytes:
-        """ORDRSP (D.01B) — implemented in B3 via animates_ordrsp.py."""
+        """Generate the ORDRSP (D.01B) acknowledgement for a processed review.
+
+        Called by EDIOrderReview._queue_ack() after an order is approved/rejected.
+        Re-parses the original ORDERS (review.edi_raw_data) to recover the ISC/MML
+        codes + ordered qty per line, then folds in the SO's confirmed qty / shortfall
+        / state to set each line's response action (5 accepted, 3 changed, 7 rejected).
+        """
         from .animates_ordrsp import build_ordrsp
-        return build_ordrsp(review_record)
+        return build_ordrsp(_review_to_ordrsp_payload(review_record))
+
+
+def _qty_str(v) -> str:
+    """Animates quantities are eaches (integers on the wire)."""
+    try:
+        return str(int(round(float(v))))
+    except (TypeError, ValueError):
+        return "0"
+
+
+def _review_to_ordrsp_payload(review) -> dict:
+    """Map an edi.order.review (+ its sale.order) to the build_ordrsp payload.
+
+    Duck-typed (no Odoo import) so it is unit-testable with plain namespaces.
+    """
+    from datetime import date
+
+    partner = review.trading_partner_id
+    so = getattr(review, "sale_order_id", None)
+    rejected = getattr(review, "state", None) == "rejected"
+
+    # Original ORDERS lines (ISC / MML / ordered qty / price / description).
+    orig_lines = []
+    requested = None
+    raw = getattr(review, "edi_raw_data", None)
+    if raw:
+        try:
+            data = raw if isinstance(raw, (bytes, bytearray)) else raw.encode("iso-8859-1")
+            for order in AnimatesParser().parse_file(data, partner):
+                orig_lines.extend(order.lines)
+                requested = requested or order.requested_delivery_date
+        except Exception:
+            orig_lines = []
+
+    # SO lines keyed by EDI line number → confirmed qty + shortfall.
+    sol_by_line = {}
+    if so is not None:
+        for sol in getattr(so, "order_line", []) or []:
+            n = getattr(sol, "edi_line_number", None)
+            if n:
+                sol_by_line[int(n)] = sol
+
+    any_changed = False
+    lines = []
+    for ol in orig_lines:
+        sol = sol_by_line.get(ol.line_number)
+        shortfall = float(getattr(sol, "edi_qty_shortfall", 0) or 0) if sol is not None else 0.0
+        ordered = float(ol.quantity or 0)
+        if rejected:
+            action, committed = "7", 0.0
+        elif shortfall > 0:
+            action, committed = "3", max(ordered - shortfall, 0.0)
+            any_changed = True
+        else:
+            action = "5"
+            committed = float(getattr(sol, "product_uom_qty", ordered)) if sol is not None else ordered
+
+        price = getattr(sol, "price_unit", None) if sol is not None else None
+        if price is None:
+            price = ol.unit_price
+        mml = (getattr(getattr(sol, "product_id", None), "default_code", None) if sol is not None else None) or ol.vendor_code
+
+        lines.append({
+            "line_no": ol.line_number,
+            "action": action,
+            "buyer_item": ol.buyer_article_no or "",
+            "supplier_item": mml or None,
+            "description": ol.description or (getattr(sol, "name", "") if sol is not None else "") or "",
+            "qty_ordered": _qty_str(ordered),
+            "qty_pack": _qty_str(ol.carton_qty) if ol.carton_qty else "1",
+            "qty_committed": _qty_str(committed),
+            "reason": ("Rejected on review" if action == "7" else None),
+            "price": "%.4f" % float(price or 0.0),
+            "tax_rate": "15.00",  # NZ GST
+        })
+
+    today = date.today().strftime("%Y%m%d")
+    req = requested.strftime("%Y%m%d") if requested else today
+    return {
+        "po_response_no": getattr(review, "name", None) or getattr(review, "customer_po_number", "") or "",
+        "ack_code": "27" if rejected else ("4" if any_changed else "29"),
+        "message_date": today,
+        "requested_date": req,
+        "po_number": getattr(review, "customer_po_number", "") or "",
+        "buyer": "ANIMATES",
+        "supplier": getattr(partner, "code", "") or "",
+        "ship_to": getattr(review, "store_code", "") or "",
+        "currency": "NZD",
+        "lines": lines,
+    }
