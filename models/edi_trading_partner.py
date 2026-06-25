@@ -24,6 +24,11 @@ _ALLOWED_PARSER_CLASSES = frozenset({
     # customer. Re-enable ONLY after the EDIFACT quantity (CT->EA) logic is fixed
     # and verified against real samples. Briscoes currently sends SAP iDOC XML.
     'mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser',
+    # Animates (EDIFACT D.01B / EANCOM, via SPS Commerce). Orders are in eaches
+    # (QTY+21:<n>:EA), so the processor using parsed_line.quantity directly is
+    # correct here (no CT->EA conversion needed, unlike the Briscoes EDIFACT path).
+    # ISC (PIA+5:IN)->buyer_article_no; MML code (PIA+1:SA)->product_code/vendor_code.
+    'mml_edi.parsers.animates.AnimatesParser',
 })
 
 
