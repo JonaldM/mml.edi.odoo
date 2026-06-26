@@ -115,6 +115,11 @@ class EDITestSetup:
             "barcode": "9780000000002",
             "list_price": 9.99,
             "type": "consu",
+            # EDI pricelists must resolve ex-GST (edi.trading.partner._validate_pricelist_gst).
+            # Clear sale taxes so the company's default GST-inclusive tax isn't applied —
+            # otherwise assigning this product's pricelist to the test trading partner trips
+            # that constraint and every TransactionCase using this fixture errors in setUp.
+            "taxes_id": [(6, 0, [])],
         })
 
         self.env["product.pricelist.item"].create({
