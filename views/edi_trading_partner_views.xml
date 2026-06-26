@@ -242,6 +242,10 @@
                                        decoration-warning="environment == 'test'"/>
                                 <field name="pricelist_id" string="Price List"
                                        help="EDI price comparison uses this pricelist — not the product's sale price. Required if price checking is enabled."/>
+                                <div class="alert alert-warning mb-0" role="alert" colspan="2"
+                                     invisible="not pricelist_gst_warning">
+                                    <field name="pricelist_gst_warning" nolabel="1" readonly="1"/>
+                                </div>
                                 <field name="auto_confirm_clean"
                                        widget="boolean_toggle"
                                        string="Auto-Confirm Clean Orders"/>

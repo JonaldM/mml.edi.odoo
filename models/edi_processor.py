@@ -564,13 +564,14 @@ class EDIProcessor(models.AbstractModel):
                 "sale_order_line_id": sol.id,
             })
 
-        # Price comparison (blocking if outside tolerance).
-        # NOTE: EDI prices from Briscoes are ex-GST (trade/wholesale net prices).
-        # GST-inclusive pricelists would cause a systematic ~15% discrepancy on
-        # every line and are now rejected at write-time by
-        # edi.trading.partner._validate_pricelist_gst (api.constrains). The
-        # debug log below is retained as a belt-and-braces diagnostic for
-        # operators reading server logs.
+        # Price comparison (blocking if outside tolerance) — this IS the
+        # authoritative GST guard. EDI prices are ex-GST (trade/wholesale net).
+        # _get_pricelist_price returns the RAW pricelist value, so an ex-GST
+        # pricelist compares cleanly while a genuinely GST-inclusive one shows a
+        # ~15% discrepancy here and is flagged per line. edi.trading.partner only
+        # surfaces a non-blocking advisory (pricelist_gst_warning) when products
+        # carry an inc-GST tax — it no longer hard-blocks, because a product can
+        # legitimately hold both taxes while being priced ex-GST (e.g. Animates).
         system_price = self._get_pricelist_price(product, parsed_line.quantity, partner)
         if system_price is not None:
             _logger.debug(

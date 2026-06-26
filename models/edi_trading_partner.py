@@ -117,6 +117,12 @@ class EDITradingPartner(models.Model):
         string="Pricelist",
         help="Used for price comparison on inbound orders",
     )
+    pricelist_gst_warning = fields.Char(
+        compute="_compute_pricelist_gst_warning",
+        string="Pricelist GST Notice",
+        help="Non-blocking advisory shown when the assigned pricelist references "
+        "products carrying a GST-inclusive tax. EDI prices are ex-GST.",
+    )
     warehouse_id = fields.Many2one(
         "stock.warehouse",
         string="Fulfilment Warehouse",
@@ -339,36 +345,46 @@ class EDITradingPartner(models.Model):
                     % ', '.join(sorted(unknown))
                 )
 
-    @api.constrains('pricelist_id')
-    def _validate_pricelist_gst(self):
-        """Reject pricelists that resolve to GST-inclusive prices.
+    def _pricelist_gst_inclusive_message(self):
+        """Return an advisory message if the assigned pricelist references
+        products carrying a GST-inclusive (``price_include``) tax, else False.
 
-        EDI prices from retail trading partners (Briscoes, etc.) are quoted
-        ex-GST. If the assigned pricelist references products whose
-        ``taxes_id`` includes any ``account.tax`` with
-        ``price_include=True``, every line will show a systematic ~15%
-        discrepancy and produce false-positive ``price_discrepancy``
-        issues that block otherwise-clean orders.
-
-        Hard fail at the boundary so the misconfiguration is impossible
-        by construction.
+        EDI prices are ex-GST. This used to be a hard ``@api.constrains`` that
+        blocked the save, but ``price_include`` is only a *proxy*: a product can
+        legitimately carry both an ex-GST and an inc-GST tax (retail vs
+        wholesale / multi-company) while its EDI pricelist value is ex-GST — e.g.
+        the live Animates pricelist ($8.10 ex-GST on products that also hold an
+        inc-GST retail tax). The price comparison uses the *raw* pricelist value,
+        and the per-line ``price_discrepancy`` check at order time is the
+        authoritative guard, so this is now a non-blocking notice rather than a
+        hard fail (which would wrongly block onboarding a valid ex-GST pricelist).
         """
-        for rec in self:
-            pricelist = rec.pricelist_id
-            if not pricelist:
+        self.ensure_one()
+        pricelist = self.pricelist_id
+        if not pricelist:
+            return False
+        flagged = []
+        for item in pricelist.item_ids or ():
+            target = item.product_id or item.product_tmpl_id
+            if not target:
                 continue
-            for item in pricelist.item_ids or ():
-                target = item.product_id or item.product_tmpl_id
-                if not target:
-                    continue
-                for tax in target.taxes_id or ():
-                    if getattr(tax, 'price_include', False):
-                        raise ValidationError(
-                            "EDI pricelists must be GST-exclusive (ex-GST). "
-                            "Pricelist '%s' resolves to GST-inclusive prices, "
-                            "which would cause a 15%% discrepancy with "
-                            "Briscoes net prices." % pricelist.display_name
-                        )
+            if any(getattr(tax, 'price_include', False) for tax in target.taxes_id or ()):
+                flagged.append(target.display_name)
+        if not flagged:
+            return False
+        sample = ', '.join(flagged[:3])
+        more = '' if len(flagged) <= 3 else ' (+%d more)' % (len(flagged) - 3)
+        return (
+            "Heads up: pricelist '%s' has %d product(s) carrying a GST-inclusive "
+            "tax (%s%s). EDI prices are ex-GST — confirm this pricelist's prices "
+            "are ex-GST. The order-time price-discrepancy check remains the "
+            "authoritative guard." % (pricelist.display_name, len(flagged), sample, more)
+        )
+
+    @api.depends('pricelist_id')
+    def _compute_pricelist_gst_warning(self):
+        for rec in self:
+            rec.pricelist_gst_warning = rec._pricelist_gst_inclusive_message()
 
     # ── ORM overrides (credential encryption) ────────────────────────────
 
