@@ -19,6 +19,7 @@ try:
         test_price_discrepancy,
         test_processor,
         test_review_workflow,
+        test_short_ship_policy,
     )
 except (ImportError, ModuleNotFoundError):
     # conftest stubs not yet in place — pytest will collect these directly.
@@ -43,6 +44,7 @@ if _STUB:
             test_edi_service,
             test_ftp_handler,
             test_pricelist_gst_constraint,
+            test_short_ship,
         )
     except (ImportError, ModuleNotFoundError):
         pass

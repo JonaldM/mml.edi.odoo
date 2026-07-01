@@ -66,6 +66,13 @@ class SaleOrderLine(models.Model):
         digits="Product Unit of Measure",
         help="Qty requested minus qty available at time of EDI processing (0 if sufficient)",
     )
+    edi_ordered_qty = fields.Float(
+        string="EDI Ordered Qty",
+        digits="Product Unit of Measure",
+        help="Original qty the customer ordered. When the line is short-shipped to "
+             "available stock, product_uom_qty holds the shipped qty and this holds "
+             "the original; the difference is edi_qty_shortfall, acknowledged in the ORDRSP.",
+    )
     edi_matched_by = fields.Selection(
         [
             ("barcode", "Barcode (EAN-13)"),

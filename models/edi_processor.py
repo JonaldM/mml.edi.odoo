@@ -27,6 +27,17 @@ def build_session_id() -> str:
     return secrets.token_hex(4)
 
 
+def _short_ship_split(ordered, available):
+    """Split an ordered qty into ``(ship_qty, shortfall)`` given DC-available qty.
+
+    Policy: never backorder. Ship what the fulfilment DC holds, acknowledge the
+    rest as a shortfall in the ORDRSP. A negative availability (over-reservation)
+    ships nothing rather than a negative qty.
+    """
+    ship = min(ordered, max(available, 0.0))
+    return ship, ordered - ship
+
+
 def _escape_ilike(value: str) -> str:
     """Escape LIKE/ILIKE wildcards so an '=ilike' acts as an exact (but
     case-insensitive) match.
@@ -489,6 +500,27 @@ class EDIProcessor(models.AbstractModel):
 
     # ── Order line processing ─────────────────────────────────────────────
 
+    def _dc_available_qty(self, product, so):
+        """Free-to-promise qty for a product at the order's fulfilment DC.
+
+        Scoped to the order's island DC (never company-wide) so deprecated/untagged
+        warehouses (e.g. retired Auckland's phantom stock) can't inflate availability.
+        Returns 0.0 when the order has no warehouse. Degrades to warehouse-scoped
+        free_qty when the ROQ island helper/tags are absent (mml_roq_forecast not
+        installed, or the DC not yet tagged).
+        """
+        wh = so.warehouse_id if 'warehouse_id' in so._fields else False
+        if not wh:
+            return 0.0
+        island = wh.roq_island if 'roq_island' in wh._fields else False
+        if island and hasattr(product, '_fulfilment_free_qty'):
+            return product._fulfilment_free_qty(island=island)
+        # Fallback (DC not yet tagged): scope to the warehouse's stock location to
+        # match _fulfilment_free_qty (WH/Stock only, not transit/input/output), and
+        # NEVER the company-wide {} context.
+        loc = wh.lot_stock_id
+        return product.with_context(location=loc.id).free_qty if loc else 0.0
+
     def _process_order_line(
         self, parsed_line, so, partner, review
     ) -> list[dict]:
@@ -519,12 +551,38 @@ class EDIProcessor(models.AbstractModel):
             blocking.append({"type": "product_not_found"})
             return blocking
 
+        # OOS policy (per edi.trading.partner): short_ship reduces the line to the
+        # qty available at the fulfilment DC and ACKs the shortfall (so the WMS only
+        # receives stock we can ship); backorder keeps the legacy accept-in-full
+        # behaviour and warns. edi_ordered_qty always holds the original ordered qty.
+        ordered = parsed_line.quantity
+        policy = partner.oos_policy if 'oos_policy' in partner._fields else 'backorder'
+        # Short-ship math and availability are both in EA. If a line ever arrives in
+        # a non-EA UoM (e.g. cartons), ordered and available aren't comparable —
+        # accept in full rather than mis-ship (plan decision 5.5; all live Briscoes
+        # lines are EA today, this guards a future format change).
+        line_uom = (getattr(parsed_line, 'uom', None) or '').strip().upper()
+        uom_shippable = line_uom in ('', 'EA', 'EACH', 'PCE', 'PC', 'UNIT', 'UNITS')
+        if policy == 'short_ship' and uom_shippable:
+            ship_qty, shortfall = _short_ship_split(
+                ordered, self._dc_available_qty(product, so))
+        else:
+            if policy == 'short_ship' and not uom_shippable:
+                _logger.warning(
+                    "[EDI] short-ship skipped for line %s (%s): non-EA UoM %r — "
+                    "accepting in full to avoid mis-ship",
+                    parsed_line.line_number,
+                    product.default_code or product.name, line_uom)
+            ship_qty, shortfall = ordered, 0.0
+
         sol = self.env["sale.order.line"].create({
             "order_id": so.id,
             "product_id": product.id,
-            "product_uom_qty": parsed_line.quantity,
+            "product_uom_qty": ship_qty,
             "price_unit": parsed_line.unit_price,
             "edi_line_number": parsed_line.line_number,
+            "edi_ordered_qty": ordered,
+            "edi_qty_shortfall": shortfall,
             "edi_price": parsed_line.unit_price,
             "edi_matched_by": matched_by,
         })
@@ -545,24 +603,39 @@ class EDIProcessor(models.AbstractModel):
                 "sale_order_line_id": sol.id,
             })
 
-        # Stock check (warning, non-blocking)
-        # warehouse_id is added by sale_stock; fall back to no warehouse context if absent
-        wh_ctx = {}
-        if 'warehouse_id' in self.env['sale.order']._fields and so.warehouse_id:
-            wh_ctx = {'warehouse': so.warehouse_id.id}
-        qty_available = product.with_context(**wh_ctx).qty_available
-        if qty_available < parsed_line.quantity:
-            shortfall = parsed_line.quantity - qty_available
-            sol.edi_qty_shortfall = shortfall
-            self.env["edi.order.issue"].create({
-                "review_id": review.id,
-                "issue_type": "qty_shortfall",
-                "severity": "warning",
-                "description": "%s — requested %.0f, available %.0f, shortfall %.0f" % (
-                    product.name, parsed_line.quantity, qty_available, shortfall,
-                ),
-                "sale_order_line_id": sol.id,
-            })
+        # Stock shortfall (non-blocking warning; edi_qty_shortfall also drives the
+        # ORDRSP line action — short = qty-changed, fully OOS = rejected).
+        if policy == 'short_ship':
+            if shortfall > 0:
+                # edi_qty_shortfall is already set at create; just raise the heads-up.
+                self.env["edi.order.issue"].create({
+                    "review_id": review.id,
+                    "issue_type": "qty_shortfall",
+                    "severity": "warning",
+                    "description": "%s — ordered %.0f, shipping %.0f, short %.0f "
+                                   "(acknowledged in ORDRSP)" % (
+                        product.name, ordered, ship_qty, shortfall,
+                    ),
+                    "sale_order_line_id": sol.id,
+                })
+        else:
+            # Legacy backorder: accept in full, warn if short. warehouse_id is added
+            # by sale_stock; fall back to no warehouse context if absent.
+            wh_ctx = {}
+            if 'warehouse_id' in self.env['sale.order']._fields and so.warehouse_id:
+                wh_ctx = {'warehouse': so.warehouse_id.id}
+            qty_available = product.with_context(**wh_ctx).qty_available
+            if qty_available < ordered:
+                sol.edi_qty_shortfall = ordered - qty_available
+                self.env["edi.order.issue"].create({
+                    "review_id": review.id,
+                    "issue_type": "qty_shortfall",
+                    "severity": "warning",
+                    "description": "%s — requested %.0f, available %.0f, shortfall %.0f" % (
+                        product.name, ordered, qty_available, ordered - qty_available,
+                    ),
+                    "sale_order_line_id": sol.id,
+                })
 
         # Price comparison (blocking if outside tolerance) — this IS the
         # authoritative GST guard. EDI prices are ex-GST (trade/wholesale net).
@@ -1001,11 +1074,11 @@ class EDIProcessor(models.AbstractModel):
     def _send_oos_summary(self, partner, po_number):
         """Email a per-PO summary of stock-shortfall (OOS) lines after import.
 
-        OOS lines are non-blocking warnings: the order is accepted in full and
-        the short quantity backorders, so the ORDRSP confirms it and no manual
-        review is needed. This is a heads-up for operations, not an approval
-        request — sent to the partner's Alert Email Recipients. Fires once per
-        file import (re-polls of the same file are dedup-skipped before here).
+        OOS lines are non-blocking warnings; the body reflects the partner's
+        oos_policy — short-shipped + ACKed in the ORDRSP (short_ship) or accepted
+        in full + backordered (backorder). A heads-up for operations, not an
+        approval request — sent to the partner's Alert Email Recipients. Fires once
+        per file import (re-polls of the same file are dedup-skipped before here).
         """
         recipients = partner.alert_email_ids.filtered('email')
         if not recipients:
@@ -1032,14 +1105,21 @@ class EDIProcessor(models.AbstractModel):
         more = len(shortfalls) - cap
         extra = ('<p style="color:#888;">… and %d more line(s).</p>' % more
                  if more > 0 else "")
+        if partner.oos_policy == 'short_ship':
+            policy_msg = ('The available qty was short-shipped and the shortfall '
+                          'acknowledged to the customer in the ORDRSP — no backorder '
+                          'is created. No action is required unless you want to '
+                          'expedite stock.')
+        else:
+            policy_msg = ('The order was accepted in full and acknowledged to the '
+                          'customer; the short quantity will backorder. No action is '
+                          'required unless you want to expedite stock.')
         body = (
             '<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:680px;">'
             '<h2 style="color:#e67e22;border-bottom:2px solid #e67e22;padding-bottom:6px;">'
             'Stock shortfall summary — PO %s</h2>'
             '<p>%d line(s) on this auto-approved order are short on available stock. '
-            'The order was accepted in full and acknowledged to the customer; the '
-            'short quantity will backorder. No action is required unless you want to '
-            'expedite stock.</p>'
+            '%s</p>'
             '<table style="border-collapse:collapse;margin:12px 0;">'
             '<thead><tr>'
             '<th style="padding:4px 10px;border:1px solid #ddd;text-align:left;background:#f7f7f7;">Store</th>'
@@ -1047,7 +1127,7 @@ class EDIProcessor(models.AbstractModel):
             '</tr></thead><tbody>%s</tbody></table>%s'
             '<p style="color:#999;font-size:12px;">Automated summary from the MML EDI system.</p>'
             '</div>'
-        ) % (html.escape(str(po_number)), len(shortfalls), rows, extra)
+        ) % (html.escape(str(po_number)), len(shortfalls), policy_msg, rows, extra)
 
         from_addr, server = self._edi_mailer()
         vals = {

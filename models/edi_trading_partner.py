@@ -150,6 +150,17 @@ class EDITradingPartner(models.Model):
         default="single",
         string="Order Split Mode",
     )
+    oos_policy = fields.Selection(
+        [("backorder", "Accept in full (backorder shortfall)"),
+         ("short_ship", "Short-ship available qty (ACK shortfall)")],
+        required=True,
+        default="backorder",
+        string="Out-of-Stock Policy",
+        help="backorder: accept the order in full and let the short qty backorder "
+             "(legacy behaviour). short_ship: reduce each line to the qty available "
+             "at the fulfilment DC and acknowledge the shortfall in the ORDRSP, so the "
+             "WMS only ever receives stock we can actually ship.",
+    )
     product_match_field = fields.Selection(
         [
             ("barcode", "Barcode (EAN-13)"),
