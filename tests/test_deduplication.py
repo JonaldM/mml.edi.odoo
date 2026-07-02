@@ -97,13 +97,16 @@ class TestDeduplication(EDITestSetup, TransactionCase):
         """
         client_ref = "BRISCOES_4500176806_1017"
 
-        # Pre-create a SO with this reference (simulates a previously processed PO)
+        # Pre-create a SO with this reference (simulates a previously processed
+        # PO — EDI SOs always carry the trading-partner discriminator).
         existing_so = self.env["sale.order"].create({
             "partner_id": self.trading_partner.partner_id.id,
             "client_order_ref": client_ref,
+            "edi_trading_partner_id": self.trading_partner.id,
         })
 
-        found_so = self.env["edi.processor"]._find_existing_so(client_ref)
+        found_so = self.env["edi.processor"]._find_existing_so(
+            client_ref, self.trading_partner)
 
         self.assertIsNotNone(found_so, "Existing SO should be found")
         self.assertEqual(
@@ -116,8 +119,25 @@ class TestDeduplication(EDITestSetup, TransactionCase):
         """
         _find_existing_so() must return None when no SO with that ref exists.
         """
-        result = self.env["edi.processor"]._find_existing_so("NONEXISTENT_REF_99999")
+        result = self.env["edi.processor"]._find_existing_so(
+            "NONEXISTENT_REF_99999", self.trading_partner)
         self.assertIsNone(result, "_find_existing_so() should return None for unknown refs")
+
+    def test_so_ref_dedup_is_scoped_to_the_edi_partner(self):
+        """IDEM major 3: a colliding NON-EDI SO (no edi_trading_partner_id)
+        with the same client_order_ref must NOT suppress a real EDI order."""
+        client_ref = "COLLIDING_MANUAL_REF_001"
+        self.env["sale.order"].create({
+            "partner_id": self.trading_partner.partner_id.id,
+            "client_order_ref": client_ref,
+            # deliberately NO edi_trading_partner_id — a manual/non-EDI order
+        })
+        found_so = self.env["edi.processor"]._find_existing_so(
+            client_ref, self.trading_partner)
+        self.assertIsNone(
+            found_so,
+            "A non-EDI SO with a colliding ref must not be treated as a duplicate",
+        )
 
     def test_change_order_no_so_ref_dedup(self):
         """
@@ -140,10 +160,12 @@ class TestDeduplication(EDITestSetup, TransactionCase):
         existing_so = self.env["sale.order"].create({
             "partner_id": self.trading_partner.partner_id.id,
             "client_order_ref": client_ref,
+            "edi_trading_partner_id": self.trading_partner.id,
         })
 
         # An existing SO is found — this is required for change orders to proceed
-        found_so = self.env["edi.processor"]._find_existing_so(client_ref)
+        found_so = self.env["edi.processor"]._find_existing_so(
+            client_ref, self.trading_partner)
         self.assertIsNotNone(found_so, "Change order flow needs to find the existing SO")
         self.assertEqual(found_so.id, existing_so.id)
 

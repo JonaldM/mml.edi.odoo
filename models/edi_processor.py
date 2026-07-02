@@ -38,6 +38,69 @@ def _short_ship_split(ordered, available):
     return ship, ordered - ship
 
 
+def _reclamp_line(ordered, available, current_qty, cap_to_current=False):
+    """Pure re-clamp decision for one SO line at approve/ORDCHG time (SS-1/SS-5).
+
+    Same math as the parse-time gate (_short_ship_split): clamp to
+    min(ordered, available) with a floor of 0. Returns
+    ``(new_qty, shortfall, changed)`` where ``changed`` is True when the line's
+    current qty differs from the re-clamped qty (float-tolerant compare).
+
+    ``cap_to_current=True`` (the Approve-with-Corrections path): the operator's
+    current qty is a deliberate human decision — the re-clamp may only move
+    the line DOWN from it (stock vanished), never restore it back up toward
+    the customer's ordered qty. Basis becomes min(ordered, current_qty); the
+    reported shortfall stays relative to the customer's ordered qty so the
+    ORDRSP still tells the partner the truth about the original request.
+    """
+    basis = min(ordered, current_qty or 0.0) if cap_to_current else ordered
+    new_qty, _base_short = _short_ship_split(basis, available)
+    shortfall = max(0.0, (ordered or 0.0) - new_qty)
+    changed = abs(new_qty - (current_qty or 0.0)) > 1e-6
+    return new_qty, shortfall, changed
+
+
+# Fixed class-id for the per-partner poll advisory lock (IDEM-1a). Both halves
+# of pg_advisory_xact_lock(class, id) are signed int4; this constant must stay
+# STABLE across releases — changing it would let two code versions poll the
+# same partner concurrently. 0x45444950 == ASCII 'EDIP' (EDI Poll).
+EDI_POLL_LOCK_CLASS = 0x45444950
+
+# DB backstop unique index rejecting duplicate live EDI SOs (IDEM-1b). Created
+# by sale.order.init() and migrations/19.0.1.0.3; referenced here to convert a
+# losing create-race into the standard duplicate_skipped path.
+SO_EDI_CLIENT_REF_INDEX = "sale_order_edi_client_ref_uniq"
+
+
+def _is_duplicate_so_violation(exc) -> bool:
+    """True when ``exc`` is the unique violation raised by the EDI client-ref
+    backstop index — i.e. a concurrent transaction created (and committed) the
+    same EDI SO first. Matched on the index name so no psycopg2 import is
+    needed at module level (keeps the pure-pytest import path clean)."""
+    return SO_EDI_CLIENT_REF_INDEX in str(exc)
+
+
+def _commit_suppressed(env) -> bool:
+    """True when the enclosing transaction belongs to a test harness and must
+    never be really committed.
+
+    Odoo 19 REMOVED Registry.in_test_mode() — calling it on a live registry
+    raises AttributeError (caught by CI: it silently killed every ACK send).
+    The registry hook is still consulted first so environments (and the pure
+    test fakes) that provide one keep working; otherwise the ``--test-enable``
+    config flag is the reliable signal. Undeterminable -> suppress (a
+    maybe-test cursor must never be really committed; production always has a
+    readable config, so durability there is unaffected)."""
+    checker = getattr(getattr(env, "registry", None), "in_test_mode", None)
+    if callable(checker):
+        return bool(checker())
+    try:
+        from odoo.tools import config
+        return bool(config.get("test_enable"))
+    except Exception:
+        return True
+
+
 def _escape_ilike(value: str) -> str:
     """Escape LIKE/ILIKE wildcards so an '=ilike' acts as an exact (but
     case-insensitive) match.
@@ -79,19 +142,10 @@ class EDIProcessor(models.AbstractModel):
                 )
                 continue
             try:
-                self.poll_trading_partner(partner)
-                partner.write({"circuit_failure_count": 0, "circuit_open_since": False})
+                failed_files = self.poll_trading_partner(partner)
             except Exception as exc:
                 _logger.exception("[EDI] Poll failed for partner %s", partner.code)
-                new_count = partner.circuit_failure_count + 1
-                vals = {"circuit_failure_count": new_count}
-                if new_count >= partner.circuit_failure_threshold and not partner.circuit_open_since:
-                    vals["circuit_open_since"] = fields.Datetime.now()
-                    _logger.error(
-                        "[EDI] Circuit breaker TRIPPED for %s after %d consecutive failures",
-                        partner.code, new_count,
-                    )
-                partner.write(vals)
+                self._record_poll_failure(partner)
                 self.env["edi.log"].log(
                     partner, "inbound", "error", "error",
                     "Scheduled poll failed: %s" % str(exc),
@@ -102,6 +156,35 @@ class EDIProcessor(models.AbstractModel):
                     'EDI poll failed for %s' % partner.code,
                     str(exc),
                 )
+                continue
+            if failed_files:
+                # OPS-25: file-level failures COUNT TOWARD the breaker — never
+                # reset it. Previously the poll "succeeded" (no exception), the
+                # count was zeroed, and a poisoned file re-failed silently every
+                # cycle forever. The rate-limited per-file alert is sent inside
+                # poll_trading_partner.
+                _logger.warning(
+                    "[EDI] Poll for %s completed with %d failed file(s) — "
+                    "counting toward the circuit breaker",
+                    partner.code, failed_files,
+                )
+                self._record_poll_failure(partner)
+            else:
+                partner.write({"circuit_failure_count": 0, "circuit_open_since": False})
+
+    def _record_poll_failure(self, partner):
+        """Increment the partner's circuit-breaker failure count and open the
+        circuit when the threshold is reached. Shared by the poll-exception
+        path and the per-file failure path (OPS-25)."""
+        new_count = partner.circuit_failure_count + 1
+        vals = {"circuit_failure_count": new_count}
+        if new_count >= partner.circuit_failure_threshold and not partner.circuit_open_since:
+            vals["circuit_open_since"] = fields.Datetime.now()
+            _logger.error(
+                "[EDI] Circuit breaker TRIPPED for %s after %d consecutive failures",
+                partner.code, new_count,
+            )
+        partner.write(vals)
 
     # ── Deferred-ACK retry safety net ─────────────────────────────────────
 
@@ -147,9 +230,12 @@ class EDIProcessor(models.AbstractModel):
             ]):
                 continue
 
-            # Skip if an ACK for this exact exchange already uploaded successfully.
-            exchange_key = (review.edi_file_hash or str(review.id))[:8]
-            filename = "ACK_%s_%s_%s.edi" % (partner.code, po, exchange_key)
+            # Skip if an ACK for this exact exchange already uploaded
+            # successfully. The shared helper includes the ACK attempt
+            # counter (IDEM-4): after a reset-after-sent the exchange moves
+            # to a '_aN' filename, so the OLD attempt's success row must not
+            # suppress the corrected re-send.
+            filename = review._ack_exchange_filename()
             if Log.search_count([
                 ("trading_partner_id", "=", partner.id),
                 ("event_type", "=", "ack_sent"),
@@ -176,14 +262,41 @@ class EDIProcessor(models.AbstractModel):
 
     @api.model
     def poll_trading_partner(self, partner):
-        """Download and process all files from a trading partner's FTP inbox."""
+        """Download and process all files from a trading partner's FTP inbox.
+
+        Returns the number of files that FAILED this pass (0 = clean poll);
+        run_scheduled_poll counts a non-zero return toward the circuit breaker
+        so a poisoned file cannot re-fail silently forever (OPS-25).
+
+        Concurrency (IDEM-1a): a per-partner Postgres advisory lock serializes
+        concurrent polls of the SAME partner (cron tick vs 'Run Poll Now' vs
+        two HTTP workers). The loser blocks until the winner's transaction
+        ends and then sees its committed dedup rows. The partial unique index
+        on EDI SOs (IDEM-1b, see sale_order.init) is the DB backstop for
+        anything that still slips through.
+
+        ORDERING INVARIANT per file (IDEM-2):
+            process -> write dedup marker -> COMMIT -> FTP rename -> ACK/OOS.
+        See the inline comment at the marker write.
+        """
         from .edi_ftp import EDIFTPHandler
         from ..parsers.base_parser import EDIFTPError
+
+        # Per-poll memo for the reservation-method config warning (SS-3):
+        # a mutable set in context so the sanity check warns at most once
+        # per poll per picking type.
+        self = self.with_context(edi_reservation_warned=set())
+
+        # IDEM-1a: serialize concurrent polls of this partner. Transaction-
+        # scoped, so it is released automatically on commit/rollback — and
+        # therefore RE-ACQUIRED after every per-file commit (_poll_commit).
+        self._acquire_poll_lock(partner)
 
         sid = build_session_id()
         prefix = "[EDI:%s]" % sid
         _logger.info("%s Polling %s", prefix, partner.code)
         handler = EDIFTPHandler(partner)
+        failed_files = 0
 
         try:
             with handler.connection():
@@ -229,17 +342,47 @@ class EDIProcessor(models.AbstractModel):
                                 % (len(failures), filename),
                                 filename=filename, file_hash=file_hash,
                             )
+                            # Persist the stores that DID succeed (and their
+                            # logs) — without a commit a worker death would roll
+                            # them back, and the retry pass relies on their
+                            # committed SO-ref dedup rows.
+                            self._poll_commit(partner)
+                            # OPS-25: a file re-failing every cycle must not stay
+                            # silent (rate-limited).
+                            self._alert_file_failure(
+                                partner, filename,
+                                "%d store-order(s) failed: %s" % (
+                                    len(failures),
+                                    "; ".join("%s: %s" % f for f in failures)),
+                            )
+                            failed_files += 1
                             continue
 
-                        # Mark the file processed (the dedup marker) only after
-                        # EVERY store-order succeeded.
+                        # ORDERING INVARIANT (IDEM-2) — do NOT reorder:
+                        #   1. dedup marker (file_download/success) written
+                        #   2. COMMIT — SOs/reviews/logs/marker become durable
+                        #   3. FTP rename to '.processed'
+                        #   4. ACK / OOS summary
+                        # The DB must be durable BEFORE the rename: a worker
+                        # death after the rename but before a commit would
+                        # archive the file while rolling back its SOs — the PO
+                        # silently lost forever. A death between 2 and 3 leaves
+                        # the file in the inbox; the next poll dup-skips it by
+                        # hash and just re-renames (existing self-heal). The
+                        # ACK goes LAST so the partner can never hold an ORDRSP
+                        # for uncommitted state; a death before 4 is covered by
+                        # the retry_pending_acks cron.
                         self.env["edi.log"].log(
                             partner, "inbound", "file_download", "success",
                             "Downloaded: %s (%d bytes)" % (filename, len(content)),
                             filename=filename, file_hash=file_hash,
                         )
 
+                        self._poll_commit(partner)
+
                         handler.move_to_processed(filename)
+
+                        self._send_file_responses(partner, file_hash)
 
                     except Exception as exc:
                         _logger.exception(
@@ -250,6 +393,8 @@ class EDIProcessor(models.AbstractModel):
                             "Error processing %s: %s" % (filename, str(exc)),
                             filename=filename, detail=str(exc),
                         )
+                        self._alert_file_failure(partner, filename, str(exc))
+                        failed_files += 1
 
         except EDIFTPError as exc:
             _logger.error("%s FTP connection failed for %s: %s", prefix, partner.code, exc)
@@ -259,6 +404,79 @@ class EDIProcessor(models.AbstractModel):
                 detail=str(exc),
             )
             raise
+
+        return failed_files
+
+    def _acquire_poll_lock(self, partner):
+        """Per-partner transaction-scoped advisory lock (IDEM-1a). Blocks until
+        any concurrent poll of the same partner commits or rolls back."""
+        self.env.cr.execute(
+            "SELECT pg_advisory_xact_lock(%s, %s)",
+            (EDI_POLL_LOCK_CLASS, partner.id),
+        )
+
+    def _poll_commit(self, partner):
+        """Durability point in the poll loop (IDEM-2).
+
+        Commits the transaction so SOs/reviews/logs/dedup markers survive a
+        worker death, then immediately re-takes the per-partner advisory lock
+        (pg_advisory_xact_lock is transaction-scoped — the commit released it).
+        Guarded so the test runner's enclosing transaction is never committed;
+        under tests the lock also survives (nothing was committed).
+        """
+        if _commit_suppressed(self.env):
+            return
+        self.env.cr.commit()
+        self._acquire_poll_lock(partner)
+
+    def _alert_file_failure(self, partner, filename, detail):
+        """Rate-limited email for a per-file processing failure (OPS-25).
+
+        Without this, a poisoned file re-fails silently every poll: the poll
+        itself 'succeeds', so neither the poll-level alert nor the breaker
+        ever fires. Uses its own rate-limit bucket (mml_edi.file_failure) so
+        it cannot suppress — or be suppressed by — the poll-failure alert.
+        """
+        self._send_cron_alert(
+            'mml_edi.file_failure',
+            'EDI file failed for %s: %s' % (partner.code, filename),
+            detail,
+        )
+
+    def _send_file_responses(self, partner, file_hash):
+        """Queue the per-PO ORDRSP + OOS summary for every PO of a file that
+        just fully processed.
+
+        Runs AFTER the per-file commit + FTP rename (ordering invariant — see
+        poll_trading_partner), so the partner can never receive an ACK for
+        uncommitted state. Covers every PO in the file (not just the first);
+        _queue_ack itself defers while sibling store-reviews are pending and
+        is idempotent per exchange, and any miss here (e.g. worker death) is
+        picked up by the retry_pending_acks cron.
+        """
+        reviews = self.env["edi.order.review"].search([
+            ("trading_partner_id", "=", partner.id),
+            ("edi_file_hash", "=", file_hash),
+        ], order="id")
+        seen_pos = []
+        for review in reviews:
+            po_number = review.customer_po_number
+            if po_number in seen_pos:
+                continue
+            seen_pos.append(po_number)
+            latest = reviews.filtered(
+                lambda r, po=po_number: r.customer_po_number == po
+            )[-1]
+            latest._queue_ack()
+            # Stock-shortfall (OOS) heads-up: one summary email per PO. OOS
+            # lines do not block — this is informational, not a review request.
+            try:
+                self._send_oos_summary(partner, po_number)
+            except Exception:
+                _logger.warning(
+                    "[EDI] OOS summary email failed for PO %s", po_number,
+                    exc_info=True,
+                )
 
     # ── File processing ───────────────────────────────────────────────────
 
@@ -301,6 +519,26 @@ class EDIProcessor(models.AbstractModel):
                 with self.env.cr.savepoint():
                     self.process_parsed_order(order, partner, filename, file_hash)
             except Exception as exc:
+                if _is_duplicate_so_violation(exc):
+                    # IDEM-1c: a concurrent transaction won the create race and
+                    # committed first — the DB backstop index rejected our
+                    # insert. The savepoint has already rolled this store back
+                    # to a clean state, so convert the loss into the standard
+                    # duplicate_skipped path instead of failing the file.
+                    _logger.info(
+                        "[EDI] Duplicate SO create for store '%s' of PO %s "
+                        "blocked by DB unique index (%s) — created concurrently "
+                        "by another worker; skipping",
+                        order.store_code, order.po_number, filename,
+                    )
+                    self.env["edi.log"].log(
+                        partner, "inbound", "duplicate_skipped", "warning",
+                        "Duplicate PO — store '%s' of PO %s in %s was created "
+                        "concurrently by another worker (DB unique index)" % (
+                            order.store_code, order.po_number, filename),
+                        filename=filename, file_hash=file_hash,
+                    )
+                    continue
                 _logger.exception(
                     "[EDI] Failed to process store '%s' of PO %s from %s",
                     order.store_code, order.po_number, filename,
@@ -313,32 +551,10 @@ class EDIProcessor(models.AbstractModel):
                 )
                 failures.append((order.store_code, str(exc)))
 
-        # Per-PO ACK: every store of this PO has now been processed. Send a single
-        # ORDRSP if the order auto-approved cleanly; this is a no-op (deferred)
-        # while any store-review is still in manual review, and idempotent so it
-        # uploads at most once per PO. (Briscoes expects one ORDRSP per PO.)
-        # Skip the ACK when any store failed — the PO is not yet fully processed,
-        # and the deferred-ACK retry cron (see retry_pending_acks) will pick it up
-        # once the file is retried and all stores have resolved.
-        if parsed_orders and not failures:
-            po_number = parsed_orders[0].po_number
-            any_review = self.env["edi.order.review"].search([
-                ("trading_partner_id", "=", partner.id),
-                ("customer_po_number", "=", po_number),
-            ], order="id desc", limit=1)
-            if any_review:
-                any_review._queue_ack()
-            # Stock-shortfall (OOS) heads-up: one summary email per PO. OOS lines
-            # do not block — the order is accepted in full and the short qty
-            # backorders — so this is informational, not a review request.
-            try:
-                self._send_oos_summary(partner, po_number)
-            except Exception:
-                _logger.warning(
-                    "[EDI] OOS summary email failed for PO %s", po_number,
-                    exc_info=True,
-                )
-
+        # NOTE: the per-PO ACK + OOS summary are deliberately NOT sent here.
+        # They are dispatched by the poll loop via _send_file_responses AFTER
+        # the per-file commit and FTP rename (ordering invariant IDEM-2), so
+        # the partner can never hold an ORDRSP for uncommitted state.
         return failures
 
     @api.model
@@ -360,7 +576,7 @@ class EDIProcessor(models.AbstractModel):
         self, order, partner, client_ref: str, filename: str, file_hash: str
     ):
         """Full new order pipeline: dedup → SO → lines → issues → routing."""
-        existing_so = self._find_existing_so(client_ref)
+        existing_so = self._find_existing_so(client_ref, partner)
         if existing_so:
             if existing_so.state == 'cancel':
                 _logger.info(
@@ -467,9 +683,13 @@ class EDIProcessor(models.AbstractModel):
         # Route
         if not blocking_issues and partner.auto_confirm_clean:
             so.action_confirm()
+            # SS-3: reservations must actually exist after confirm — force +
+            # verify them (free_qty for every subsequent order depends on it).
+            self.verify_order_reservation(so, partner)
             review.write({"state": "auto_approved"})
-            # ACK is sent once per PO after the whole file is processed
-            # (see _process_file) — Briscoes expects a single per-PO ORDRSP.
+            # ACK is sent once per PO after the whole file is processed,
+            # committed and renamed (see poll loop -> _send_file_responses) —
+            # Briscoes expects a single per-PO ORDRSP.
             self.env["edi.log"].log(
                 partner, "inbound", "order_created", "success",
                 "Auto-approved: SO %s from %s" % (so.name, filename),
@@ -512,6 +732,11 @@ class EDIProcessor(models.AbstractModel):
         wh = so.warehouse_id if 'warehouse_id' in so._fields else False
         if not wh:
             return 0.0
+        # Availability fields are computed + cached per transaction: inside a
+        # long poll (or an approve that follows quant changes in the same
+        # transaction) the cache can serve a figure computed BEFORE stock
+        # moved, silently over- or under-promising. Always read fresh.
+        product.invalidate_recordset(["free_qty", "qty_available", "virtual_available"])
         island = wh.roq_island if 'roq_island' in wh._fields else False
         if island and hasattr(product, '_fulfilment_free_qty'):
             return product._fulfilment_free_qty(island=island)
@@ -685,7 +910,7 @@ class EDIProcessor(models.AbstractModel):
         self, order, partner, client_ref: str, filename: str, file_hash: str
     ):
         """Route a change order to pending review with a diff summary."""
-        existing_so = self._find_existing_so(client_ref)
+        existing_so = self._find_existing_so(client_ref, partner)
         if not existing_so:
             self.env["edi.log"].log(
                 partner, "inbound", "error", "warning",
@@ -776,7 +1001,13 @@ class EDIProcessor(models.AbstractModel):
                 ("edi_line_number", "=", line_change["line_number"]),
             ], limit=1)
             if so_line:
-                so_line.product_uom_qty = line_change["new_qty"]
+                # An approved ORDCHG redefines what the customer ORDERED: keep
+                # edi_ordered_qty (the basis for the availability re-clamp
+                # below and the ORDRSP shortfall) in sync with the new qty.
+                so_line.write({
+                    "product_uom_qty": line_change["new_qty"],
+                    "edi_ordered_qty": line_change["new_qty"],
+                })
 
         # Handle removed lines (ORDCHG action code 3)
         for removed_line_num in changes.get('removed_lines', []):
@@ -788,16 +1019,227 @@ class EDIProcessor(models.AbstractModel):
                 if so.state == 'draft':
                     so_line.unlink()
                 else:
-                    so_line.write({'product_uom_qty': 0})
+                    # Zero the ordered basis too — otherwise the availability
+                    # re-clamp below would resurrect the removed line.
+                    so_line.write({
+                        'product_uom_qty': 0,
+                        'edi_ordered_qty': 0,
+                        'edi_qty_shortfall': 0,
+                    })
                     _logger.warning(
                         'EDI ORDCHG: SO %s is confirmed — zeroed qty on line %s '
                         '(action code 3). Manual review required.',
                         so.name, removed_line_num,
                     )
 
+        # SS-5: an ORDCHG qty increase must not bypass the availability gate.
+        # For short_ship partners re-run the re-clamp over the whole SO so a
+        # raised qty is cut back to what the DC can actually supply — the
+        # later ACK reads the live line qty + shortfall, so it confirms
+        # reality. No-op ([]) for backorder partners.
+        #
+        # DRAFT ORDERS ONLY: a confirmed SO has already reserved its stock,
+        # and free_qty nets that reservation OUT — reclamping would count the
+        # order's own reservation against itself and clamp healthy, fully-
+        # reserved lines toward zero (then ACK "cannot supply" stock reserved
+        # for this very PO). Confirmed-SO changes stay human-gated: the
+        # operator sees the raised qty on the review and Odoo's own
+        # availability UI at re-reservation.
+        reclamped = []
+        if so.state == 'draft':
+            reclamped = self.reclamp_order_lines(so, review.trading_partner_id)
+        else:
+            _logger.info(
+                "[EDI] ORDCHG on confirmed SO %s — availability re-clamp "
+                "skipped (own reservation would be double-counted); operator "
+                "review is the gate.", so.name,
+            )
+
+        body = _("EDI change order approved: %s") % review.change_summary
+        if reclamped:
+            clamp_summary = "; ".join(
+                "%s: %.0f -> %.0f (short %.0f)" % (
+                    c["line"].product_id.display_name or c["line"].name,
+                    c["old_qty"], c["new_qty"], c["shortfall"],
+                ) for c in reclamped
+            )
+            body += _(" — availability re-clamp applied: %s") % clamp_summary
+            # Audit trail on the review itself so the approver sees exactly
+            # what diverged from the customer's requested quantities.
+            review.message_post(
+                body=_("Change-order quantities re-clamped to DC availability: "
+                       "%s") % clamp_summary,
+                subtype_xmlid="mail.mt_note",
+            )
         so.message_post(
-            body=_("EDI change order approved: %s") % review.change_summary,
+            body=body,
             subtype_xmlid="mail.mt_note",
+        )
+
+    # ── Availability re-clamp (shared helper — approve/ORDCHG consumers) ──
+
+    @api.model
+    def reclamp_order_lines(self, sale_order, partner, cap_to_current=False):
+        """Re-run the availability gate on an EDI sale order at APPROVE time
+        — SS-1/SS-5. CALLERS MUST ONLY PASS DRAFT ORDERS: a confirmed SO has
+        reserved its own stock, which free_qty nets out, so reclamping it
+        would count the order against itself.
+
+        For ``partner.oos_policy == 'short_ship'``: every SO line with
+        ``edi_ordered_qty > 0`` is re-clamped to
+        ``min(edi_ordered_qty, DC-available)`` with a floor of 0 (the same
+        math as the parse-time gate: _dc_available_qty + _short_ship_split),
+        and ``edi_qty_shortfall`` is updated to match. Availability NEVER
+        raises: a missing product/warehouse or a lookup error fails toward
+        0.0 available (fail-closed — never promise stock we cannot see).
+
+        ``cap_to_current=True`` (Approve-with-Corrections): operator qty
+        reductions are deliberate — lines may only move DOWN from the
+        operator's value, never be restored up toward the ordered qty
+        (see _reclamp_line).
+
+        For ``'backorder'`` partners: returns ``[]`` without touching lines.
+
+        Returns ``[{'line': sol, 'old_qty': float, 'new_qty': float,
+        'shortfall': float}]`` for CHANGED lines only, and writes ONE edi.log
+        warning row when any line changed.
+        """
+        policy = partner.oos_policy if 'oos_policy' in partner._fields else 'backorder'
+        if policy != 'short_ship':
+            return []
+
+        changes = []
+        for sol in sale_order.order_line:
+            ordered = sol.edi_ordered_qty or 0.0
+            if ordered <= 0:
+                continue
+            try:
+                available = (
+                    self._dc_available_qty(sol.product_id, sale_order)
+                    if sol.product_id else 0.0
+                )
+            except Exception:
+                _logger.warning(
+                    "[EDI] reclamp: availability lookup failed for %s line %s "
+                    "— treating as 0.0 available (fail-closed)",
+                    sale_order.name, sol.id, exc_info=True,
+                )
+                available = 0.0
+            new_qty, shortfall, changed = _reclamp_line(
+                ordered, available, sol.product_uom_qty,
+                cap_to_current=cap_to_current)
+            if not changed:
+                # Keep the derived shortfall honest even when the qty itself
+                # is unchanged (shortfall = ordered - qty).
+                if sol.edi_qty_shortfall != shortfall:
+                    sol.edi_qty_shortfall = shortfall
+                continue
+            old_qty = sol.product_uom_qty
+            sol.write({
+                "product_uom_qty": new_qty,
+                "edi_qty_shortfall": shortfall,
+            })
+            changes.append({
+                "line": sol,
+                "old_qty": old_qty,
+                "new_qty": new_qty,
+                "shortfall": shortfall,
+            })
+
+        if changes:
+            detail = "; ".join(
+                "%s: %.0f -> %.0f (short %.0f)" % (
+                    c["line"].product_id.display_name or c["line"].name,
+                    c["old_qty"], c["new_qty"], c["shortfall"],
+                ) for c in changes
+            )
+            self.env["edi.log"].log(
+                partner, "internal", "info", "warning",
+                "Availability re-clamped %d line(s) on %s at approve: %s" % (
+                    len(changes), sale_order.name, detail),
+                sale_order=sale_order,
+            )
+        return changes
+
+    # ── Post-confirm reservation verify (SS-3) ────────────────────────────
+
+    @api.model
+    def verify_order_reservation(self, sale_order, partner):
+        """Force + verify stock reservation on the outgoing picking(s) of a
+        just-confirmed EDI SO (SS-3).
+
+        ``action_assign()`` is idempotent (a no-op on already-reserved moves),
+        so this is safe regardless of the picking type's reservation_method.
+        Any move that still fails to reserve is listed in ONE edi.log warning
+        — free_qty correctness for every subsequent order depends on the
+        reservation actually existing. Never raises. Returns the moves that
+        failed to reserve.
+        """
+        unreserved = self.env["stock.move"]
+        try:
+            pickings = sale_order.picking_ids.filtered(
+                lambda p: p.picking_type_code == "outgoing"
+                and p.state not in ("done", "cancel"))
+            for picking in pickings:
+                try:
+                    picking.action_assign()
+                except Exception:
+                    _logger.warning(
+                        "[EDI] action_assign failed on %s (SO %s)",
+                        picking.name, sale_order.name, exc_info=True)
+                unreserved |= picking.move_ids.filtered(
+                    lambda m: m.state not in ("assigned", "done", "cancel")
+                    and m.product_uom_qty > 0)
+        except Exception:
+            _logger.warning(
+                "[EDI] reservation verify failed for SO %s",
+                sale_order.name, exc_info=True)
+            return unreserved
+
+        if unreserved:
+            detail = "; ".join(
+                "%s: demand %.0f, state %s" % (
+                    m.product_id.display_name, m.product_uom_qty, m.state)
+                for m in unreserved)
+            self.env["edi.log"].log(
+                partner, "internal", "info", "warning",
+                "%d move(s) failed to reserve after confirming %s: %s" % (
+                    len(unreserved), sale_order.name, detail),
+                sale_order=sale_order,
+            )
+        self._warn_reservation_method(sale_order, partner)
+        return unreserved
+
+    def _warn_reservation_method(self, sale_order, partner):
+        """Config sanity check (SS-3): the DC outgoing picking type should
+        reserve at confirm. With 'manual'/'by_date', free_qty never decrements
+        on its own and every subsequent order is promised the same units.
+        Warns at most once per poll per picking type via the mutable set
+        placed in context by poll_trading_partner; outside a poll (tests,
+        direct calls) it warns on every call."""
+        wh = sale_order.warehouse_id if 'warehouse_id' in sale_order._fields else False
+        picking_type = wh.out_type_id if wh else False
+        if not picking_type or 'reservation_method' not in picking_type._fields:
+            return
+        if picking_type.reservation_method == 'at_confirm':
+            return
+        warned = self.env.context.get('edi_reservation_warned')
+        if isinstance(warned, set):
+            if picking_type.id in warned:
+                return
+            warned.add(picking_type.id)
+        _logger.warning(
+            "[EDI] Picking type '%s' has reservation_method=%r (expected "
+            "'at_confirm') — confirmed EDI orders will not reserve stock "
+            "automatically", picking_type.display_name,
+            picking_type.reservation_method,
+        )
+        self.env["edi.log"].log(
+            partner, "internal", "info", "warning",
+            "Picking type '%s' has reservation_method '%s' (expected "
+            "'at_confirm'): confirmed EDI orders will not reserve stock "
+            "automatically and free_qty will over-promise." % (
+                picking_type.display_name, picking_type.reservation_method),
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────
@@ -811,10 +1253,16 @@ class EDIProcessor(models.AbstractModel):
             ("status", "=", "success"),
         ], limit=1))
 
-    def _find_existing_so(self, client_ref: str):
-        """Find an existing SO by client reference. Returns record or None."""
+    def _find_existing_so(self, client_ref: str, partner):
+        """Find an existing EDI SO by client reference, scoped to the trading
+        partner and company (IDEM major 3). An unrelated SO that happens to
+        carry the same client_order_ref (e.g. a manually-entered ref colliding
+        with Animates' bare '{po_number}' template) must never suppress a real
+        order as duplicate_skipped. Returns record or None."""
         return self.env["sale.order"].search([
             ("client_order_ref", "=", client_ref),
+            ("edi_trading_partner_id", "=", partner.id),
+            ("company_id", "=", self.env.company.id),
         ], limit=1) or None
 
     def _resolve_delivery_partner(self, partner, order):

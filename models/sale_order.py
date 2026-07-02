@@ -1,9 +1,36 @@
 # mml.edi/models/sale_order.py
 from odoo import api, fields, models
 
+from .edi_processor import SO_EDI_CLIENT_REF_INDEX
+
 
 class SaleOrder(models.Model):
     _inherit = "sale.order"
+
+    def init(self):
+        """DB backstop for the EDI duplicate-SO race (IDEM-1b).
+
+        At most ONE live (non-cancelled) SO per (EDI trading partner, company,
+        client_order_ref). client_order_ref is rendered from the partner's
+        client_ref_template and is unique per (partner, PO, store) by
+        construction, so this index makes the DB reject what the Python-only
+        TOCTOU dedup can miss under concurrency. Partial:
+          - non-EDI orders (edi_trading_partner_id IS NULL) are untouched;
+          - cancelled SOs are excluded so a re-order after cancellation (a
+            deliberate processor path) stays allowed.
+        The duplicate pre-check for upgrades lives in migrations/19.0.1.0.3
+        (pre-migration aborts with a listing before this index is created).
+        """
+        super().init()
+        self.env.cr.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS %s
+                ON sale_order (edi_trading_partner_id, company_id, client_order_ref)
+             WHERE edi_trading_partner_id IS NOT NULL
+               AND client_order_ref IS NOT NULL
+               AND state != 'cancel'
+            """ % SO_EDI_CLIENT_REF_INDEX
+        )
 
     edi_trading_partner_id = fields.Many2one(
         "edi.trading.partner",

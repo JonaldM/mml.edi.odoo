@@ -41,6 +41,7 @@ class EDILog(models.Model):
             ("file_parse", "File Parsed"),
             ("order_created", "Order Created"),
             ("duplicate_skipped", "Duplicate Skipped"),
+            ("ack_sending", "ACK Sending (upload claim)"),
             ("ack_sent", "ACK Sent"),
             ("review_approved", "Review Approved"),
             ("review_rejected", "Review Rejected"),

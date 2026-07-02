@@ -293,6 +293,25 @@ class BriscoesIDOCParser(BaseEDIParser):
 
         out = ['<?xml version="1.0" encoding="UTF-8"?>', "<ORDERSEXT>"]
         idocs = root.findall("IDOC") or ([root] if root.tag == "IDOC" else [])
+        # Multi-PO safety: EDIS can batch several POs into one inbound file, and
+        # edi_raw_data stores the WHOLE file. Echoing every IDOC would emit the
+        # OTHER PO's lines into this ACK carrying THIS PO's confirmations (wrong
+        # quantities / force-rejected segments). When the file holds more than
+        # one distinct PO, keep only the IDOC(s) whose E1EDK01/BELNR matches this
+        # review's PO. Single-PO files (the common case) are deliberately left
+        # untouched — output stays byte-for-byte identical.
+        belnrs = [_text(i.find("E1EDK01"), "BELNR") for i in idocs]
+        if len(set(belnrs)) > 1:
+            matched = [i for i, b in zip(idocs, belnrs) if b == po_ref]
+            if not matched:
+                # Fail CLOSED: an ORDRSP built from another PO's iDOC would
+                # confirm/reject lines Briscoes never ordered on this PO.
+                raise EDIParseError(
+                    "Stored raw file holds POs %s but none match review PO %r; "
+                    "refusing to generate a cross-PO ORDRSP"
+                    % (sorted(set(belnrs)), po_ref)
+                )
+            idocs = matched
         for idoc in idocs:
             out.extend(self._build_ordrsp(
                 idoc, po_ref, confirmed, now, serial, has_review_data,

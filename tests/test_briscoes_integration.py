@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 from odoo.tests.common import TransactionCase, tagged
+from odoo.tools import mute_logger
 
 from .common import EDITestSetup
 try:
@@ -291,6 +292,12 @@ class TestBriscoesOrdchgIntegration(EDIBriscoesSetup, TransactionCase):
 
 @unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime")
 @tagged("post_install", "-at_install")  # run after ALL modules load (e.g. website_sale's product fields)
+# Review manipulation below fires the deferred _queue_ack, whose failure with
+# this fixture's allow-list-blocked parser is swallowed but still logged at
+# ERROR — which Odoo's test runner counts as a failure. ACK transport is not
+# under test here (ORDRSP CONTENT is, via _get_ordrsp's direct parser).
+@mute_logger("odoo.addons.mml_edi.models.edi_order_review",
+             "odoo.addons.mml_edi.models.edi_log")
 class TestBriscoesOrdrspIntegration(EDIBriscoesSetup, TransactionCase):
     """
     Test all 5 outbound ORDRSP scenarios against live Odoo DB.
@@ -312,8 +319,15 @@ class TestBriscoesOrdrspIntegration(EDIBriscoesSetup, TransactionCase):
         self.so = self.review_1005.sale_order_id
 
     def _get_ordrsp(self, review) -> str:
-        parser = self.trading_partner.get_parser_instance()
-        return parser.generate_ack(review).decode("utf-8")
+        # Construct the legacy EDIFACT parser DIRECTLY (as _run does for
+        # parsing): it is the test subject here, but it is deliberately
+        # excluded from the production allow-list, so get_parser_instance()
+        # would (correctly) refuse to build it.
+        try:
+            from odoo.addons.mml_edi.parsers.briscoes import BriscoesParser
+        except ImportError:
+            from mml_edi.parsers.briscoes import BriscoesParser
+        return BriscoesParser().generate_ack(review).decode("utf-8")
 
     def _bgm_purpose(self, ordrsp_text: str) -> str:
         for line in ordrsp_text.split("\r\n"):

@@ -158,6 +158,23 @@ class EDIFTPHandler:
         except Exception as exc:
             raise EDIFTPError("list_files failed on %s: %s" % (inbox, exc)) from exc
 
+    def list_outbox_files(self) -> list:
+        """List files currently in the active OUTBOX directory (names only).
+
+        Used by the ACK send path to VERIFY whether a claimed upload actually
+        landed after an FTP ghost-success (data stored but the final 226 lost)
+        — re-uploading a delivered ACK would double-respond to the partner.
+        No filtering: the caller matches an exact filename.
+        """
+        outbox = self.partner.get_active_outbox_path()
+        try:
+            if self.partner.ftp_protocol == "sftp":
+                return [f.filename for f in self._ftp.listdir_attr(outbox)]
+            return [os.path.basename(f) for f in self._ftp.nlst(outbox)]
+        except Exception as exc:
+            raise EDIFTPError(
+                "list_outbox_files failed on %s: %s" % (outbox, exc)) from exc
+
     def download_file(self, filename: str) -> bytes:
         """Download a single file by name from the active inbox. Returns raw bytes."""
         filename = _safe_filename(filename)

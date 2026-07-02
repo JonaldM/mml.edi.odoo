@@ -8,6 +8,7 @@ Usage:
             super().setUp()
             self.setup_edi_test_data()
 """
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 # Import dataclasses for use in tests — these don't need Odoo
@@ -15,6 +16,68 @@ try:
     from odoo.addons.mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
 except ImportError:
     from mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
+
+
+def make_idoc_raw(po_number, ordered_each=10.0, posex="00001"):
+    """Minimal single-PO Briscoes ORDERS iDOC (one line) for ACK-flow tests.
+
+    POSEX '00001' parses to line 1 — matching make_parsed_line's default
+    line_number — so a review processed from make_clean_parsed_order can have
+    its edi_raw_data swapped for this and BriscoesIDOCParser.generate_ack will
+    map the live SO line's confirmed qty onto the echoed line's BMNG2.
+    """
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<ORDERSEXT><IDOC BEGIN="1">'
+        '<EDI_DC40 SEGMENT="1"><DOCNUM>0000000000000001</DOCNUM>'
+        '<SNDPOR>SAPBRP_TEST</SNDPOR><SNDPRN>BRISCOES</SNDPRN>'
+        '<CREDAT>20260701</CREDAT><CRETIM>120000</CRETIM></EDI_DC40>'
+        '<E1EDK01 SEGMENT="1"><CURCY>NZD</CURCY><BELNR>%s</BELNR></E1EDK01>'
+        '<E1EDP01 SEGMENT="1"><POSEX>%s</POSEX>'
+        '<MENGE>1.000</MENGE><MENEE>CT</MENEE>'
+        '<BMNG2>%.3f</BMNG2><PMENE>EA</PMENE>'
+        '<VPREI>9.99</VPREI><PEINH>1</PEINH>'
+        '</E1EDP01>'
+        '</IDOC></ORDERSEXT>'
+    ) % (po_number, posex, ordered_each)
+
+
+class RecordingFTPHandler:
+    """Network-free stand-in for EDIFTPHandler (ACK send-path tests).
+
+    Class-level state so tests can inspect uploads and stage the outbound
+    listing; call reset() in setUp. ``upload_error`` is raised AFTER the
+    upload is recorded — simulating an FTP ghost-success (data stored on the
+    server, but the final 226 reply lost).
+    """
+    uploads = []
+    listing = []
+    upload_error = None
+    listing_error = None
+
+    def __init__(self, partner):
+        self.partner = partner
+
+    @contextmanager
+    def connection(self):
+        yield self
+
+    def upload_file(self, filename, content):
+        type(self).uploads.append(filename)
+        if type(self).upload_error:
+            raise type(self).upload_error
+
+    def list_outbox_files(self):
+        if type(self).listing_error:
+            raise type(self).listing_error
+        return list(type(self).listing)
+
+    @classmethod
+    def reset(cls):
+        cls.uploads = []
+        cls.listing = []
+        cls.upload_error = None
+        cls.listing_error = None
 
 
 def make_parsed_line(

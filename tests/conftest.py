@@ -192,6 +192,23 @@ def _ensure_odoo_test_stubs() -> None:
     sys.modules["odoo.tests"] = odoo_tests
     sys.modules["odoo.tests.common"] = odoo_tests_common
 
+    # Stub odoo.tools (mute_logger as a no-op decorator) so Odoo-only test
+    # modules that silence expected-error logs still import under pure pytest.
+    if "odoo.tools" not in sys.modules:
+        odoo_tools = types.ModuleType("odoo.tools")
+
+        def _mute_logger_stub(*_loggers):
+            def decorator(obj):
+                return obj
+            return decorator
+
+        odoo_tools.mute_logger = _mute_logger_stub
+        # Commit guards fall back to config['test_enable'] (Odoo 19 removed
+        # Registry.in_test_mode) — under pure pytest we are ALWAYS in test mode.
+        odoo_tools.config = {"test_enable": True}
+        odoo_mod.tools = odoo_tools
+        sys.modules["odoo.tools"] = odoo_tools
+
 
 _ensure_odoo_test_stubs()
 
