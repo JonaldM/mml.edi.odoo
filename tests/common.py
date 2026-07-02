@@ -24,7 +24,9 @@ def make_idoc_raw(po_number, ordered_each=10.0, posex="00001"):
     POSEX '00001' parses to line 1 — matching make_parsed_line's default
     line_number — so a review processed from make_clean_parsed_order can have
     its edi_raw_data swapped for this and BriscoesIDOCParser.generate_ack will
-    map the live SO line's confirmed qty onto the echoed line's BMNG2.
+    map the live SO line's confirmed qty onto the echoed line's WMENG.
+    EA order unit throughout, so the ORDRSP's order-unit quantities (MENGE /
+    WMENG) read directly in eaches.
     """
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -34,12 +36,12 @@ def make_idoc_raw(po_number, ordered_each=10.0, posex="00001"):
         '<CREDAT>20260701</CREDAT><CRETIM>120000</CRETIM></EDI_DC40>'
         '<E1EDK01 SEGMENT="1"><CURCY>NZD</CURCY><BELNR>%s</BELNR></E1EDK01>'
         '<E1EDP01 SEGMENT="1"><POSEX>%s</POSEX>'
-        '<MENGE>1.000</MENGE><MENEE>CT</MENEE>'
+        '<MENGE>%.3f</MENGE><MENEE>EA</MENEE>'
         '<BMNG2>%.3f</BMNG2><PMENE>EA</PMENE>'
         '<VPREI>9.99</VPREI><PEINH>1</PEINH>'
         '</E1EDP01>'
         '</IDOC></ORDERSEXT>'
-    ) % (po_number, posex, ordered_each)
+    ) % (po_number, posex, ordered_each, ordered_each)
 
 
 class RecordingFTPHandler:

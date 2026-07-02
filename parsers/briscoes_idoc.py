@@ -447,8 +447,25 @@ class BriscoesIDOCParser(BaseEDIParser):
         seg.append("<UZEIT>%s</UZEIT>" % now.strftime("%H%M%S"))
         seg.append("</E1EDK02>")
 
-        # Lines — ALL stores echoed (per-PO ACK)
+        # Lines — ALL stores echoed (per-PO ACK).
+        #
+        # OOS semantics per the Briscoes iDOC ORDRSP IG v1.7 (docs/briscoes.docs):
+        #   - MENGE / BMNG2 ALWAYS echo the ORDERED quantities ("this will
+        #     always be the quantity ordered") — never the confirmed qty;
+        #   - the deliverable quantity is carried in E1EDP20/WMENG ("the
+        #     quantity that the vendor will deliver"), in the ORDER unit;
+        #   - a partial supply is ACTION=001 with a reduced WMENG and NO
+        #     ABGRU ("only populate if the Action code is 003");
+        #   - a line with nothing deliverable is rejected completely:
+        #     ACTION=003 + ABGRU=11, with WMENG echoing the ORIGINAL ordered
+        #     qty ("if the line is rejected, the number in this segment is
+        #     the original order quantity");
+        #   - E1EDS01/SUMME is recalculated to the new net order total when
+        #     any line is short/rejected (echoed verbatim on full supply,
+        #     keeping full-supply ACKs byte-identical to the proven format).
         line_count = 0
+        any_shortfall = False
+        new_order_total = 0.0
         for p01 in idoc.findall("E1EDP01"):
             posex = _text(p01, "POSEX")
             posex_int = _parse_posex(posex)
@@ -470,25 +487,31 @@ class BriscoesIDOCParser(BaseEDIParser):
                     confirmed_each, rej_line = ordered_each, False
             else:
                 confirmed_each, rej_line = conf
-            if rej_line:
+            # Complete rejection (spec ACTION=003): explicitly rejected, or
+            # nothing deliverable on a real ordered line.
+            rejected = rej_line or (ordered_each > 0 and confirmed_each <= 0.0)
+            if rejected:
                 confirmed_each = 0.0
-            short = confirmed_each < ordered_each
+            short = (not rejected) and confirmed_each < ordered_each
 
-            # Scale cartons + value to the confirmed quantity.
+            # Deliverable qty in the ORDER unit (MENEE, usually cartons).
             if ordered_each > 0:
                 conf_cartons = ordered_cartons * (confirmed_each / ordered_each)
             else:
                 conf_cartons = ordered_cartons
             netwr = round(confirmed_each * vprei, 2)
+            new_order_total += netwr
+            if rejected or short:
+                any_shortfall = True
 
             seg.append('<E1EDP01 SEGMENT="1">')
             seg.append("<POSEX>%s</POSEX>" % posex)
-            seg.append("<ACTION>001</ACTION>")
+            seg.append("<ACTION>%s</ACTION>" % ("003" if rejected else "001"))
             seg.append("<PSTYP>%s</PSTYP>" % (_text(p01, "PSTYP") or "0"))
             seg.append("<KZABS>%s</KZABS>" % _text(p01, "KZABS"))
-            seg.append("<MENGE>%.3f</MENGE>" % conf_cartons)
+            seg.append("<MENGE>%.3f</MENGE>" % ordered_cartons)
             seg.append("<MENEE>%s</MENEE>" % (_text(p01, "MENEE") or "CT"))
-            seg.append("<BMNG2>%.3f</BMNG2>" % confirmed_each)
+            seg.append("<BMNG2>%.3f</BMNG2>" % ordered_each)
             seg.append("<PMENE>%s</PMENE>" % (_text(p01, "PMENE") or "EA"))
             seg.append("<VPREI>%s</VPREI>" % _text(p01, "VPREI"))
             seg.append("<PEINH>%s</PEINH>" % (_text(p01, "PEINH") or "1"))
@@ -499,8 +522,8 @@ class BriscoesIDOCParser(BaseEDIParser):
             seg.append("<BPUMZ>%s</BPUMZ>" % (_text(p01, "BPUMZ") or "1"))
             seg.append("<WERKS>%s</WERKS>" % _text(p01, "WERKS"))
             seg.append("<LGORT>%s</LGORT>" % (_text(p01, "LGORT") or "0001"))
-            # Reason-for-rejection flag on short / rejected lines.
-            if rej_line or short:
+            # ABGRU only accompanies a complete rejection (ACTION=003).
+            if rejected:
                 seg.append("<ABGRU>%s</ABGRU>" % _ABGRU_UNAVAILABLE)
             # E1EDP02 — link response line back to PO line (ZEILE = POSEX)
             seg.append('<E1EDP02 SEGMENT="1">')
@@ -508,14 +531,14 @@ class BriscoesIDOCParser(BaseEDIParser):
             seg.append("<BELNR>%s</BELNR>" % belnr)
             seg.append("<ZEILE>%s</ZEILE>" % posex)
             seg.append("</E1EDP02>")
-            # E1EDP20 — schedule
+            # E1EDP20 — schedule. WMENG is in the ORDER unit (MENEE = CT /
+            # cartons), NOT the EA base qty — the proven .NET ACK and every
+            # Briscoes-accepted ORDRSP set WMENG in cartons; emitting the EA
+            # value here over-confirms every line by the carton factor.
             p20 = p01.find("E1EDP20")
             seg.append('<E1EDP20 SEGMENT="1">')
-            # WMENG is the confirmed quantity in the ORDER unit (MENEE = CT /
-            # cartons), NOT the EA base qty. The proven .NET ACK and every
-            # Briscoes-accepted ORDRSP set WMENG == MENGE (cartons); emitting the
-            # EA value (BMNG2) here over-confirms every line by the carton factor.
-            seg.append("<WMENG>%.3f</WMENG>" % conf_cartons)
+            seg.append("<WMENG>%.3f</WMENG>"
+                       % (ordered_cartons if rejected else conf_cartons))
             seg.append("<AMENG>0.000</AMENG>")
             seg.append("<EDATU>%s</EDATU>" % (_text(p20, "EDATU") if p20 is not None else ""))
             seg.append("</E1EDP20>")
@@ -530,16 +553,20 @@ class BriscoesIDOCParser(BaseEDIParser):
             seg.append("</E1EDP01>")
             line_count += 1
 
-        # E1EDS01 order-value summary — echo the PO's summary segment(s). The
-        # proven .NET ACK (and every Briscoes-accepted ORDRSP) carries
-        # SUMID=002 / SUMME=<order value> / SUNIT=<currency>; omitting it
-        # diverges from the format Briscoes expects.
+        # E1EDS01 order-value summary. Full supply: echo the PO's summary
+        # verbatim (the proven .NET ACK format — SUMID=002 / SUMME / SUNIT).
+        # Short/rejected lines: IG v1.7 requires SUMME be "recalculated by the
+        # vendor to be the new net order total" — the sum of the deliverable
+        # line values (NETWR) emitted above.
         for s01 in idoc.findall("E1EDS01"):
             seg.append('<E1EDS01 SEGMENT="1">')
             sumid = _text(s01, "SUMID")
             if sumid:
                 seg.append("<SUMID>%s</SUMID>" % sumid)
-            seg.append("<SUMME>%s</SUMME>" % _text(s01, "SUMME"))
+            if any_shortfall:
+                seg.append("<SUMME>%.2f</SUMME>" % new_order_total)
+            else:
+                seg.append("<SUMME>%s</SUMME>" % _text(s01, "SUMME"))
             sunit = _text(s01, "SUNIT")
             if sunit:
                 seg.append("<SUNIT>%s</SUNIT>" % sunit)

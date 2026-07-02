@@ -171,10 +171,12 @@ class TestApproveReclamp(EDITestSetup, TransactionCase):
 
     # ── ORDRSP reflects the POST-reclamp quantity ──────────────────────────
 
-    def test_ordrsp_bmng2_reflects_reclamped_qty(self):
+    def test_ordrsp_wmeng_reflects_reclamped_qty(self):
         """The iDOC ACK reads the LIVE sol qty (briscoes_idoc reads
         product_uom_qty per POSEX), so after an approve-time re-clamp the
-        ORDRSP's BMNG2 must equal the re-clamped qty, flagged ABGRU."""
+        ORDRSP must carry the re-clamped DELIVERABLE qty in E1EDP20/WMENG
+        (per the iDOC ORDRSP IG v1.7 — BMNG2 always echoes the ORDERED qty,
+        and a partial line is ACTION=001 with NO ABGRU)."""
         try:
             from odoo.addons.mml_edi.models import edi_ftp as edi_ftp_mod
         except ImportError:
@@ -196,9 +198,13 @@ class TestApproveReclamp(EDITestSetup, TransactionCase):
         self.assertEqual(line.product_uom_qty, 4.0)
         parser = self.trading_partner.get_parser_instance()
         root = ET.fromstring(parser.generate_ack(review).decode("utf-8"))
-        bmng2 = [float(p.find("BMNG2").text)
-                 for p in root.findall("IDOC/E1EDP01")]
-        self.assertEqual(bmng2, [4.0],
-                         "ORDRSP must confirm the RE-CLAMPED qty, not parse-time qty")
-        self.assertIsNotNone(root.find("IDOC/E1EDP01/ABGRU"),
-                             "Short line must carry the reason-for-rejection flag")
+        lines = root.findall("IDOC/E1EDP01")
+        self.assertEqual(
+            [float(p.find("E1EDP20/WMENG").text) for p in lines], [4.0],
+            "ORDRSP WMENG must carry the RE-CLAMPED deliverable qty")
+        self.assertEqual(
+            [float(p.find("BMNG2").text) for p in lines], [10.0],
+            "BMNG2 always echoes the customer's ORDERED qty (IG v1.7)")
+        self.assertEqual(lines[0].find("ACTION").text, "001")
+        self.assertIsNone(lines[0].find("ABGRU"),
+                          "partial supply must NOT carry ABGRU (only ACTION=003 may)")

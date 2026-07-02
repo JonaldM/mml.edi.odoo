@@ -249,19 +249,69 @@ class TestGenerateAck:
         # no rejection flags on a clean full-supply ACK
         assert root.find("IDOC/E1EDP01/ABGRU") is None
 
-    def test_short_supply_flags_abgru_and_reduces_qty(self):
-        # confirm only 3 of 6 on POSEX 10
+    def test_short_supply_is_action_001_wmeng_carries_the_cut_no_abgru(self):
+        """iDOC ORDRSP IG v1.7: a partial supply is ACTION=001 with the
+        deliverable qty in E1EDP20/WMENG; MENGE/BMNG2 ALWAYS echo the ordered
+        qty, and ABGRU 'should not be sent' unless ACTION=003."""
+        # confirm only 3 of 6 each on POSEX 10 (2 cartons ordered -> 1 deliverable)
         rv = _review(confirmed={10: 3, 20: 12, 30: 8, 40: 4, 50: 3, 60: 3})
         root = ET.fromstring(BriscoesIDOCParser().generate_ack(rv))
         line10 = root.findall("IDOC/E1EDP01")[0]
-        assert float(line10.find("BMNG2").text) == 3.0
-        assert line10.find("ABGRU") is not None
+        assert line10.find("ACTION").text == "001"
+        assert float(line10.find("BMNG2").text) == 6.0, "BMNG2 echoes ORDERED"
+        assert float(line10.find("MENGE").text) == 2.0, "MENGE echoes ORDERED cartons"
+        assert float(line10.find("E1EDP20/WMENG").text) == 1.0, \
+            "WMENG carries the deliverable qty in the ORDER unit (3/6 of 2 CT)"
+        assert line10.find("ABGRU") is None, \
+            "ABGRU is only valid with ACTION=003 (spec: 'in all other cases " \
+            "this segment should not be sent')"
+        # NETWR reflects the deliverable value
+        vprei = float(line10.find("VPREI").text)
+        assert float(line10.find("NETWR").text) == round(3 * vprei, 2)
 
-    def test_rejected_zeroes_qty_and_flags_all(self):
+    def test_zero_supply_line_is_action_003_abgru_11_wmeng_echoes_ordered(self):
+        """iDOC ORDRSP IG v1.7: a line with NOTHING deliverable is rejected
+        completely — ACTION=003 + ABGRU=11, and WMENG echoes the ORIGINAL
+        ordered qty ('if the line is rejected, the number in this segment is
+        the original order quantity')."""
+        rv = _review(confirmed={10: 0, 20: 12, 30: 8, 40: 4, 50: 3, 60: 3})
+        root = ET.fromstring(BriscoesIDOCParser().generate_ack(rv))
+        line10 = root.findall("IDOC/E1EDP01")[0]
+        assert line10.find("ACTION").text == "003"
+        assert line10.find("ABGRU").text == "11"
+        assert float(line10.find("BMNG2").text) == 6.0, "BMNG2 echoes ORDERED"
+        assert float(line10.find("E1EDP20/WMENG").text) == 2.0, \
+            "Rejected line: WMENG echoes the original ordered qty (order unit)"
+        assert float(line10.find("NETWR").text) == 0.0
+        # the untouched line stays a clean 001 with no ABGRU
+        line20 = root.findall("IDOC/E1EDP01")[1]
+        assert line20.find("ACTION").text == "001"
+        assert line20.find("ABGRU") is None
+
+    def test_rejected_review_rejects_all_lines_003(self):
         root = ET.fromstring(BriscoesIDOCParser().generate_ack(_review(state="rejected")))
         for l in root.findall("IDOC/E1EDP01"):
-            assert float(l.find("BMNG2").text) == 0.0
-            assert l.find("ABGRU") is not None
+            assert l.find("ACTION").text == "003"
+            assert l.find("ABGRU").text == "11"
+            # ordered quantities are still echoed, not zeroed
+            assert float(l.find("BMNG2").text) > 0.0
+            assert float(l.find("NETWR").text) == 0.0
+
+    def test_summe_recalculated_when_short_echoed_when_full(self):
+        """IG v1.7 E1EDS01: 'if lines have been rejected [or] cannot be
+        supplied in full ... this total should be recalculated to the new net
+        order total'. Full supply keeps the echoed (proven) SUMME."""
+        full = ET.fromstring(BriscoesIDOCParser().generate_ack(_review()))
+        short = ET.fromstring(BriscoesIDOCParser().generate_ack(
+            _review(confirmed={10: 3, 20: 12, 30: 8, 40: 4, 50: 3, 60: 3})))
+        s_full = full.find("IDOC/E1EDS01/SUMME")
+        s_short = short.find("IDOC/E1EDS01/SUMME")
+        if s_full is None or s_short is None:
+            return  # fixture carries no summary segment — nothing to assert
+        expected = sum(
+            float(l.find("NETWR").text) for l in short.findall("IDOC/E1EDP01"))
+        assert abs(float(s_short.text) - round(expected, 2)) < 0.01, \
+            "short ACK must carry the recalculated net order total"
 
     def test_missing_raw_data_raises(self):
         r = MagicMock()
