@@ -12,7 +12,15 @@
             <field name="model">sale.order</field>
             <field name="inherit_id" ref="sale.view_order_form"/>
             <field name="arch" type="xml">
+                <!-- Indent orders: unmissable ribbon so a forward commitment is
+                     never mistaken for a stale order again. -->
+                <xpath expr="//sheet" position="inside">
+                    <widget name="web_ribbon" title="Indent"
+                            bg_color="text-bg-info"
+                            invisible="not x_is_indent"/>
+                </xpath>
                 <xpath expr="//div[@name='button_box']" position="inside">
+                    <field name="x_is_indent" invisible="1"/>
                     <field name="is_edi_order" invisible="1"/>
                     <field name="edi_review_id" invisible="1"/>
                     <field name="edi_trading_partner_id" invisible="1"/>
@@ -32,6 +40,24 @@
             </field>
         </record>
 
+
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- SEARCH FILTER — indent orders                                   -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+
+        <record id="view_sale_order_search_indent" model="ir.ui.view">
+            <field name="name">sale.order.search.indent</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale.view_sales_order_filter"/>
+            <field name="arch" type="xml">
+                <filter name="my_sale_orders_filter" position="after">
+                    <separator/>
+                    <filter name="indent_orders" string="Indent Orders"
+                            domain="[('x_is_indent','=',True)]"
+                            help="Forward commitments for future delivery windows"/>
+                </filter>
+            </field>
+        </record>
 
         <!-- ═══════════════════════════════════════════════════════════════ -->
         <!-- WINDOW ACTION — EDI Sales Orders                                -->

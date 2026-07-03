@@ -14,7 +14,7 @@ import html
 import json
 import logging
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -25,6 +25,24 @@ _logger = logging.getLogger(__name__)
 def build_session_id() -> str:
     """Generate a short unique ID for correlating log messages within one poll run."""
     return secrets.token_hex(4)
+
+
+# Default lead (days) beyond which an EDI delivery date marks the PO as an
+# INDENT — a forward commitment placed months before the stock arrives.
+# Overridable via ir.config_parameter 'mml_edi.indent_threshold_days'.
+INDENT_THRESHOLD_DAYS = 28
+
+
+def _is_indent_commitment(commitment, now, threshold_days=INDENT_THRESHOLD_DAYS):
+    """True when a requested delivery date is far enough out to be an indent.
+
+    Pure so the threshold maths is unit-testable: an order whose committed
+    delivery sits more than ``threshold_days`` past ``now`` is a forward
+    commitment, not a fulfil-now order.
+    """
+    if not commitment:
+        return False
+    return commitment > now + timedelta(days=threshold_days)
 
 
 def _short_ship_split(ordered, available):
@@ -608,6 +626,15 @@ class EDIProcessor(models.AbstractModel):
             "edi_trading_partner_id": partner.id,
             "company_id": self.env.company.id,
         }
+        # Indent detection: a delivery date far in the future marks a FORWARD
+        # COMMITMENT (e.g. Briscoes indent POs placed months ahead of stock
+        # arrival). Indents skip the OOS short-ship gate — the stock is
+        # EXPECTED to be absent at import — and are held from the 3PL until
+        # their release window (see stock_3pl_rohlig outbound gating).
+        indent_days = int(self.env['ir.config_parameter'].sudo().get_param(
+            'mml_edi.indent_threshold_days', str(INDENT_THRESHOLD_DAYS)))
+        so_vals['x_is_indent'] = _is_indent_commitment(
+            so_vals['commitment_date'], fields.Datetime.now(), indent_days)
         # Carry the clean customer PO number onto the SO. Per-store SOs otherwise
         # only have the suffixed client_order_ref (e.g. "4500180080_1080"); the
         # full Briscoes PO must be visible per store for matching, packing slips
@@ -641,6 +668,12 @@ class EDIProcessor(models.AbstractModel):
             if target_wh_id:
                 so_vals['warehouse_id'] = target_wh_id
         so = self.env["sale.order"].create(so_vals)
+        if so_vals.get('x_is_indent'):
+            so.message_post(body=_(
+                'Indent order — forward commitment for delivery on %(date)s. '
+                'Accepted in full (out-of-stock gate skipped by design); the '
+                'delivery is held from the DC until its release window.',
+                date=str(so_vals['commitment_date'])[:10]))
 
         blocking_issues = []
 
@@ -782,6 +815,12 @@ class EDIProcessor(models.AbstractModel):
         # behaviour and warns. edi_ordered_qty always holds the original ordered qty.
         ordered = parsed_line.quantity
         policy = partner.oos_policy if 'oos_policy' in partner._fields else 'backorder'
+        # Indent orders accept in full regardless of the partner's OOS policy:
+        # the commitment is placed BEFORE the stock arrives by design, so an
+        # availability gate at import time would zero every line. Availability
+        # is enforced at release time instead.
+        if getattr(so, 'x_is_indent', False):
+            policy = 'backorder'
         # Short-ship math and availability are both in EA. If a line ever arrives in
         # a non-EA UoM (e.g. cartons), ordered and available aren't comparable —
         # accept in full rather than mis-ship (plan decision 5.5; all live Briscoes
@@ -1046,7 +1085,8 @@ class EDIProcessor(models.AbstractModel):
         # operator sees the raised qty on the review and Odoo's own
         # availability UI at re-reservation.
         reclamped = []
-        if so.state == 'draft':
+        if so.state == 'draft' and not getattr(so, 'x_is_indent', False):
+            # Indents are never availability-clamped (see _process_order_line).
             reclamped = self.reclamp_order_lines(so, review.trading_partner_id)
         else:
             _logger.info(

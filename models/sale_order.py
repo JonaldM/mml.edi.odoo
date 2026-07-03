@@ -50,6 +50,18 @@ class SaleOrder(models.Model):
         store=True,
         string="EDI Order",
     )
+    x_is_indent = fields.Boolean(
+        string="Indent Order",
+        tracking=True,
+        copy=False,
+        index=True,
+        help="Forward commitment placed ahead of stock arrival, for delivery "
+             "in a future window (EDI delivery date beyond the indent "
+             "threshold at import; also settable manually). Indents are "
+             "accepted in full — the out-of-stock gate is skipped by design — "
+             "and their deliveries are held from the 3PL until the release "
+             "window before the committed date.",
+    )
 
     @api.depends("edi_trading_partner_id")
     def _compute_is_edi_order(self):
