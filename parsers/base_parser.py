@@ -58,8 +58,12 @@ class ParsedOrder:
     # Delivery address GLN/code — looked up against res.partner.ref
     delivery_address_code: str | None = None
 
-    # 'new_order' or 'change_order'. Parsers set this from EDI message type.
-    # If the format doesn't distinguish, detect by matching PO number to existing SO.
+    # 'new_order', 'change_order', or 'cancellation'. Parsers set this from the
+    # EDI message type. If the format doesn't distinguish, detect by matching PO
+    # number to existing SO. 'cancellation' (e.g. Animates BGM 1225=1 / contract
+    # C5) carries no order lines — the processor cancels the existing SO and
+    # never queues an ORDRSP for it (see models/edi_processor.py
+    # _process_cancellation / CANCELLATION_MARKER).
     document_type: str = "new_order"
 
     # Optional reason code / description from the EDI change order message

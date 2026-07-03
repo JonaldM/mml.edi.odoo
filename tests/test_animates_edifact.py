@@ -92,7 +92,28 @@ def test_validate_passes_on_well_formed():
 
 def test_validate_rejects_bad_party_qualifier():
     segs = _build_min_message()
-    segs[0].elements[2] = ["ANIMATES", "14"]  # wrong: should be ZZZ
+    segs[0].elements[2] = ["ANIMATES", "14"]  # 14 on BOTH sides = Briscoes idiom, rejected
+    with pytest.raises(EdifactError):
+        validate_interchange(segs)
+
+def test_validate_accepts_both_parties_zzz_qualified():
+    # C1 identity contract: a partner configured via edi_sender_id (portal
+    # test-mailbox convention, e.g. 9419416000008T:ZZZ) + the always-ZZZ
+    # Animates recipient is a legitimate production envelope per the CONTRL
+    # MIG (sender qualifier may be 14 OR ZZZ, independently of the recipient).
+    segs = _build_min_message()
+    segs[0].elements[1] = ["9419416000008T", "ZZZ"]
+    assert validate_interchange(segs) is True
+
+def test_validate_rejects_unknown_qualifier():
+    segs = _build_min_message()
+    segs[0].elements[1] = ["9419416000008", "91"]  # not a known Animates qualifier
+    with pytest.raises(EdifactError):
+        validate_interchange(segs)
+
+def test_validate_rejects_missing_qualifier():
+    segs = _build_min_message()
+    segs[0].elements[1] = ["9419416000008"]  # qualifier component absent
     with pytest.raises(EdifactError):
         validate_interchange(segs)
 

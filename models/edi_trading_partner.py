@@ -72,10 +72,14 @@ class EDITradingPartner(models.Model):
     # ── FTP Configuration ─────────────────────────────────────────────────
 
     ftp_protocol = fields.Selection(
-        [("ftp", "FTP"), ("sftp", "SFTP")],
+        [("ftp", "FTP"), ("sftp", "SFTP"), ("localdir", "Local Directory")],
         required=True,
         default="ftp",
-        string="FTP Protocol",
+        string="Transport",
+        help="Transport for this partner's exchanges. 'Local Directory' polls "
+             "and writes plain directories on this server (inbox/outbox paths "
+             "are absolute local paths) — used for drill rigs and for bridging "
+             "gateways (e.g. a future AS2 sidecar) that deliver files to disk.",
     )
     ftp_host = fields.Char(string="FTP Host")
     ftp_port = fields.Integer(string="FTP Port", default=21)
@@ -176,6 +180,74 @@ class EDITradingPartner(models.Model):
         string="Client Reference Template",
         help="Python format string for SO client reference. Variables: {po_number}, {store_code}",
     )
+
+    # ── EDI Identity (EDIFACT interchange envelope) ─────────────────────────
+    # Used by build_unb() to populate the UNB sender/recipient identity for
+    # partners exchanging UN/EDIFACT (e.g. Animates via SPS Commerce). Not
+    # meaningful for iDOC partners (Briscoes).
+
+    edi_sender_id = fields.Char(
+        string="EDI Sender ID",
+        help="Our identity in the UNB interchange header sent to this partner "
+             "(e.g. our GLN: '9419416000008'). Portal test-mailbox convention "
+             "appends a literal 'T' suffix for the TEST environment "
+             "(e.g. '9419416000008T', qualifier ZZZ) — some partners issue a "
+             "distinct test sender id rather than deriving it; set the exact "
+             "value the partner's onboarding/portal assigned for each "
+             "environment. See get_unb_sender().",
+    )
+    edi_sender_qualifier = fields.Char(
+        string="EDI Sender Qualifier",
+        default="ZZZ",
+        help="UNB S002 qualifier for edi_sender_id (DE0007), e.g. 'ZZZ' "
+             "(mutually defined) or '14' (GLN). Animates uses ZZZ for the "
+             "supplier side per the MIG worked examples.",
+    )
+    supplier_gln = fields.Char(
+        string="Supplier GLN",
+        help="Our GS1 Global Location Number (GLN), qualifier '14'. Used where "
+             "the partner's MIG specifically requires a GLN-qualified identity "
+             "(as opposed to edi_sender_id/edi_sender_qualifier, which may be "
+             "ZZZ-qualified for the interchange envelope itself).",
+    )
+    animates_vendor_code = fields.Char(
+        string="Animates Vendor Code",
+        help="The supplier code Animates assigned us (e.g. 'V1058'), used for "
+             "NAD+SU and PIA+1:SA identity in outbound Animates messages "
+             "(ORDRSP/DESADV/INVOIC). Blank on non-Animates partners.",
+    )
+
+    def get_unb_sender(self):
+        """Return (id, qualifier) for OUR identity in an outbound UNB.
+
+        Prefers the explicit edi_sender_id/edi_sender_qualifier pair; falls
+        back to supplier_gln (qualifier '14') if only the GLN is configured.
+        Raises UserError if neither is set — callers building a PRODUCTION
+        payload must not silently fall back to a placeholder identity
+        (see AN-01 / OPS-identity).
+        """
+        self.ensure_one()
+        if self.edi_sender_id:
+            return self.edi_sender_id, (self.edi_sender_qualifier or "ZZZ")
+        if self.supplier_gln:
+            return self.supplier_gln, "14"
+        raise UserError(
+            _("Trading partner '%s' has no EDI sender identity configured "
+              "(edi_sender_id or supplier_gln). Set one before sending "
+              "EDIFACT interchanges.") % self.name
+        )
+
+    def get_unb_recipient(self):
+        """Return (id, qualifier) for the Animates side of an outbound UNB.
+
+        Switches on ``environment``: the TEST portal mailbox is a DISTINCT
+        recipient identity 'TST1ANIMATES' (per the ORDRSP/ORDERS MIG worked
+        examples), not the production 'ANIMATES' id with a flag — sending to
+        the wrong one silently misroutes the interchange in SPS Commerce.
+        """
+        self.ensure_one()
+        recipient = "TST1ANIMATES" if self.environment == "test" else "ANIMATES"
+        return recipient, "ZZZ"
 
     # ── Notifications ─────────────────────────────────────────────────────
 
@@ -425,11 +497,11 @@ class EDITradingPartner(models.Model):
     def action_test_ftp_connection(self):
         """Test FTP connectivity. Called from form view button."""
         self.ensure_one()
-        from .edi_ftp import EDIFTPHandler
+        from .edi_ftp import get_transport_handler
         from ..parsers.base_parser import EDIFTPError
 
         try:
-            handler = EDIFTPHandler(self)
+            handler = get_transport_handler(self)
             with handler.connection():
                 files = handler.list_files()
             return {

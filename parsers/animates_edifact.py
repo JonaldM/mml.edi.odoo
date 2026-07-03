@@ -6,9 +6,10 @@ CONTRL builders, so envelope handling and tokenizing can never drift between the
 Animates / SPS Commerce specifics confirmed against the MIG worked examples:
 - UNA is always present: ``UNA:+.? '`` (component ``:``, element ``+``, decimal ``.``,
   release ``?``, segment terminator ``'``). The release char must be honoured.
-- Interchange parties: the supplier side uses qualifier ``14`` (GLN), Animates uses
-  ``ZZZ`` (mutually defined). NEVER ``14`` on both (that is the Briscoes idiom and
-  Animates rejects it).
+- Interchange parties: the supplier side uses qualifier ``14`` (GLN) or ``ZZZ``
+  (mutually defined — the portal test-mailbox / edi_sender_id convention, per the
+  CONTRL MIG p.11-12); Animates always uses ``ZZZ``. Both sides ``ZZZ`` is legal.
+  NEVER ``14`` on both (that is the Briscoes idiom and Animates rejects it).
 - Business messages (ORDERS/ORDRSP/DESADV/INVOIC) carry the trailing application
   reference + ack-request ``...++++1`` on UNB. CONTRL does NOT (DE0031 omitted) — its
   UNB ends at the interchange control reference.
@@ -145,16 +146,66 @@ def serialize(segments, delims: Delims = None, una: str = DEFAULT_UNA) -> str:
 
 # --- Envelope -------------------------------------------------------------
 
+#: Sentinel identity values that must NEVER reach a production payload. These are
+#: the pure-test/documentation defaults (SUPPLIER_GLN placeholder, the frozen
+#: worked-example control ref/date from the MIG). A ``require_real=True`` caller
+#: gets an EdifactError if any of these leak through, so a production payload
+#: path can never silently ship placeholder identity (AN-01 / OPS-identity).
+_PLACEHOLDER_SENDER_IDS = frozenset({"SUPPLIER_GLN", "5412345000013"})
+_PLACEHOLDER_CTRL_REFS = frozenset({"12341", "99101", "78401"})
+_PLACEHOLDER_DATETIMES = frozenset({"200916", "200928", "200915"})
+
+
 def build_unb(sender_gln, ctrl_ref, date_yymmdd, time_hhmm, *, contrl=False,
-              recipient="ANIMATES", inbound=False):
+              recipient="ANIMATES", inbound=False,
+              sender_qualifier=None, recipient_qualifier=None,
+              require_real=False):
     """UNB for an MML->Animates interchange (or inverted for inbound/CONTRL parse).
 
-    sender = supplier GLN qualified ``14``; recipient = ``ANIMATES`` qualified ``ZZZ``.
-    Business messages carry the trailing ``++++1`` (appref + ack request); CONTRL omits it.
-    inbound=True inverts the parties (ANIMATES:ZZZ sender, supplier:14 recipient).
+    Backward-compatible defaults: sender qualifies ``14`` (GLN) and recipient
+    defaults to ``ANIMATES``:``ZZZ`` unless overridden — this is what every pure
+    test and the DESADV/INVOIC/CONTRL builders already pass. Callers that HAVE a
+    trading partner record should instead go through ``build_unb_for_partner``
+    (or pass ``sender_qualifier``/explicit ``recipient``/``recipient_qualifier``
+    themselves) so the real edi_sender_id / TST1ANIMATES-vs-ANIMATES identity is
+    used rather than these positional defaults.
+
+    sender_qualifier: DE0007 for the sender S002 (default ``"14"`` — GLN — for
+        backward compatibility with the GLN-only call sites).
+    recipient_qualifier: DE0007 for the recipient S003 (default ``"ZZZ"``).
+    inbound=True inverts the parties (recipient side sends, sender side receives)
+        — used for inbound parsing / test-fixture construction, never for
+        production outbound payloads.
+    require_real=True: raise EdifactError if sender id, control ref, or date/time
+        are one of the known placeholder/worked-example sentinel values. Set this
+        on every PRODUCTION payload path (never on pure tests) so a caller cannot
+        silently ship the ``SUPPLIER_GLN`` / ``12341`` / frozen-2020-timestamp
+        defaults documented in AN-01.
     """
-    supplier = ["%s" % sender_gln, "14"]
-    animates = [recipient, "ZZZ"]
+    if require_real:
+        if str(sender_gln) in _PLACEHOLDER_SENDER_IDS:
+            raise EdifactError(
+                "build_unb(require_real=True): sender id %r is a placeholder "
+                "sentinel — pass the real edi_sender_id/supplier_gln "
+                "(see edi.trading.partner.get_unb_sender())" % sender_gln
+            )
+        if str(ctrl_ref) in _PLACEHOLDER_CTRL_REFS:
+            raise EdifactError(
+                "build_unb(require_real=True): ctrl_ref %r is a placeholder "
+                "sentinel — pass a real value from the "
+                "'mml_edi.animates.interchange.ref' sequence" % ctrl_ref
+            )
+        if str(date_yymmdd) in _PLACEHOLDER_DATETIMES:
+            raise EdifactError(
+                "build_unb(require_real=True): date_yymmdd %r is a frozen "
+                "worked-example sentinel — pass the real interchange "
+                "preparation timestamp" % date_yymmdd
+            )
+
+    sender_qual = sender_qualifier or "14"
+    recipient_qual = recipient_qualifier or "ZZZ"
+    supplier = ["%s" % sender_gln, sender_qual]
+    animates = [recipient, recipient_qual]
     if inbound:
         send, recv = animates, supplier
     else:
@@ -171,6 +222,28 @@ def build_unb(sender_gln, ctrl_ref, date_yymmdd, time_hhmm, *, contrl=False,
         # business messages end ...+<ctrl>++++1  -> add 3 empty elements then '1'
         seg.elements += [[""], [""], [""], ["1"]]
     return seg
+
+
+def build_unb_for_partner(partner, ctrl_ref, date_yymmdd, time_hhmm, *,
+                           contrl=False, inbound=False):
+    """UNB built from an edi.trading.partner's real identity (C1 helpers).
+
+    This is the PRODUCTION entry point: sender identity comes from
+    ``partner.get_unb_sender()`` (raises UserError if unconfigured — no silent
+    placeholder fallback) and recipient from ``partner.get_unb_recipient()``
+    (switches ANIMATES/TST1ANIMATES on partner.environment). Always builds with
+    ``require_real=True``.
+    """
+    sender_id, sender_qual = partner.get_unb_sender()
+    recipient_id, recipient_qual = partner.get_unb_recipient()
+    return build_unb(
+        sender_id, ctrl_ref, date_yymmdd, time_hhmm,
+        contrl=contrl, inbound=inbound,
+        recipient=recipient_id,
+        sender_qualifier=sender_qual,
+        recipient_qualifier=recipient_qual,
+        require_real=True,
+    )
 
 
 def build_unh(msg_ref, msg_type, version="D", release="01B", agency="UN", assoc=None):
@@ -205,7 +278,10 @@ def validate_interchange(segments):
     """Validate control-count + reference invariants. Raises EdifactError on violation.
 
     Checks (per the octo correctness review):
-    - UNB sender/recipient qualifiers (supplier 14 + ANIMATES ZZZ in either direction)
+    - UNB sender/recipient qualifiers: each must be a known code (14 or ZZZ) and
+      at least one party must be ZZZ (the Animates side always is). The supplier
+      side may be 14 (GLN) or ZZZ (edi_sender_id convention) per the CONTRL MIG,
+      so both-ZZZ is valid; 14 on both (the Briscoes idiom) is rejected.
     - UNB 0020 == UNZ 0020 (interchange control reference)
     - each UNH 0062 == its UNT 0062
     - each UNT 0074 == number of segments from UNH..UNT inclusive
@@ -218,8 +294,10 @@ def validate_interchange(segments):
     if not unb or not unz:
         raise EdifactError("missing UNB/UNZ")
     quals = {unb[0].comp(1, 1), unb[0].comp(2, 1)}
-    if quals != {"14", "ZZZ"}:
-        raise EdifactError("UNB party qualifiers must be {14, ZZZ}, got %s" % quals)
+    if not quals <= {"14", "ZZZ"} or "ZZZ" not in quals:
+        raise EdifactError(
+            "UNB party qualifiers must each be 14 or ZZZ with at least one "
+            "ZZZ party, got %s" % quals)
     if unb[0].comp(4, 0) != unz[0].comp(1, 0):
         raise EdifactError("UNB0020 != UNZ0020")
 

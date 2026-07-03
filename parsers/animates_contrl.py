@@ -66,9 +66,57 @@ def _require(payload: dict, key: str) -> str:
     return str(payload[key])
 
 
+def extract_unb_identity(text) -> dict:
+    """Extract the UNB envelope identity from ANY inbound interchange (not just
+    a CONTRL) — used to build the ``original_*`` fields of a ``build_contrl``
+    payload acknowledging receipt of that interchange (C4). Accepts str or bytes.
+
+    Returns:
+        {
+            "original_ref":            str,  # UNB0020 interchange control ref
+            "original_sender_id":      str,  # UNB S002.0004
+            "original_sender_qual":    str,  # UNB S002.0007
+            "original_recipient_id":   str,  # UNB S003.0010
+            "original_recipient_qual": str,  # UNB S003.0007
+            "date":                    str,  # UNB S004.0017 (YYMMDD) — this
+                                               # CONTRL's own prep date defaults
+                                               # to the ORIGINAL interchange's,
+                                               # the caller may override.
+            "time":                    str,  # UNB S004.0019 (HHMM)
+        }
+
+    Raises EdifactError if no UNB segment is present.
+    """
+    if isinstance(text, bytes):
+        text = text.decode("latin-1")
+    _, segs = tokenize(text)
+    unb = next((s for s in segs if s.tag == "UNB"), None)
+    if unb is None:
+        raise EdifactError("No UNB segment — not a valid EDIFACT interchange")
+    return {
+        "original_ref": unb.comp(4, 0),
+        "original_sender_id": unb.comp(1, 0),
+        "original_sender_qual": unb.comp(1, 1),
+        "original_recipient_id": unb.comp(2, 0),
+        "original_recipient_qual": unb.comp(2, 1),
+        "date": unb.comp(3, 0),
+        "time": unb.comp(3, 1),
+    }
+
+
 def build_contrl(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
-                 ctrl_ref: int = 99101, msg_ref: int = 1) -> bytes:
+                 ctrl_ref: int = 99101, msg_ref: int = 1,
+                 sender_qualifier=None, recipient="ANIMATES",
+                 recipient_qualifier=None, require_real=False) -> bytes:
     """Build an OUTBOUND CONTRL (supplier -> Animates) acking a received interchange.
+
+    Envelope identity (AN-01, mirrors build_ordrsp): ``supplier_gln``/``ctrl_ref``
+    plus the optional ``sender_qualifier``/``recipient``/``recipient_qualifier`` are
+    forwarded to ``build_unb`` — pure tests keep relying on the documented
+    ``SUPPLIER_GLN:14`` / ``ANIMATES:ZZZ`` worked-example defaults, while a
+    PRODUCTION caller (see ``animates.py::AnimatesParser.generate_contrl``) passes
+    the trading partner's real identity (``partner.get_unb_sender()`` /
+    ``partner.get_unb_recipient()`` — C1) with ``require_real=True``.
 
     See module docstring for the payload schema. Returns the interchange as bytes
     (latin-1 — EDIFACT UNOC level-C is a single-byte set; ASCII content here).
@@ -84,8 +132,12 @@ def build_contrl(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
 
     ref = pad_ref(msg_ref)
 
-    # Envelope: supplier:14 -> ANIMATES:ZZZ, CONTRL (no trailing ++++1).
-    unb = build_unb(supplier_gln, ctrl_ref, date, time, contrl=True, inbound=False)
+    # Envelope: supplier -> Animates, CONTRL (no trailing ++++1).
+    unb = build_unb(
+        supplier_gln, ctrl_ref, date, time, contrl=True, inbound=False,
+        sender_qualifier=sender_qualifier, recipient=recipient,
+        recipient_qualifier=recipient_qualifier, require_real=require_real,
+    )
     unh = build_unh(ref, "CONTRL", version="D", release="3", agency="UN", assoc="EAN004")
 
     # UCI: interchange response. S002 = ORIGINAL sender, S003 = ORIGINAL recipient
@@ -108,20 +160,30 @@ def build_contrl(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
 
 
 def parse_contrl(text) -> dict:
-    """Parse a CONTRL interchange and extract the UCI correlation fields.
+    """Parse a CONTRL interchange and extract the UCI correlation fields, with
+    a positive/negative classification the processor can act on directly.
 
     Accepts str or bytes. Returns a dict the inbound-ack consumer uses to correlate
     Animates' acknowledgements to the interchanges we sent:
 
         {
             "original_ref":           str,  # UCI DE0020 — acked interchange ctrl ref
-            "action":                 str,  # UCI DE0083 — "8" == interchange received
+            "action":                 str,  # UCI DE0083, e.g. "8"
             "original_sender_id":     str,
             "original_sender_qual":   str,
             "original_recipient_id":  str,
             "original_recipient_qual":str,
             "interchange_ref":        str,  # this CONTRL interchange's own UNB0020
+            "positive":               bool, # True iff action == ACTION_INTERCHANGE_RECEIVED
         }
+
+    Per the Animates CONTRL MIG, ``8`` (interchange received) is the ONLY
+    action code Animates uses — there is no documented negative/rejection
+    code for this trading partner. ``positive`` is still surfaced explicitly
+    (rather than leaving callers to compare the raw code themselves) so an
+    unexpected/non-"8" action — a syntax rejection, a code outside the
+    Animates-documented set, or a malformed UCI — is unambiguously flagged
+    for the processor to alert on rather than silently treated as success.
 
     Raises EdifactError if no UCI segment is present (not a CONTRL message).
     """
@@ -134,12 +196,14 @@ def parse_contrl(text) -> dict:
         raise EdifactError("CONTRL has no UCI segment")
     unb = next((s for s in segs if s.tag == "UNB"), None)
 
+    action = uci.comp(3, 0)
     return {
         "original_ref": uci.comp(0, 0),
         "original_sender_id": uci.comp(1, 0),
         "original_sender_qual": uci.comp(1, 1),
         "original_recipient_id": uci.comp(2, 0),
         "original_recipient_qual": uci.comp(2, 1),
-        "action": uci.comp(3, 0),
+        "action": action,
         "interchange_ref": unb.comp(4, 0) if unb is not None else "",
+        "positive": action == ACTION_INTERCHANGE_RECEIVED,
     }

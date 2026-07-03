@@ -277,3 +277,163 @@ class EDIFTPHandler:
 
         self._transport = client   # assign BEFORE open_sftp so disconnect() can clean up on failure
         self._ftp = client.open_sftp()
+
+
+class LocalDirHandler:
+    """
+    Manages a local-directory "transport" for a single trading partner —
+    a drop-in peer of EDIFTPHandler with the same public interface, backed
+    by plain filesystem I/O instead of FTP/SFTP.
+
+    Purpose: (a) a bridge point for future AS2/other gateways that deliver
+    files into a local directory rather than speaking FTP themselves, and
+    (b) drill/test rigs that need a partner without standing up an FTP
+    server.
+
+    Usage:
+        handler = LocalDirHandler(trading_partner)
+        with handler.connection():
+            files = handler.list_files()
+            content = handler.download_file(files[0])
+            handler.move_to_processed(files[0])
+
+    In this mode get_active_inbox_path()/get_active_outbox_path() return
+    absolute local directory paths (not remote paths on an FTP server).
+    """
+
+    def __init__(self, trading_partner):
+        # sudo() for parity with EDIFTPHandler — see its __init__ for why
+        # (elevated credential fields must be readable for non-admin callers).
+        self.partner = trading_partner.sudo()
+
+    # ── Connection lifecycle ──────────────────────────────────────────────
+
+    def connect(self) -> None:
+        """
+        Validate that the inbox and outbox directories exist and are
+        directories. There is no real connection to establish for local
+        disk, but we fail closed here rather than surfacing a confusing
+        error later from list_files()/upload_file().
+        """
+        inbox = self.partner.get_active_inbox_path()
+        outbox = self.partner.get_active_outbox_path()
+        for label, path in (("inbox", inbox), ("outbox", outbox)):
+            if not path or not os.path.isdir(path):
+                raise EDIFTPError(
+                    "LocalDirHandler connect failed — %s path does not exist "
+                    "or is not a directory: %r" % (label, path)
+                )
+
+    def disconnect(self) -> None:
+        """No-op — no persistent connection is held for local disk."""
+        pass
+
+    @contextmanager
+    def connection(self):
+        """Context manager — validates dirs on enter, no-op teardown on exit."""
+        self.connect()
+        try:
+            yield self
+        finally:
+            self.disconnect()
+
+    # ── File operations ───────────────────────────────────────────────────
+
+    def list_files(self) -> list:
+        """List unprocessed files in the active inbox. Returns filenames only.
+
+        Mirrors EDIFTPHandler.list_files: files already archived by
+        move_to_processed carry a '.processed.<ts>' marker in their name and
+        dot-files are excluded, so they are not re-surfaced on every poll.
+        """
+        inbox = self.partner.get_active_inbox_path()
+
+        def _keep(name):
+            return bool(name) and not name.startswith('.') and '.processed.' not in name
+
+        try:
+            return [name for name in os.listdir(inbox) if _keep(name)]
+        except Exception as exc:
+            raise EDIFTPError("list_files failed on %s: %s" % (inbox, exc)) from exc
+
+    def list_outbox_files(self) -> list:
+        """List files currently in the active OUTBOX directory (names only).
+
+        No filtering — mirrors EDIFTPHandler.list_outbox_files, used by the
+        ACK send path to verify a claimed upload actually landed.
+        """
+        outbox = self.partner.get_active_outbox_path()
+        try:
+            return os.listdir(outbox)
+        except Exception as exc:
+            raise EDIFTPError(
+                "list_outbox_files failed on %s: %s" % (outbox, exc)) from exc
+
+    def download_file(self, filename: str) -> bytes:
+        """Download (read) a single file by name from the active inbox. Returns raw bytes."""
+        filename = _safe_filename(filename)
+        inbox = self.partner.get_active_inbox_path()
+        filepath = os.path.join(inbox, filename)
+        try:
+            with open(filepath, 'rb') as fh:
+                return fh.read()
+        except Exception as exc:
+            raise EDIFTPError("download_file failed for %s: %s" % (filepath, exc)) from exc
+
+    def upload_file(self, filename: str, content: bytes) -> None:
+        """Upload (write) a file by name to the active outbox directory.
+
+        Written atomically: content lands in a temp file in the SAME
+        directory first, then os.replace() swaps it into place — a reader
+        can never observe a partially-written file under the final name.
+        """
+        filename = _safe_filename(filename)
+        outbox = self.partner.get_active_outbox_path()
+        filepath = os.path.join(outbox, filename)
+        tmp_filepath = os.path.join(outbox, ".%s.tmp.%s" % (filename, os.getpid()))
+        try:
+            with open(tmp_filepath, 'wb') as fh:
+                fh.write(content)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp_filepath, filepath)
+        except Exception as exc:
+            try:
+                os.remove(tmp_filepath)
+            except OSError:
+                pass
+            raise EDIFTPError("upload_file failed for %s: %s" % (filepath, exc)) from exc
+
+    def move_to_processed(self, filename: str) -> None:
+        """
+        Rename a processed file in the inbox to prevent re-processing.
+        New name format: {filename}.processed.{YYYYMMDDHHMMSS}
+
+        Mirrors EDIFTPHandler.move_to_processed, including raising
+        EDIFTPError (not a bare OSError) when the source file is missing.
+        """
+        filename = _safe_filename(filename)
+        inbox = self.partner.get_active_inbox_path()
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        old_path = os.path.join(inbox, filename)
+        new_path = os.path.join(inbox, "%s.processed.%s" % (filename, timestamp))
+        try:
+            os.rename(old_path, new_path)
+        except Exception as exc:
+            raise EDIFTPError(
+                "move_to_processed failed for %s: %s" % (old_path, exc)
+            ) from exc
+
+
+def get_transport_handler(partner):
+    """Transport factory — the ONE place partner.ftp_protocol picks a handler.
+
+    'localdir' -> LocalDirHandler (plain directories on this server: drill
+    rigs, or bridging gateways such as a future AS2 sidecar that deliver
+    files to disk). Anything else -> EDIFTPHandler (ftp/sftp). Both classes
+    implement the same six-method transport interface, so callers never
+    branch on protocol themselves.
+    """
+    if getattr(partner, "ftp_protocol", None) == "localdir":
+        return LocalDirHandler(partner)
+    return EDIFTPHandler(partner)

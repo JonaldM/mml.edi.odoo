@@ -25,9 +25,9 @@ from pathlib import Path
 import pytest
 
 from mml_edi.parsers.animates_edifact import (
-    tokenize, validate_interchange,
+    tokenize, validate_interchange, EdifactError,
 )
-from mml_edi.parsers.animates_contrl import build_contrl, parse_contrl
+from mml_edi.parsers.animates_contrl import build_contrl, parse_contrl, extract_unb_identity
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -173,6 +173,101 @@ def test_parse_raises_when_no_uci():
     text = "UNA:+.? 'UNB+UNOC:3+ANIMATES:ZZZ+SUPPLIER_GLN:14+200928:1030+1'UNH+1+CONTRL:D:3:UN:EAN004'UNT+2+1'UNZ+1+1'"
     with pytest.raises(EdifactError):
         parse_contrl(text)
+
+
+# --- positive/negative classification (extends parse_contrl) ---
+
+def test_parse_action_8_is_positive():
+    parsed = parse_contrl(_load("animates_contrl_in.edi"))
+    assert parsed["positive"] is True
+
+
+def test_parse_non_8_action_is_not_positive():
+    """Animates only documents action 8, but any other/unexpected DE0083
+    value must be surfaced as NOT positive rather than silently accepted."""
+    text = (
+        "UNA:+.? '"
+        "UNB+UNOC:3+ANIMATES:ZZZ+SUPPLIER_GLN:14+200928:1030+99101'"
+        "UNH+0001+CONTRL:D:3:UN:EAN004'"
+        "UCI+72+SUPPLIER_GLN:14+ANIMATES:ZZZ+7'"
+        "UNT+3+0001'"
+        "UNZ+1+99101'"
+    )
+    parsed = parse_contrl(text)
+    assert parsed["action"] == "7"
+    assert parsed["positive"] is False
+
+
+# --- AN-01: build_contrl forwards real envelope identity ---
+
+def test_build_contrl_forwards_real_envelope_identity():
+    out = build_contrl(
+        _ORDERS_INBOUND_PAYLOAD, supplier_gln="9419416000008", ctrl_ref=555,
+        msg_ref=1, sender_qualifier="ZZZ", recipient="ANIMATES",
+        recipient_qualifier="ZZZ", require_real=True,
+    )
+    segs = _segs(out)
+    unb = _by_tag(segs, "UNB")[0]
+    assert unb.elements[1] == ["9419416000008", "ZZZ"]
+    assert unb.elements[2] == ["ANIMATES", "ZZZ"]
+
+
+def test_build_contrl_require_real_rejects_placeholder_sender():
+    with pytest.raises(EdifactError):
+        build_contrl(_ORDERS_INBOUND_PAYLOAD, supplier_gln="SUPPLIER_GLN",
+                     ctrl_ref=555, msg_ref=1, require_real=True)
+
+
+def test_build_contrl_require_real_rejects_placeholder_ctrl_ref():
+    with pytest.raises(EdifactError):
+        build_contrl(_ORDERS_INBOUND_PAYLOAD, supplier_gln="9419416000008",
+                     ctrl_ref=99101, msg_ref=1, require_real=True)
+
+
+def test_build_contrl_default_kwargs_unchanged_for_pure_tests():
+    """Backward compatibility: no envelope kwargs -> identical to pre-AN-01 output."""
+    out = build_contrl(_ORDERS_INBOUND_PAYLOAD, ctrl_ref=88001, msg_ref=1)
+    segs = _segs(out)
+    unb = _by_tag(segs, "UNB")[0]
+    assert unb.elements[1] == ["SUPPLIER_GLN", "14"]
+    assert unb.elements[2] == ["ANIMATES", "ZZZ"]
+
+
+# --- extract_unb_identity: pull original UNB identity from ANY interchange ---
+
+def test_extract_unb_identity_from_orders_fixture():
+    ident = extract_unb_identity(_load("animates_orders_PO169603.edi"))
+    assert ident["original_ref"] == "12341"
+    assert ident["original_sender_id"] == "ANIMATES"
+    assert ident["original_sender_qual"] == "ZZZ"
+    assert ident["original_recipient_id"] == "SUPPLIER_GLN"
+    assert ident["original_recipient_qual"] == "14"
+    assert ident["date"] == "200916"
+    assert ident["time"] == "1030"
+
+
+def test_extract_unb_identity_accepts_bytes():
+    raw = (FIXTURES / "animates_orders_PO169603.edi").read_bytes()
+    ident = extract_unb_identity(raw)
+    assert ident["original_ref"] == "12341"
+
+
+def test_extract_unb_identity_raises_without_unb():
+    with pytest.raises(EdifactError):
+        extract_unb_identity("UNH+1+ORDERS:D:01B:UN'BGM+220'UNT+2+1'")
+
+
+def test_extract_unb_identity_feeds_build_contrl_directly():
+    """The dict shape returned by extract_unb_identity is exactly what
+    build_contrl needs for original_ref/original_sender_*/original_recipient_*
+    (date/time are the ORIGINAL interchange's — generate_contrl overrides them
+    with this CONTRL's own prep timestamp when it has one)."""
+    ident = extract_unb_identity(_load("animates_orders_PO169603.edi"))
+    out = build_contrl(ident, supplier_gln="SUPPLIER_GLN", ctrl_ref=88301, msg_ref=1)
+    parsed = parse_contrl(out)
+    assert parsed["original_ref"] == "12341"
+    assert parsed["original_sender_id"] == "ANIMATES"
+    assert parsed["original_recipient_id"] == "SUPPLIER_GLN"
 
 
 # --- round-trip: build an ack for the fixture's original interchange, re-parse it ---

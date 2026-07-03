@@ -232,6 +232,14 @@ class EDIProcessor(models.AbstractModel):
         seen_exchanges = set()
         requeued = 0
         for review in resolved:
+            # C5: a cancellation review is a terminal, no-ACK record by design
+            # — it must NEVER be offered to _queue_ack (Animates gets a CONTRL
+            # only). Checked first so a cancellation can never enter the
+            # per-exchange dedup set and (via seen_exchanges) accidentally
+            # suppress a legitimate sibling exchange's retry.
+            if self._is_cancellation_review(review):
+                continue
+
             partner = review.trading_partner_id
             po = review.customer_po_number
             exchange = (partner.id, po, review.edi_file_hash or review.id)
@@ -297,7 +305,7 @@ class EDIProcessor(models.AbstractModel):
             process -> write dedup marker -> COMMIT -> FTP rename -> ACK/OOS.
         See the inline comment at the marker write.
         """
-        from .edi_ftp import EDIFTPHandler
+        from .edi_ftp import get_transport_handler
         from ..parsers.base_parser import EDIFTPError
 
         # Per-poll memo for the reservation-method config warning (SS-3):
@@ -313,7 +321,7 @@ class EDIProcessor(models.AbstractModel):
         sid = build_session_id()
         prefix = "[EDI:%s]" % sid
         _logger.info("%s Polling %s", prefix, partner.code)
-        handler = EDIFTPHandler(partner)
+        handler = get_transport_handler(partner)
         failed_files = 0
 
         try:
@@ -463,7 +471,7 @@ class EDIProcessor(models.AbstractModel):
 
     def _send_file_responses(self, partner, file_hash):
         """Queue the per-PO ORDRSP + OOS summary for every PO of a file that
-        just fully processed.
+        just fully processed, then the mandatory per-interchange CONTRL.
 
         Runs AFTER the per-file commit + FTP rename (ordering invariant — see
         poll_trading_partner), so the partner can never receive an ACK for
@@ -471,6 +479,18 @@ class EDIProcessor(models.AbstractModel):
         _queue_ack itself defers while sibling store-reviews are pending and
         is idempotent per exchange, and any miss here (e.g. worker death) is
         picked up by the retry_pending_acks cron.
+
+        CONTRL ordering (documented per the C4 contract): emitted AFTER the
+        ORDRSP queueing loop, independent of whether any ORDRSP actually sent
+        (queue_ack legitimately defers while sibling stores are pending) —
+        CONTRL acknowledges RECEIPT of the interchange at the syntax level
+        and per the MIG is not contingent on business-level acceptance, so it
+        must not wait on ORDRSP completion. C5: cancellation reviews are
+        skipped by _queue_ack's caller here exactly like everywhere else
+        (they hold state='rejected' with the CANCELLATION_MARKER and
+        _queue_ack is simply never reached for them via this path either,
+        since process_parsed_order never returns to a queueable state for a
+        cancellation) — see _is_cancellation_review.
         """
         reviews = self.env["edi.order.review"].search([
             ("trading_partner_id", "=", partner.id),
@@ -478,6 +498,11 @@ class EDIProcessor(models.AbstractModel):
         ], order="id")
         seen_pos = []
         for review in reviews:
+            if self._is_cancellation_review(review):
+                # C5: cancellations are CONTRL-only — never queue an ORDRSP,
+                # and never let the ACK retry cron pick one up either (see
+                # the matching guard in retry_pending_acks).
+                continue
             po_number = review.customer_po_number
             if po_number in seen_pos:
                 continue
@@ -496,7 +521,264 @@ class EDIProcessor(models.AbstractModel):
                     exc_info=True,
                 )
 
+        # AN-02: every inbound ORDERS interchange gets exactly one supplier
+        # CONTRL, mandatory regardless of business outcome (accept/reject/
+        # cancel) — emitted once per file/interchange, not per PO. hasattr-
+        # guarded so partners whose parser has no CONTRL support (Briscoes)
+        # are a strict no-op; must never raise into the poll loop.
+        try:
+            self._emit_inbound_contrl(partner, file_hash)
+        except Exception:
+            _logger.warning(
+                "[EDI] CONTRL emission failed for file_hash=%s (%s)",
+                file_hash, partner.code, exc_info=True,
+            )
+
+    def _emit_inbound_contrl(self, partner, file_hash):
+        """Emit + upload the mandatory CONTRL functional acknowledgement for
+        one just-processed inbound interchange (C4 / AN-02).
+
+        No-op (hasattr-guarded) for any parser without generate_contrl (e.g.
+        Briscoes) — preserves that partner's behaviour byte-for-byte. Failure
+        here is logged (rate-limited alert) and NEVER raised into the poll
+        loop: a missing/failed CONTRL must not turn a successfully processed
+        ORDERS file into a failed poll (that would re-download and re-process
+        it, defeating the file-hash dedup that already ran).
+        """
+        parser = partner.get_parser_instance()
+        generate_contrl = getattr(parser, "generate_contrl", None)
+        if not callable(generate_contrl):
+            return
+
+        review = self.env["edi.order.review"].search([
+            ("trading_partner_id", "=", partner.id),
+            ("edi_file_hash", "=", file_hash),
+        ], order="id", limit=1)
+        if not review:
+            return
+        raw_text = review.edi_raw_data
+        if not raw_text:
+            return
+
+        filename = "CONTRL_%s_%s.edi" % (partner.code, file_hash[:12])
+        Log = self.env["edi.log"]
+        if Log.search_count([
+            ("trading_partner_id", "=", partner.id),
+            ("event_type", "=", "contrl_sent"),
+            ("status", "=", "success"),
+            ("filename", "=", filename),
+        ]):
+            # Already sent for this exact interchange (e.g. a retry re-running
+            # _send_file_responses after a partial earlier failure).
+            return
+
+        try:
+            contrl_bytes = generate_contrl(raw_text, partner)
+        except Exception as exc:
+            Log.log(
+                partner, "outbound", "contrl_sent", "error",
+                "CONTRL generation failed: %s" % str(exc),
+                filename=filename, detail=str(exc),
+            )
+            self._send_cron_alert(
+                'mml_edi.contrl_failure',
+                'CONTRL generation failed for %s' % partner.code,
+                str(exc),
+            )
+            return
+
+        from .edi_ftp import get_transport_handler
+        handler = get_transport_handler(partner)
+        try:
+            with handler.connection():
+                handler.upload_file(filename, contrl_bytes)
+        except Exception as exc:
+            Log.log(
+                partner, "outbound", "contrl_sent", "error",
+                "CONTRL upload failed: %s" % str(exc),
+                filename=filename, detail=str(exc),
+            )
+            self._send_cron_alert(
+                'mml_edi.contrl_failure',
+                'CONTRL upload failed for %s' % partner.code,
+                str(exc),
+            )
+            return
+
+        Log.log(
+            partner, "outbound", "contrl_sent", "success",
+            "CONTRL sent acknowledging inbound interchange: %s" % filename,
+            filename=filename, review=review,
+        )
+
     # ── File processing ───────────────────────────────────────────────────
+
+    # EDI formats whose wire encoding is EDIFACT's UNOC level-C single-byte
+    # charset (Latin-1 / ISO-8859-1), never UTF-8. Decoding these as UTF-8
+    # with errors='replace' permanently corrupts any non-ASCII byte (0x80-0xFF)
+    # into U+FFFD BEFORE the parser ever sees it — a Latin-1 round-trip cannot
+    # recover the original character once replaced (verified missed finding,
+    # AN gate review). iDOC/CSV partners (Briscoes) are unaffected and keep
+    # their existing utf-8 decode.
+    _EDIFACT_FORMATS = frozenset({"edifact_d96a", "edifact_d01b"})
+
+    def _decode_raw_text(self, content: bytes, partner) -> str:
+        """Decode raw file bytes for storage/audit (edi.order.review.edi_raw_data)
+        and CONTRL detection, using the partner's wire encoding.
+
+        This is ONLY the fallback/storage decode — it must never overwrite a
+        raw_data the parser itself already set from a decode it trusts more
+        (see the loop in _process_file, which only assigns when raw_data is
+        still empty).
+        """
+        encoding = "iso-8859-1" if partner.edi_format in self._EDIFACT_FORMATS else "utf-8"
+        return content.decode(encoding, errors="replace")
+
+    def _is_contrl_message(self, raw_text: str) -> bool:
+        """True when an EDIFACT interchange's UNH identifies it as a CONTRL
+        (functional acknowledgement) rather than a business message (ORDERS/
+        ORDRSP/...). Cheap substring probe — full tokenizing is left to the
+        partner's own parse_contrl so this stays format-agnostic and never
+        raises on a malformed file (a false negative just falls through to
+        the normal ORDERS parse, which then fails loudly and visibly instead
+        of silently, per the code's own fail-closed convention)."""
+        return "UNH+" in raw_text and ":CONTRL:" in raw_text.replace("+", ":")
+
+    def _handle_inbound_contrl(
+        self, raw_text: str, filename: str, file_hash: str, partner
+    ) -> bool:
+        """Route an inbound CONTRL to the parser's parse_contrl (AN gate
+        review: 'Inbound CONTRL swallowed'). Returns True when this file WAS
+        a CONTRL (whether or not it correlated) — the caller must stop and
+        not fall through to parser.parse_file, which would silently emit
+        'parsed 0 orders' for a CONTRL body with no BGM/LIN.
+
+        A NEGATIVE CONTRL (action code other than '8' = interchange received)
+        must create a blocking review, not vanish — Animates uses only '8' by
+        spec, but the wire is not trusted to enforce that.
+        """
+        parser = partner.get_parser_instance()
+        parse_contrl = getattr(parser, "parse_contrl", None)
+        if not callable(parse_contrl):
+            # Parser has no CONTRL support (e.g. Briscoes) — nothing to do;
+            # the probe in _is_contrl_message is best-effort and format-
+            # agnostic, so a partner without CONTRL support simply can't
+            # receive one in practice, but guard anyway (hasattr contract).
+            return False
+
+        try:
+            parsed = parse_contrl(raw_text)
+        except Exception as exc:
+            self.env["edi.log"].log(
+                partner, "inbound", "error", "error",
+                "Inbound CONTRL in %s failed to parse: %s" % (filename, str(exc)),
+                filename=filename, file_hash=file_hash, detail=str(exc),
+            )
+            return True
+
+        action = parsed.get("action")
+        original_ref = parsed.get("original_ref")
+        # Correlate against our sent exchanges via edi_log filename/control-ref
+        # so a dropped/negative ack is visible rather than silently archived.
+        matched = bool(original_ref) and bool(self.env["edi.log"].search_count([
+            ("trading_partner_id", "=", partner.id),
+            ("event_type", "=", "contrl_sent"),
+            ("filename", "like", "%%%s%%" % original_ref),
+        ]))
+
+        if action != "8":
+            # NEGATIVE CONTRL (rejection) — fail closed: this must block, not
+            # vanish. No review/issue infrastructure is owned by this file for
+            # a standalone interchange-level rejection, so a high-severity
+            # edi.log row + the standard cron alert (rate-limited) is the
+            # blocking signal until an operator-facing review type exists.
+            self.env["edi.log"].log(
+                partner, "inbound", "contrl_received", "error",
+                "NEGATIVE CONTRL received in %s (action=%s, original_ref=%s, "
+                "correlated=%s) — the interchange we sent was NOT accepted "
+                "by the partner." % (filename, action, original_ref, matched),
+                filename=filename, file_hash=file_hash,
+            )
+            self._send_cron_alert(
+                'mml_edi.negative_contrl',
+                'Negative CONTRL from %s' % partner.code,
+                "CONTRL in %s rejected interchange %s (action=%s)" % (
+                    filename, original_ref, action),
+            )
+            return True
+
+        self.env["edi.log"].log(
+            partner, "inbound", "contrl_received", "success",
+            "CONTRL received in %s: interchange %s acknowledged (action=8, "
+            "correlated=%s)" % (filename, original_ref, matched),
+            filename=filename, file_hash=file_hash,
+        )
+        if not matched:
+            # We cannot find a matching contrl_sent — informational only
+            # (the sent-side filename format may predate this feature, or
+            # this CONTRL acks a business message from a channel outside
+            # our own sends); does not block, per the module's file-level
+            # non-blocking convention for informational mismatches.
+            _logger.info(
+                "[EDI] CONTRL in %s (ref %s) has no matching contrl_sent log "
+                "row — informational only", filename, original_ref,
+            )
+        return True
+
+    def _validate_inbound_envelope(self, raw_text: str, partner) -> None:
+        """Envelope validation + sender-mismatch check for inbound EDIFACT
+        (AN gate review 'No inbound envelope validation').
+
+        Fail-closed: raises EDIParseError on ANY violation so the file lands
+        in the normal per-file failure path (left in the inbox, alerted,
+        counted toward the circuit breaker) rather than silently producing a
+        partial/wrong order. No-ops for non-EDIFACT partners and for any
+        partner whose parser/trading-partner record doesn't yet expose the
+        validator or the C1 sender-identity helpers (hasattr-guarded so this
+        never regresses Briscoes and degrades gracefully before Wave1-A's
+        partner fields land).
+        """
+        if partner.edi_format not in self._EDIFACT_FORMATS:
+            return
+        try:
+            from ..parsers import animates_edifact as edifact_mod
+        except Exception:
+            # Shared EDIFACT helper module absent/broken — skip rather than
+            # block every inbound EDIFACT file on an import error.
+            return
+        tokenize = getattr(edifact_mod, "tokenize", None)
+        validate_interchange = getattr(edifact_mod, "validate_interchange", None)
+        if not callable(tokenize) or not callable(validate_interchange):
+            return
+
+        from ..parsers.base_parser import EDIParseError
+
+        try:
+            _, segments = tokenize(raw_text)
+            validate_interchange(segments)
+        except Exception as exc:
+            raise EDIParseError(
+                "Inbound envelope validation failed: %s" % str(exc)) from exc
+
+        get_unb_recipient = getattr(partner, "get_unb_recipient", None)
+        if not callable(get_unb_recipient):
+            # C1 helper not yet available on this DB (Wave1-A not landed /
+            # older partner record) — skip the sender check rather than
+            # block every inbound file on a missing capability.
+            return
+        unb = next((s for s in segments if getattr(s, "tag", None) == "UNB"), None)
+        if unb is None:
+            return
+        sender_id, sender_qual = unb.comp(1, 0), unb.comp(1, 1)
+        expected_id, expected_qual = get_unb_recipient()
+        if (sender_id, sender_qual) != (expected_id, expected_qual):
+            raise EDIParseError(
+                "UNB sender %s:%s does not match expected counterparty %s:%s "
+                "for environment=%s — refusing to process (fail-closed)" % (
+                    sender_id, sender_qual, expected_id, expected_qual,
+                    partner.environment,
+                )
+            )
 
     def _process_file(self, content: bytes, file_hash: str, filename: str, partner) -> list:
         """Parse a downloaded file and dispatch each ParsedOrder.
@@ -513,8 +795,22 @@ class EDIProcessor(models.AbstractModel):
             )
             return []
 
+        raw_text = self._decode_raw_text(content, partner)
+
+        # AN-15: an inbound CONTRL (SPS/Animates acking OUR outbound ORDRSP or
+        # ORDERS) must be routed to parse_contrl, not silently swallowed as
+        # "parsed 0 orders" by the ORDERS parser. Checked before parse_file so
+        # a CONTRL body (no BGM/LIN) never reaches the ORDERS code path at all.
+        if partner.edi_format in self._EDIFACT_FORMATS and self._is_contrl_message(raw_text):
+            self._handle_inbound_contrl(raw_text, filename, file_hash, partner)
+            return []
+
+        # AN envelope validation: catches truncated/malformed interchanges and
+        # sender/recipient mismatches (wrong mailbox, TST1ANIMATES vs ANIMATES)
+        # BEFORE any order is parsed from them — fail-closed, not partial-accept.
+        self._validate_inbound_envelope(raw_text, partner)
+
         parser = partner.get_parser_instance()
-        raw_text = content.decode("utf-8", errors="replace")
         parsed_orders = parser.parse_file(content, partner)
 
         self.env["edi.log"].log(
@@ -532,7 +828,12 @@ class EDIProcessor(models.AbstractModel):
         # previously-failed store(s) are re-attempted — no duplicate SOs.
         failures = []
         for order in parsed_orders:
-            order.raw_data = raw_text
+            # Only fill raw_data when the parser did not already set it — a
+            # parser (e.g. Briscoes) that decodes and stores its own raw_data
+            # is trusted over this generic fallback; this only fires for
+            # parsers (e.g. Animates) that leave it to the processor.
+            if not order.raw_data:
+                order.raw_data = raw_text
             try:
                 with self.env.cr.savepoint():
                     self.process_parsed_order(order, partner, filename, file_hash)
@@ -583,7 +884,15 @@ class EDIProcessor(models.AbstractModel):
         """
         client_ref = partner.render_client_ref(order.po_number, order.store_code)
 
-        if order.document_type == "change_order":
+        # C5: a cancellation (BGM 1225=1, Animates) carries no order lines and
+        # must NEVER be treated as a change order that mutates+re-confirms a
+        # SO, and must NEVER queue an ORDRSP — only a CONTRL. Routed before
+        # the change_order/new_order split so it can never fall through to
+        # apply_change_order (which would try to diff lines against a
+        # cancellation that has none).
+        if order.document_type == "cancellation":
+            self._process_cancellation(order, partner, client_ref, filename, file_hash)
+        elif order.document_type == "change_order":
             self._process_change_order(order, partner, client_ref, filename, file_hash)
         else:
             self._process_new_order(order, partner, client_ref, filename, file_hash)
@@ -997,6 +1306,112 @@ class EDIProcessor(models.AbstractModel):
             partner, "inbound", "order_created", "warning",
             "Change order routed to review: SO %s — %s" % (
                 existing_so.name, change_summary),
+            filename=filename, sale_order=existing_so, review=review,
+        )
+
+        if partner.alert_on_issues:
+            self._send_review_alert(partner, review)
+
+    # ── Cancellation flow (C5) ────────────────────────────────────────────
+
+    # Sentinel prefix on edi.order.review.change_summary that marks a review
+    # as a CANCELLATION (as opposed to an ordinary change-order or a manually
+    # rejected new order that also ends with an SO in state='cancel'). This is
+    # a module-owned marker rather than a new field/selection value on
+    # edi.order.review (out of this file's scope) — retry_pending_acks and
+    # _is_cancellation_review both match on it, so the two can never disagree.
+    CANCELLATION_MARKER = "EDI-CANCELLATION:"
+
+    def _is_cancellation_review(self, review) -> bool:
+        """True when ``review`` was created by _process_cancellation — i.e. it
+        must never be offered to _queue_ack (see CANCELLATION_MARKER)."""
+        summary = getattr(review, "change_summary", None) or ""
+        return summary.startswith(self.CANCELLATION_MARKER)
+
+    def _process_cancellation(
+        self, order, partner, client_ref: str, filename: str, file_hash: str
+    ):
+        """Route a cancellation (BGM 1225=1) — C5.
+
+        Per the Testing Scenario Handbook (scenario 3B) a cancellation is
+        acknowledged with CONTRL ONLY: the SO is cancelled, a review is
+        created purely for audit trail (state='rejected' — no operator action
+        needed), and NO ORDRSP is ever queued for it. The mandatory CONTRL is
+        still emitted by the normal per-file path (_emit_inbound_contrl),
+        which is keyed off the whole interchange, not the document type — a
+        cancellation still received an interchange that must be syntactically
+        acked.
+
+        Two failure modes guarded against here (gate review AN-05/AN-12):
+        - Cancel-before-original: the PO referenced no existing SO yet. There
+          is nothing to cancel; log a warning and STOP — do not create a
+          phantom review that could confuse a later ORDERS for the same PO.
+        - Any accidental route into apply_change_order/ORDRSP: prevented
+          structurally — this method never touches pending_changes JSON and
+          never calls _queue_ack.
+        """
+        existing_so = self._find_existing_so(client_ref, partner)
+        if not existing_so:
+            self.env["edi.log"].log(
+                partner, "inbound", "error", "warning",
+                "Cancellation for PO '%s' but no matching SO found (ref: %s) "
+                "— cancel arrived before (or without) the original order; "
+                "nothing to cancel." % (order.po_number, client_ref),
+                filename=filename,
+            )
+            return
+
+        original_review = self.env["edi.order.review"].search([
+            ("sale_order_id", "=", existing_so.id),
+            ("document_type", "=", "new_order"),
+        ], limit=1)
+
+        already_cancelled = existing_so.state == "cancel"
+        if not already_cancelled and existing_so.state in ("draft", "sent", "sale"):
+            existing_so.action_cancel()
+
+        change_summary = "%s PO %s cancelled by customer (BGM 1225=1)%s" % (
+            self.CANCELLATION_MARKER, order.po_number,
+            " — SO was already cancelled" if already_cancelled else "",
+        )
+
+        review = self.env["edi.order.review"].create({
+            "trading_partner_id": partner.id,
+            "customer_po_number": order.po_number,
+            "store_code": order.store_code,
+            "sale_order_id": existing_so.id,
+            "edi_file_hash": file_hash,
+            "edi_filename": filename,
+            "edi_raw_data": order.raw_data,
+            "document_type": "change_order",
+            "original_review_id": original_review.id if original_review else False,
+            "change_summary": change_summary,
+            # Terminal state directly — no operator action is expected or
+            # wanted for a cancellation; the state machine's action_approve/
+            # action_reject paths (which both end by calling _queue_ack) are
+            # deliberately never invoked for this review.
+            "state": "rejected",
+            "reviewed_date": fields.Datetime.now(),
+        })
+
+        # Chatter audit trail on both the review and the SO — a cancellation
+        # is a customer-initiated, no-operator-input event, so the record of
+        # WHY the SO is cancelled must live on the record itself, not just in
+        # edi.log (which most users never open).
+        review.message_post(body=_(
+            "EDI cancellation received for PO %s. Sale order %s cancelled "
+            "automatically. No ORDRSP is sent for a cancellation — only a "
+            "CONTRL functional acknowledgement."
+        ) % (order.po_number, existing_so.name))
+        existing_so.message_post(body=_(
+            "Cancelled via EDI: customer sent a cancellation (BGM 1225=1) "
+            "for PO %s."
+        ) % order.po_number)
+
+        self.env["edi.log"].log(
+            partner, "inbound", "order_created", "warning",
+            "Cancellation processed: SO %s cancelled for PO %s" % (
+                existing_so.name, order.po_number),
             filename=filename, sale_order=existing_so, review=review,
         )
 

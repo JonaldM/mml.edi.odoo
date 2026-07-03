@@ -13,11 +13,17 @@ try:
     from . import (
         test_ack_reset_reapprove,
         test_ack_send_claim,
+        test_animates_identity_odoo,
+        test_animates_invoice_odoo,
+        test_animates_ordrsp_live_odoo,
+        test_animates_pipeline_odoo,
         test_approve_reclamp,
         test_briscoes_asn,
         test_briscoes_integration,
         test_cascade_lookup,
         test_deduplication,
+        test_edi_seed_stores_odoo,
+        test_edi_service_animates_odoo,
         test_idempotency_db_backstop,
         test_ordchg_availability_gate,
         test_po_change_workflow,
@@ -27,6 +33,7 @@ try:
         test_reservation_verify,
         test_review_workflow,
         test_short_ship_policy,
+        test_sscc_register_odoo,
     )
 except (ImportError, ModuleNotFoundError):
     # conftest stubs not yet in place — pytest will collect these directly.
@@ -39,6 +46,12 @@ if _STUB:
     try:
         from . import (
             test_ack_exchange_filename,
+            test_animates_contrl_generate,
+            test_animates_identity,
+            test_animates_invoice_service,
+            test_animates_ordrsp_live,
+            test_animates_pipeline,
+            test_animates_store_master,
             test_asn_barcode_validation,
             test_briscoes_edifact_parser,
             test_briscoes_encoding,
@@ -54,11 +67,14 @@ if _STUB:
             test_edi_service,
             test_file_failure_breaker,
             test_ftp_handler,
+            test_gs1_sscc,
+            test_localdir_handler,
             test_migration_dup_precheck,
             test_poll_ordering_invariant,
             test_pricelist_gst_constraint,
             test_reclamp_math,
             test_short_ship,
+            test_sscc_register_constraint_matching,
         )
     except (ImportError, ModuleNotFoundError):
         pass

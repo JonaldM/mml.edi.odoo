@@ -32,19 +32,31 @@ Message skeleton (segment order is build-critical)::
     PIA  1 + supplier item code (SA = MML)
     IMD  F + description
     QTY  47 invoiced quantity (+ unit) ; QTY 59 number of consumer units
-    MOA  128 line amount payable incl tax   (4dp)
-    MOA  369 line tax amount                (4dp)
-    MOA  203 line item amount excl tax      (4dp)
-    PRI  AAA unit price                     (4dp)
+    MOA  128 line amount EX tax (incl allowances/charges)   (4dp)
+    MOA  369 line tax amount                                (4dp)
+    MOA  203 line item amount INCL tax                      (4dp)
+    PRI  AAA unit price (net, excl tax)                     (4dp)
     TAX  7 + GST + rate (5118, 2dp)
     --- summary ---
     UNS  S
     CNT  2 : <line count>
-    MOA  39 total payable                   (2dp)
-    MOA  128 total incl tax                 (2dp)
+    MOA  39 total payable (incl tax)         (2dp)
+    MOA  128 total EX tax                    (2dp)
     MOA  369 total tax                       (2dp)
     UNT
     UNZ
+
+    GST semantics (Animates_INVOIC.pdf p.52 Segment Group 27 + p.60-61 Segment
+    Group 50 data-element notes; corrects gate-review finding AN-INVOIC/#21
+    which had this inverted): at BOTH line and summary level, MOA 128 is
+    "Total amount excluding GST but including allowances or charges" (the
+    EX-tax base), MOA 369 is the GST amount, and the INCL-tax total is a
+    SEPARATE qualifier per level — MOA 203 at line level ("Line item amount
+    ... including GST"), MOA 39 at summary level ("Total amount for the
+    invoice including GST" / total payable). PRI+AAA is always the net unit
+    price excluding tax. The worked-example fixture values already satisfy
+    this (128 + 369 ~= 203/39); only the docstring/comments were wrong — no
+    builder logic or fixture change was needed.
 
 PAYLOAD SCHEMA
 --------------
@@ -118,10 +130,10 @@ formatting line amounts/price to 4dp and summary amounts/tax rate to 2dp.
           "qty_invoiced": "2",            # QTY 47 value
           "qty_unit": "EA",               # QTY 47 unit (omit/empty -> no unit comp)
           "qty_consumer_units": "1",      # QTY 59 value (no unit)
-          "moa_128": "264.8800",          # line amount payable incl tax  (4dp str)
-          "moa_369": "39.7300",           # line tax amount               (4dp str)
-          "moa_203": "304.6100",          # line item amount excl tax     (4dp str)
-          "price": "132.4400",            # PRI AAA unit price            (4dp str)
+          "moa_128": "264.8800",          # line amount EX tax (+ allow/charge) (4dp str)
+          "moa_369": "39.7300",           # line tax amount                     (4dp str)
+          "moa_203": "304.6100",          # line item amount INCL tax           (4dp str)
+          "price": "132.4400",            # PRI AAA unit price (net, excl tax)  (4dp str)
           "tax_rate": "15.00",            # TAX 5118 rate                 (2dp str)
           "tax_category": "GST",          # TAX C241 (5153). Default "GST".
         },
@@ -129,11 +141,17 @@ formatting line amounts/price to 4dp and summary amounts/tax rate to 2dp.
 
       # --- summary totals (2dp strings) ---
       "summary": {
-        "moa_39":  "304.61",     # total monetary amount payable
-        "moa_128": "264.88",     # total amount incl tax
+        "moa_39":  "304.61",     # total amount payable, INCL tax
+        "moa_128": "264.88",     # total amount EX tax
         "moa_369": "39.73",      # total tax amount
       },
     }
+
+NOTE the fixture values above are the verbatim MIG worked example, whose line
+amounts (264.88 EX-tax + 39.73 tax ~= 304.61 INCL-tax) and summary amounts are
+internally consistent with the corrected EX/INCL semantics documented above —
+double-checked against Animates_INVOIC.pdf's own Segment Group 50 example
+(MOA+128:354.17 EX tax + MOA+369:53.13 tax = MOA+39:407.30 payable).
 """
 
 from .animates_edifact import (

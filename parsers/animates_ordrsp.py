@@ -22,7 +22,10 @@ Message shape (per Animates ORDRSP MIG p49-50 + octo v2 corrections)
     PIA  5 + <buyer item code / ISC>:IN          (always)
     PIA  1 + <supplier/MML code>:SA              (optional; omit if not supplied)
     IMD  F++:::<description>
-    QTY  21:<ordered>:EA                         (optional; omit when not echoed)
+    QTY  21:<ordered>:EA     MANDATORY when 1229 == "3" (changed; MIG QTY notes:
+                             "both 'Ordered quantity' and 'Quantity to be
+                             delivered' must be provided" on a changed line) —
+                             optional/omit-when-not-echoed on accepted/rejected
     QTY  59:<pack/units-per>                      (always)
     QTY  113:<committed>:EA   (0 when rejected)  (always)
     FTX  LIN+++<reason>       MANDATORY when 1229 == "7" (rejected)
@@ -109,6 +112,7 @@ _TAX_FUNCTION = "7"        # tax
 _TAX_TYPE = "GST"
 _UOM_EA = "EA"
 _ACTION_REJECTED = "7"
+_ACTION_CHANGED = "3"
 
 
 def _line_segments(line: dict) -> list:
@@ -126,6 +130,16 @@ def _line_segments(line: dict) -> list:
     segs.append(Segment("IMD", [[_IMD_FORMAT], [], ["", "", "", str(line["description"])]]))
 
     qty_ordered = line.get("qty_ordered")
+    if action == _ACTION_CHANGED and (qty_ordered is None or qty_ordered == ""):
+        # MIG QTY segment notes (Animates_ORDRSP.pdf, "Conditional: quantity
+        # ordered required when LIN DE 1229 = 3"): both 'Ordered quantity'
+        # (QTY+21) and 'Quantity to be delivered' (QTY+113) must be present
+        # when the line is changed. Omitting QTY+21 on a changed line is a
+        # spec violation, not an optional trim (finding #12 / gate review).
+        raise EdifactError(
+            "QTY+21 (ordered quantity) is mandatory when LIN 1229 == 3 "
+            "(changed); line %s" % line.get("line_no")
+        )
     if qty_ordered is not None and qty_ordered != "":
         segs.append(Segment("QTY", [[_QTY_ORDERED, str(qty_ordered), _UOM_EA]]))
 
@@ -146,8 +160,19 @@ def _line_segments(line: dict) -> list:
     return segs
 
 
-def build_ordrsp(payload: dict, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=12341, msg_ref=1) -> bytes:
+def build_ordrsp(payload: dict, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=12341, msg_ref=1,
+                 sender_qualifier=None, recipient="ANIMATES", recipient_qualifier=None,
+                 require_real=False) -> bytes:
     """Build an Animates ORDRSP interchange from ``payload`` (see module docstring).
+
+    Envelope identity (AN-01): ``supplier_gln``/``ctrl_ref`` plus the optional
+    ``sender_qualifier``/``recipient``/``recipient_qualifier`` are forwarded verbatim
+    to ``build_unb`` — pure tests can keep relying on the documented worked-example
+    defaults (``SUPPLIER_GLN``/``12341``/``ANIMATES``/``ZZZ``), while a PRODUCTION
+    caller passes the trading partner's real identity (see
+    ``animates.py::_review_to_ordrsp_payload`` and
+    ``animates_edifact.build_unb_for_partner``) with ``require_real=True`` so a
+    placeholder can never silently reach the wire.
 
     Returns the serialized interchange as latin-1 bytes (EDIFACT UNOC level).
     """
@@ -184,7 +209,11 @@ def build_ordrsp(payload: dict, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=12341, 
     unt_count = len(body) + 1
     body.append(build_unt(unt_count, ref))
 
-    segments = [build_unb(supplier_gln, ctrl_ref, unb_date, unb_time)]
+    segments = [build_unb(
+        supplier_gln, ctrl_ref, unb_date, unb_time,
+        sender_qualifier=sender_qualifier, recipient=recipient,
+        recipient_qualifier=recipient_qualifier, require_real=require_real,
+    )]
     segments += body
     segments.append(build_unz(1, ctrl_ref))
 

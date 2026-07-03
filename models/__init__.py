@@ -6,3 +6,4 @@ from . import sale_order
 from . import edi_ftp
 from . import edi_processor
 from . import stock_location_ext
+from . import sscc_register

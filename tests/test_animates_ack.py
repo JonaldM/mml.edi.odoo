@@ -85,3 +85,41 @@ def test_build_outbound_routes_known_types_to_their_builders():
 def test_build_outbound_rejects_unknown_type():
     with pytest.raises(NotImplementedError):
         AnimatesParser().build_outbound("APERAK", {})
+
+
+# --- AN-05 / C5: generate_ack refuses cleanly for a cancellation review ---
+
+def test_generate_ack_refuses_cancellation_via_document_type():
+    from mml_edi.parsers.animates import CancellationAckRefused
+    review = _review()
+    review.document_type = "cancellation"
+    with pytest.raises(CancellationAckRefused):
+        AnimatesParser().generate_ack(review)
+
+
+def test_generate_ack_refuses_cancellation_via_change_summary_marker():
+    """Belt-and-braces: also recognises the production CANCELLATION_MARKER
+    prefix models/edi_processor.py writes onto change_summary, in case a
+    caller passes a review namespace that carries that field instead of
+    document_type='cancellation'."""
+    from mml_edi.parsers.animates import CancellationAckRefused
+    review = _review()
+    review.change_summary = "EDI-CANCELLATION: PO PO169603 cancelled by customer"
+    with pytest.raises(CancellationAckRefused):
+        AnimatesParser().generate_ack(review)
+
+
+def test_generate_ack_still_works_for_ordinary_change_order():
+    """document_type='change_order' (not 'cancellation') must NOT trip the guard."""
+    review = _review()
+    review.document_type = "change_order"
+    out = AnimatesParser().generate_ack(review)
+    assert isinstance(out, bytes)
+
+
+def test_cancellation_ack_refused_is_an_edi_parse_error():
+    """CancellationAckRefused subclasses EDIParseError so any generic
+    except EDIParseError handler upstream still catches it."""
+    from mml_edi.parsers.animates import CancellationAckRefused
+    from mml_edi.parsers.base_parser import EDIParseError
+    assert issubclass(CancellationAckRefused, EDIParseError)

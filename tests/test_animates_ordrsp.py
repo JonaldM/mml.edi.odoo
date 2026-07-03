@@ -8,10 +8,13 @@ comparator, plus the control-count/reference invariants.
 """
 from pathlib import Path
 
+import pytest
+
 from mml_edi.parsers.animates_edifact import (
     tokenize,
     assert_equivalent,
     validate_interchange,
+    EdifactError,
 )
 from mml_edi.parsers.animates_ordrsp import build_ordrsp
 
@@ -64,13 +67,15 @@ ORDRSP_PAYLOAD = {
             "tax_rate": "15.00",
         },
         {
-            # changed -> no PIA+1, no QTY+21 echoed in this fixture
+            # changed -> no PIA+1; QTY+21 IS mandatory on a changed line per the
+            # MIG QTY notes ("both 'Ordered quantity' and 'Quantity to be
+            # delivered' must be provided" when LIN 1229 == 3) — finding #12.
             "line_no": 3,
             "action": "3",
             "buyer_item": "2581999",
             "supplier_item": None,
             "description": "Product description",
-            "qty_ordered": None,
+            "qty_ordered": "48",
             "qty_pack": "1",
             "qty_committed": "20",
             "reason": None,
@@ -81,39 +86,14 @@ ORDRSP_PAYLOAD = {
 }
 
 
-def _normalize_unt_count(text):
-    """Return ``text`` with the UNT 0074 segment-count rewritten to the true UNH..UNT
-    count.
-
-    The committed golden fixture ``animates_ordrsp_expected.edi`` is internally
-    INCONSISTENT: it declares ``UNT+39`` while only carrying 38 segments from UNH..UNT
-    inclusive (the SPS Commerce MIG sample's PDF shows a ``QTY+21:48:EA`` on LIN 3 that
-    was dropped from the committed fixture, leaving the 0074 count one too high). The raw
-    fixture therefore fails ``validate_interchange`` (UNT0074 39 != actual 38).
-
-    This is exactly the class of MIG sample defect the runbook's octo C3 correction calls
-    out ("MIG samples are internally inconsistent ... assert the INVARIANT, not literal
-    bytes"). ``assert_equivalent`` already normalizes UNH/UNT *0062* msg-ref padding; here
-    we additionally normalize the UNT *0074* count so the verbatim body comparison is not
-    held hostage to the fixture's off-by-one control count. The builder itself always
-    emits the correct, validating count (asserted separately below).
-    """
-    _, segs = tokenize(text)
-    tags = [s.tag for s in segs]
-    if "UNH" in tags and "UNT" in tags:
-        i0, i1 = tags.index("UNH"), tags.index("UNT")
-        true_count = str(i1 - i0 + 1)
-        return text.replace("UNT+39+", "UNT+%s+" % true_count)
-    return text
-
-
 def test_ordrsp_matches_golden_fixture():
+    """The committed fixture now carries the MIG's QTY+21:48:EA on the changed LIN 3
+    (finding #12 — the previous fixture dropped it, one segment short of its own
+    declared UNT+39). With QTY+21 present the fixture is internally consistent, so
+    the builder's output can be compared verbatim (module-ref-padding aside)."""
     result = build_ordrsp(ORDRSP_PAYLOAD, ctrl_ref=12341, msg_ref=1)
     expected = _load("animates_ordrsp_expected.edi")
-    # Compare every segment verbatim except the fixture's self-inconsistent UNT 0074 count.
-    assert assert_equivalent(
-        result.decode("latin-1"), _normalize_unt_count(expected)
-    ) is True
+    assert assert_equivalent(result.decode("latin-1"), expected) is True
 
 
 def test_ordrsp_control_invariants_hold():
@@ -121,3 +101,88 @@ def test_ordrsp_control_invariants_hold():
     _, segments = tokenize(result.decode("latin-1"))
     # The builder's output is fully self-consistent (unlike the raw fixture).
     assert validate_interchange(segments) is True
+
+
+# --- finding #12: QTY+21 mandatory when LIN 1229 == 3 (changed) ---
+
+def test_changed_line_missing_qty_ordered_raises():
+    payload = dict(ORDRSP_PAYLOAD, lines=[{
+        "line_no": 3, "action": "3", "buyer_item": "2581999",
+        "supplier_item": None, "description": "Product description",
+        "qty_ordered": None, "qty_pack": "1", "qty_committed": "20",
+        "reason": None, "price": "50.0000", "tax_rate": "15.00",
+    }])
+    with pytest.raises(EdifactError, match="QTY\\+21"):
+        build_ordrsp(payload, ctrl_ref=12341, msg_ref=1)
+
+
+def test_changed_line_with_qty_ordered_builds_ok():
+    payload = dict(ORDRSP_PAYLOAD, lines=[{
+        "line_no": 3, "action": "3", "buyer_item": "2581999",
+        "supplier_item": None, "description": "Product description",
+        "qty_ordered": "48", "qty_pack": "1", "qty_committed": "20",
+        "reason": None, "price": "50.0000", "tax_rate": "15.00",
+    }])
+    result = build_ordrsp(payload, ctrl_ref=12341, msg_ref=1)
+    _, segs = tokenize(result.decode("latin-1"))
+    qty = [s for s in segs if s.tag == "QTY" and s.comp(0, 0) == "21"]
+    assert qty and qty[0].comp(0, 1) == "48"
+
+
+def test_accepted_and_rejected_lines_may_omit_qty_ordered():
+    """Only action 3 (changed) makes QTY+21 mandatory; 5/7 keep it optional."""
+    payload = dict(ORDRSP_PAYLOAD, lines=[
+        {
+            "line_no": 1, "action": "5", "buyer_item": "2581888",
+            "supplier_item": None, "description": "d", "qty_ordered": None,
+            "qty_pack": "1", "qty_committed": "8", "reason": None,
+            "price": "40.0000", "tax_rate": "15.00",
+        },
+        {
+            "line_no": 2, "action": "7", "buyer_item": "2581281",
+            "supplier_item": None, "description": "d", "qty_ordered": None,
+            "qty_pack": "1", "qty_committed": "0", "reason": "OOS",
+            "price": "12.0000", "tax_rate": "15.00",
+        },
+    ])
+    result = build_ordrsp(payload, ctrl_ref=12341, msg_ref=1)
+    assert isinstance(result, bytes)
+
+
+# --- AN-01: envelope identity kwargs are forwarded to build_unb ---
+
+_REAL_INTERCHANGE = {"date": "260703", "time": "1015"}
+
+
+def test_build_ordrsp_forwards_real_envelope_identity():
+    payload = dict(ORDRSP_PAYLOAD, interchange=_REAL_INTERCHANGE)
+    result = build_ordrsp(
+        payload, supplier_gln="9419416000008", ctrl_ref=555, msg_ref=1,
+        sender_qualifier="ZZZ", recipient="ANIMATES", recipient_qualifier="ZZZ",
+        require_real=True,
+    )
+    _, segs = tokenize(result.decode("latin-1"))
+    unb = [s for s in segs if s.tag == "UNB"][0]
+    assert unb.elements[1] == ["9419416000008", "ZZZ"]
+    assert unb.elements[2] == ["ANIMATES", "ZZZ"]
+
+
+def test_build_ordrsp_require_real_rejects_placeholder_sender():
+    payload = dict(ORDRSP_PAYLOAD, interchange=_REAL_INTERCHANGE)
+    with pytest.raises(EdifactError):
+        build_ordrsp(payload, supplier_gln="SUPPLIER_GLN", ctrl_ref=555,
+                     msg_ref=1, require_real=True)
+
+
+def test_build_ordrsp_require_real_rejects_placeholder_ctrl_ref():
+    payload = dict(ORDRSP_PAYLOAD, interchange=_REAL_INTERCHANGE)
+    with pytest.raises(EdifactError):
+        build_ordrsp(payload, supplier_gln="9419416000008", ctrl_ref=12341,
+                     msg_ref=1, require_real=True)
+
+
+def test_build_ordrsp_default_kwargs_unchanged_for_pure_tests():
+    """Backward compatibility: no envelope kwargs -> identical to pre-AN-01 output."""
+    result = build_ordrsp(ORDRSP_PAYLOAD, ctrl_ref=12341, msg_ref=1)
+    expected = _load("animates_ordrsp_expected.edi")
+    assert assert_equivalent(result.decode("latin-1"), expected) is True

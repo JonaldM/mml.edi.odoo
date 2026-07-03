@@ -537,8 +537,8 @@ class EDIOrderReview(models.Model):
             parser = partner.get_parser_instance()
             ack_bytes = parser.generate_ack(self)
 
-            from .edi_ftp import EDIFTPHandler
-            handler = EDIFTPHandler(partner)
+            from .edi_ftp import get_transport_handler
+            handler = get_transport_handler(partner)
 
             if not prior_claim:
                 # Committed send-claim (IDEM-3): must be durable BEFORE any

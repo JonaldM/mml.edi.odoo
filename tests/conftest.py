@@ -250,3 +250,14 @@ _register_module(
     os.path.join(models_dir, "edi_trading_partner.py"),
     mml_edi_models,
 )
+
+# 8. mml_edi.wizards — bare namespace (edi_seed_stores.py imports Odoo models)
+wizards_dir = os.path.join(_ROOT, "wizards")
+mml_edi_wizards = _register_package("mml_edi.wizards", wizards_dir, parent=mml_edi)
+
+# 9. mml_edi.wizards.animates_store_master_data — no Odoo dependency, pure data
+_register_module(
+    "mml_edi.wizards.animates_store_master_data",
+    os.path.join(wizards_dir, "animates_store_master_data.py"),
+    mml_edi_wizards,
+)

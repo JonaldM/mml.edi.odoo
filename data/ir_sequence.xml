@@ -37,5 +37,35 @@
             <field name="number_increment">1</field>
         </record>
 
+        <!-- Animates UNB 0020 interchange control reference. Numeric, monotonically
+             increasing, shared across every outbound Animates message type (ORDRSP/
+             CONTRL/DESADV/INVOIC) so each interchange we send Animates carries a
+             globally-unique control ref — echoed verbatim in that interchange's own
+             UNZ 0020. No date-range reset (Animates has no documented rollover rule
+             and a reset risks colliding with an earlier control ref still open on
+             their side). -->
+        <record id="seq_animates_interchange_ref" model="ir.sequence">
+            <field name="name">Animates EDIFACT Interchange Control Reference</field>
+            <field name="code">mml_edi.animates.interchange.ref</field>
+            <field name="prefix"></field>
+            <field name="padding">1</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+        </record>
+
+        <!-- SSCC (Serial Shipping Container Code) serial component for DESADV
+             carton/pallet labels. Per GS1 the SSCC serial must be unique for at
+             least 12 months against our GS1 company prefix; this sequence supplies
+             that serial (the extension digit + GS1 prefix + check digit are composed
+             by the DESADV/SSCC label builder, not stored here). -->
+        <record id="seq_animates_sscc_serial" model="ir.sequence">
+            <field name="name">Animates SSCC Serial</field>
+            <field name="code">mml_edi.sscc.serial</field>
+            <field name="prefix"></field>
+            <field name="padding">1</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+        </record>
+
     </data>
 </odoo>

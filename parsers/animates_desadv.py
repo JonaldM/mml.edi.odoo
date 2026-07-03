@@ -4,10 +4,11 @@ Pure function — no Odoo. Builds the message body with the shared
 ``animates_edifact`` helpers (envelope, escaping, validation, comparison) so the
 envelope handling can never drift between the Animates messages.
 
-Reference: ``docs/animates/Animates_DESADV.pdf`` p.57 (pallet+cartons, UNT=39,
-CNT+2:3) and p.58 (split shipment, UNT=27, CNT+2:1) — both reproduced verbatim by
-the golden fixtures ``tests/fixtures/animates_desadv_pallet.edi`` and
-``animates_desadv_split.edi``.
+Reference: ``docs/animates/Animates_DESADV.pdf`` p.57 (pallet+cartons, CNT+2:3)
+and p.58 (split shipment, UNT=27, CNT+2:1). The p.57 fixture's UNT count is
+corrected to 40 (self-consistent with every unit opening its own CPS per
+AN-18 — see the module docstring below) rather than the MIG's published-but-
+miscounted 39.
 
 Message anatomy
 ---------------
@@ -29,7 +30,8 @@ Pack hierarchy:
     <per unit ...>
     CNT+2:<lin_total>                     total LIN segments across ALL CPS groups
 
-Per logistic unit (one ``units[i]``), CPS index runs 2..N+1:
+Per logistic unit (one ``units[i]``), CPS index runs 2..N+1 (every unit opens
+its own CPS — see "CPS nesting" below):
     CPS+<idx>+1+3                         unit, parent=1 (shipment), hierarchy level 3
     PAC+1++<09|CT>                        packaging level (09 pallet / CT carton)
     PCI+33E                               marked with SSCC
@@ -53,7 +55,11 @@ Payload schema (plain dict; every value that varies in the fixtures is carried)
     "buyer": "ANIMATES",             # NAD+BY
     "ship_to": "12345",              # NAD+ST (store code)
     "supplier": "V1058",             # NAD+SU (supplier code)
-    "split": False,                  # True -> emit ALI+++165 (split shipment)
+    "split": False,                  # True -> emit ALI+++<ali_code> (default 165)
+    "ali_code": "165",               # optional; "165" split (default when split=True)
+                                      # or "164" shipment-completes-order (scenario 5B:
+                                      # the DESADV that finishes a split order still
+                                      # emits ALI, but with 164 not 165 — MIG p.19)
     "shipment_totals": {             # optional; PAC totals under CPS+1 (shipment)
         "pallets": 1,                # -> PAC+<pallets>++09  (omitted if 0/absent)
         "units": 2,                  # -> PAC+<units>++<unit_pac_type>
@@ -62,7 +68,6 @@ Payload schema (plain dict; every value that varies in the fixtures is carried)
     "units": [                       # one entry per logistic unit (pallet or carton)
         {
             "cps_idx": 2,            # CPS hierarchy index (1=shipment; units run 2..N)
-            "emit_cps": True,        # whether THIS unit opens its own CPS group (see below)
             "pac_type": "09",        # "09" pallet, "CT" carton
             "sscc": "00593161000045350112",   # GIN+AW value (18-digit, verbatim)
             "inner_cartons": 8,      # pallet only -> inner PAC+<n>++CT (omit/None for cartons)
@@ -78,23 +83,20 @@ Payload schema (plain dict; every value that varies in the fixtures is carried)
     ],
 }
 
-CPS nesting (``emit_cps`` / ``cps_idx``)
----------------------------------------
-The p.57 fixture nests a pallet's contained carton *inside* the pallet's CPS group:
-the cartons carried on the pallet do NOT open their own ``CPS`` segment — they appear
-as further PAC/PCI/GIN/LIN blocks under the pallet's ``CPS``. Free-standing units (the
-shipment's own cartons, or every unit in the split shipment) DO open a ``CPS``.
+CPS nesting (``cps_idx``)
+-------------------------
+AN-18 (gate-review fix): EVERY unit — pallet or carton, whether physically carried on a
+pallet or standing free — opens its OWN ``CPS`` segment. The MIG worked example (p.56-57)
+is explicit: CPS+2 for the pallet, CPS+3 for the pallet-contained carton, CPS+4 for the
+free-standing carton — three units, three CPS groups, in strict index order with no gaps
+and no suppression. An earlier revision of this builder (and its golden fixture) suppressed
+the pallet-contained carton's CPS on the theory that it nests "inside" the pallet's group;
+that was a fixture transcription error, not a documented MIG shape, and it made the
+builder's own UNT segment count fail to match ``validate_interchange``'s real span.
 
-So each unit carries:
-- ``emit_cps`` (default ``True``) — emit a leading ``CPS+<cps_idx>+1+3`` for this unit.
-  Set ``False`` for a carton physically contained by the preceding pallet.
-- ``cps_idx`` — the CPS index used when ``emit_cps`` is True. The numbering in the MIG
-  reserves an index per logical position even when a CPS segment is suppressed (pallet=2,
-  the contained carton would be 3 but is omitted, the free carton is 4), so ``cps_idx`` is
-  carried explicitly rather than auto-derived.
-
-``cps_idx`` defaults to the unit's 1-based position + 1 when absent, which reproduces the
-simple split shipment (single unit -> CPS+2).
+``cps_idx`` — the CPS index for this unit. Defaults to the unit's 1-based position + 1
+when absent, which reproduces the simple split shipment (single unit -> CPS+2). Callers
+with pallet+carton hierarchies pass it explicitly to control numbering.
 
 The total LIN count for ``CNT+2`` is derived from ``len(units)`` (one LIN per unit
 across all CPS groups), so the build is self-consistent with ``validate_interchange``.
@@ -171,8 +173,11 @@ def build_desadv(payload, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=78401, msg_re
     body.append(_seg("BGM", ["351"], [str(payload["advice_no"])], ["9"]))
     body.append(_seg("DTM", ["137", str(payload["doc_date"]), "102"]))
     body.append(_seg("DTM", ["11", str(payload["despatch_date"]), "102"]))
-    if payload.get("split"):
-        body.append(_seg("ALI", [""], [""], ["165"]))            # ALI+++165
+    if payload.get("split") or payload.get("ali_code"):
+        # ALI+++165 (split, subsequent shipment(s) to follow) or ALI+++164
+        # (this shipment completes an order previously split — scenario 5B).
+        ali_code = payload.get("ali_code") or "165"
+        body.append(_seg("ALI", [""], [""], [str(ali_code)]))
     body.append(_seg("RFF", ["ON", str(payload["po"])]))
     body.append(_seg("RFF", ["CN", str(payload["connote"])]))
     # DESADV NAD order is BY / ST / SU (differs from ORDRSP/INVOIC = BY/SU/ST).
@@ -190,12 +195,11 @@ def build_desadv(payload, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=78401, msg_re
     if units_total is not None:
         body.append(_seg("PAC", [str(units_total)], [""], [totals.get("unit_pac_type", "CT")]))
 
-    # --- Per-unit groups (parent=1, level 3). Units contained by a pallet may
-    # suppress their own CPS (emit_cps=False) and nest under the pallet's group. ---
+    # --- Per-unit groups (parent=1, level 3). Every unit — pallet or carton,
+    # carried on a pallet or free-standing — opens its own CPS (AN-18). ---
     for i, unit in enumerate(payload["units"]):
-        if unit.get("emit_cps", True):
-            cps_idx = unit.get("cps_idx", i + 2)
-            body.append(_seg("CPS", [str(cps_idx)], ["1"], ["3"]))
+        cps_idx = unit.get("cps_idx", i + 2)
+        body.append(_seg("CPS", [str(cps_idx)], ["1"], ["3"]))
         body.extend(_unit_segments(unit))
 
     # --- Control: CNT+2 = total LIN across ALL CPS groups ---

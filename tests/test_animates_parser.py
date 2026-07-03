@@ -53,3 +53,32 @@ def test_no_unh_raises():
     import pytest
     with pytest.raises(EDIParseError):
         AnimatesParser().parse_file(b"GARBAGE+not+edifact'", trading_partner=None)
+
+
+# --- C5 / AN-05: cancellation (BGM 1225=1, Testing Scenario Handbook 3B) ---
+
+def _cancel_order():
+    raw = (FIXTURES / "animates_orders_cancel_PO0319333.edi").read_bytes()
+    orders = AnimatesParser().parse_file(raw, trading_partner=None)
+    assert len(orders) == 1
+    return orders[0]
+
+
+def test_cancellation_document_type():
+    o = _cancel_order()
+    assert o.document_type == "cancellation"
+    assert o.po_number == "PO0319333"
+
+
+def test_cancellation_has_no_lines():
+    """MIG scenario 3B: 'No line items included (LIN SG 28 is omitted)'."""
+    o = _cancel_order()
+    assert o.lines == []
+
+
+def test_change_order_is_still_change_order_not_cancellation():
+    """BGM 1225=4/5 must not be misclassified as a cancellation."""
+    raw = (FIXTURES / "animates_orders_PO169603.edi").read_text(encoding="iso-8859-1")
+    changed = raw.replace("BGM+220+PO169603+9'", "BGM+220+PO169603+5'")
+    o = AnimatesParser().parse_file(changed, trading_partner=None)[0]
+    assert o.document_type == "change_order"
