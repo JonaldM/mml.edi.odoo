@@ -400,6 +400,15 @@ def _generate_ordrsp(review) -> bytes:
             barcode = _edifact_escape(sol.product_id.barcode or "")
             buyer_code = _edifact_escape(sol.product_id.default_code or "")
             confirmed_qty = sol.product_uom_qty
+            # A rejected line (action 7) still passes NETWR = PRI × QTY through the
+            # EDIStech VAN, which rejects a zero net value ("XML tag NETWR: Value
+            # specified is zero"). Emit the ORIGINAL ordered qty (confirmed +
+            # shortfall) so NETWR > 0 — the rejection is conveyed by the action
+            # code, not a zero quantity. Matches the Briscoes reference ORDRSPs
+            # (Incorrect_Items / Cancelled), where action-7 lines keep the ordered qty.
+            line_qty = confirmed_qty
+            if line_action == _ORDRSP_LINE_REJECTED:
+                line_qty = (sol.product_uom_qty or 0.0) + (sol.edi_qty_shortfall or 0.0)
             price = sol.price_unit
             store_code = _edifact_escape(review.store_code or "")
 
@@ -414,7 +423,7 @@ def _generate_ordrsp(review) -> bytes:
             segs.append("PRI+AAA:%.2f" % price)
             if store_code:
                 segs.append("LOC+7+%s::92" % store_code)
-            segs.append("QTY+11:%.3f:EA" % confirmed_qty)
+            segs.append("QTY+11:%.3f:EA" % line_qty)
             if delivery_date:
                 segs.append("DTM+2:%s:102" % delivery_date)
 

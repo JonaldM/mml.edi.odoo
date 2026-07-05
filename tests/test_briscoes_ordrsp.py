@@ -140,6 +140,35 @@ class TestOrdrspGeneration:
         assert _lin_action(lin_lines[0]) == "7", \
             "Fully-OOS line should be rejected (action 7), got %r" % _lin_action(lin_lines[0])
 
+    def test_rejected_line_carries_original_qty_not_zero(self):
+        """A rejected/OOS line (action 7) must carry the ORIGINAL ordered qty
+        (confirmed + shortfall), NEVER QTY 0. The EDIStech VAN computes
+        NETWR = PRI x QTY and rejects a zero net value — the live failure on PO
+        7010281017 ("XML tag NETWR: Value specified is zero"). The rejection is
+        conveyed by the action code (7), not a zero quantity — matching the
+        Briscoes reference ORDRSPs (Incorrect_Items / Cancelled)."""
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        sol = _make_sol(30, "9419416125817", "ALCHDF", 0.0, 2.00, shortfall=12.0)
+        so = _make_so([sol])
+        review = _make_review(state="approved", so=so)
+        text = _generate_ordrsp(review).decode("utf-8")
+        assert "QTY+11:0.000:EA" not in text, \
+            "rejected line must not emit QTY 0 (VAN rejects NETWR=0)"
+        qty_segs = [l for l in text.split("\r\n") if l.startswith("QTY+11")]
+        assert any("12.000" in l for l in qty_segs), \
+            "rejected line should carry the original ordered qty (12), got %r" % qty_segs
+
+    def test_whole_order_rejected_lines_carry_nonzero_qty(self):
+        """When the whole order is rejected (purpose 27), each action-7 line must
+        still carry a non-zero qty so no line yields NETWR=0."""
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        sol = _make_sol(10, "9414844375629", "INT001", 10.0, 5.50, shortfall=0.0)
+        so = _make_so([sol])
+        review = _make_review(state="rejected", so=so)
+        text = _generate_ordrsp(review).decode("utf-8")
+        assert "QTY+11:0.000:EA" not in text
+        assert any("QTY+11:10.000:EA" in l for l in text.split("\r\n"))
+
     def test_partial_short_line_still_action_3(self):
         """Regression: a partially short line (some qty ships) stays a qty-change
         (action 3), not a rejection."""
