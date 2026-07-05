@@ -282,7 +282,12 @@ class TestGenerateAck:
         assert float(line10.find("BMNG2").text) == 6.0, "BMNG2 echoes ORDERED"
         assert float(line10.find("E1EDP20/WMENG").text) == 2.0, \
             "Rejected line: WMENG echoes the original ordered qty (order unit)"
-        assert float(line10.find("NETWR").text) == 0.0
+        # Live-bug fix (PO 7010281017): a rejected line must carry a NON-ZERO
+        # NETWR — the ORDERED extended amount (BMNG2 x VPREI) — or EDIStech's SAP
+        # validation rejects the whole ORDRSP ("XML tag NETWR: Value is zero").
+        vprei = float(line10.find("VPREI").text)
+        assert float(line10.find("NETWR").text) == round(6 * vprei, 2), \
+            "rejected line NETWR = ordered_each x price (non-zero), never 0"
         # the untouched line stays a clean 001 with no ABGRU
         line20 = root.findall("IDOC/E1EDP01")[1]
         assert line20.find("ACTION").text == "001"
@@ -295,7 +300,11 @@ class TestGenerateAck:
             assert l.find("ABGRU").text == "11"
             # ordered quantities are still echoed, not zeroed
             assert float(l.find("BMNG2").text) > 0.0
-            assert float(l.find("NETWR").text) == 0.0
+            # rejected line NETWR = ordered extended amount (non-zero), not 0 —
+            # EDIStech rejects a zero NETWR (live failure PO 7010281017).
+            assert float(l.find("NETWR").text) == round(
+                float(l.find("BMNG2").text) * float(l.find("VPREI").text), 2)
+            assert float(l.find("NETWR").text) > 0.0
 
     def test_summe_recalculated_when_short_echoed_when_full(self):
         """IG v1.7 E1EDS01: 'if lines have been rejected [or] cannot be
