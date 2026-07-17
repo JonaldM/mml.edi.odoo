@@ -127,6 +127,45 @@ class TestOrdrspGeneration:
         lin_lines = [l for l in text.split("\r\n") if l.startswith("LIN")]
         assert any(_lin_action(l) == "7" for l in lin_lines), "Expected line action 7 (rejected)"
 
+    def test_fully_oos_line_action_7(self):
+        """A line short-shipped to zero (nothing available) is a line rejection
+        (action 7), not a qty-change (action 3) carrying a confirmed qty of 0."""
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        sol = _make_sol(10, "9414844375629", "INT001", 0.0, 5.50, shortfall=10.0)
+        so = _make_so([sol])
+        review = _make_review(state="approved", so=so)
+        text = _generate_ordrsp(review).decode("utf-8")
+        lin_lines = [l for l in text.split("\r\n") if l.startswith("LIN")]
+        assert lin_lines, "No LIN segment"
+        assert _lin_action(lin_lines[0]) == "7", \
+            "Fully-OOS line should be rejected (action 7), got %r" % _lin_action(lin_lines[0])
+
+    def test_partial_short_line_still_action_3(self):
+        """Regression: a partially short line (some qty ships) stays a qty-change
+        (action 3), not a rejection."""
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        sol = _make_sol(10, "9414844375629", "INT001", 8.0, 5.50, shortfall=2.0)
+        so = _make_so([sol])
+        review = _make_review(state="approved", so=so)
+        text = _generate_ordrsp(review).decode("utf-8")
+        lin_lines = [l for l in text.split("\r\n") if l.startswith("LIN")]
+        assert _lin_action(lin_lines[0]) == "3", \
+            "Partial short line should be qty-changed (action 3), got %r" % _lin_action(lin_lines[0])
+
+    def test_zero_qty_line_with_bad_barcode_does_not_block_ordrsp(self):
+        """A fully-OOS (action-7) line whose product lacks a valid EAN-13 must NOT
+        block the ORDRSP — only shipping lines (qty > 0) need barcodes."""
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        bad = _make_sol(10, "NOTANEAN", "OOS001", 0.0, 5.50, shortfall=10.0)
+        good = _make_sol(20, "9414844375629", "INT002", 4.0, 5.50, shortfall=0.0)
+        so = _make_so([bad, good])
+        review = _make_review(state="approved", so=so)
+        text = _generate_ordrsp(review).decode("utf-8")  # must not raise UserError
+        lin = [l for l in text.split("\r\n") if l.startswith("LIN")]
+        self_actions = [_lin_action(l) for l in lin]
+        assert "7" in self_actions, "OOS line should still emit action 7"
+        assert "5" in self_actions, "Shipping line should emit action 5"
+
     def test_segment_terminators_present(self):
         from mml_edi.parsers.briscoes import _generate_ordrsp
         review = _make_review(state="approved", so=None)

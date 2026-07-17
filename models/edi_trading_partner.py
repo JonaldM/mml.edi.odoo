@@ -24,6 +24,11 @@ _ALLOWED_PARSER_CLASSES = frozenset({
     # customer. Re-enable ONLY after the EDIFACT quantity (CT->EA) logic is fixed
     # and verified against real samples. Briscoes currently sends SAP iDOC XML.
     'mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser',
+    # Animates (EDIFACT D.01B / EANCOM, via SPS Commerce). Orders are in eaches
+    # (QTY+21:<n>:EA), so the processor using parsed_line.quantity directly is
+    # correct here (no CT->EA conversion needed, unlike the Briscoes EDIFACT path).
+    # ISC (PIA+5:IN)->buyer_article_no; MML code (PIA+1:SA)->product_code/vendor_code.
+    'mml_edi.parsers.animates.AnimatesParser',
 })
 
 
@@ -67,10 +72,14 @@ class EDITradingPartner(models.Model):
     # ── FTP Configuration ─────────────────────────────────────────────────
 
     ftp_protocol = fields.Selection(
-        [("ftp", "FTP"), ("sftp", "SFTP")],
+        [("ftp", "FTP"), ("sftp", "SFTP"), ("localdir", "Local Directory")],
         required=True,
         default="ftp",
-        string="FTP Protocol",
+        string="Transport",
+        help="Transport for this partner's exchanges. 'Local Directory' polls "
+             "and writes plain directories on this server (inbox/outbox paths "
+             "are absolute local paths) — used for drill rigs and for bridging "
+             "gateways (e.g. a future AS2 sidecar) that deliver files to disk.",
     )
     ftp_host = fields.Char(string="FTP Host")
     ftp_port = fields.Integer(string="FTP Port", default=21)
@@ -112,6 +121,12 @@ class EDITradingPartner(models.Model):
         string="Pricelist",
         help="Used for price comparison on inbound orders",
     )
+    pricelist_gst_warning = fields.Char(
+        compute="_compute_pricelist_gst_warning",
+        string="Pricelist GST Notice",
+        help="Non-blocking advisory shown when the assigned pricelist references "
+        "products carrying a GST-inclusive tax. EDI prices are ex-GST.",
+    )
     warehouse_id = fields.Many2one(
         "stock.warehouse",
         string="Fulfilment Warehouse",
@@ -139,6 +154,17 @@ class EDITradingPartner(models.Model):
         default="single",
         string="Order Split Mode",
     )
+    oos_policy = fields.Selection(
+        [("backorder", "Accept in full (backorder shortfall)"),
+         ("short_ship", "Short-ship available qty (ACK shortfall)")],
+        required=True,
+        default="backorder",
+        string="Out-of-Stock Policy",
+        help="backorder: accept the order in full and let the short qty backorder "
+             "(legacy behaviour). short_ship: reduce each line to the qty available "
+             "at the fulfilment DC and acknowledge the shortfall in the ORDRSP, so the "
+             "WMS only ever receives stock we can actually ship.",
+    )
     product_match_field = fields.Selection(
         [
             ("barcode", "Barcode (EAN-13)"),
@@ -154,6 +180,74 @@ class EDITradingPartner(models.Model):
         string="Client Reference Template",
         help="Python format string for SO client reference. Variables: {po_number}, {store_code}",
     )
+
+    # ── EDI Identity (EDIFACT interchange envelope) ─────────────────────────
+    # Used by build_unb() to populate the UNB sender/recipient identity for
+    # partners exchanging UN/EDIFACT (e.g. Animates via SPS Commerce). Not
+    # meaningful for iDOC partners (Briscoes).
+
+    edi_sender_id = fields.Char(
+        string="EDI Sender ID",
+        help="Our identity in the UNB interchange header sent to this partner "
+             "(e.g. our GLN: '9419416000008'). Portal test-mailbox convention "
+             "appends a literal 'T' suffix for the TEST environment "
+             "(e.g. '9419416000008T', qualifier ZZZ) — some partners issue a "
+             "distinct test sender id rather than deriving it; set the exact "
+             "value the partner's onboarding/portal assigned for each "
+             "environment. See get_unb_sender().",
+    )
+    edi_sender_qualifier = fields.Char(
+        string="EDI Sender Qualifier",
+        default="ZZZ",
+        help="UNB S002 qualifier for edi_sender_id (DE0007), e.g. 'ZZZ' "
+             "(mutually defined) or '14' (GLN). Animates uses ZZZ for the "
+             "supplier side per the MIG worked examples.",
+    )
+    supplier_gln = fields.Char(
+        string="Supplier GLN",
+        help="Our GS1 Global Location Number (GLN), qualifier '14'. Used where "
+             "the partner's MIG specifically requires a GLN-qualified identity "
+             "(as opposed to edi_sender_id/edi_sender_qualifier, which may be "
+             "ZZZ-qualified for the interchange envelope itself).",
+    )
+    animates_vendor_code = fields.Char(
+        string="Animates Vendor Code",
+        help="The supplier code Animates assigned us (e.g. 'V1058'), used for "
+             "NAD+SU and PIA+1:SA identity in outbound Animates messages "
+             "(ORDRSP/DESADV/INVOIC). Blank on non-Animates partners.",
+    )
+
+    def get_unb_sender(self):
+        """Return (id, qualifier) for OUR identity in an outbound UNB.
+
+        Prefers the explicit edi_sender_id/edi_sender_qualifier pair; falls
+        back to supplier_gln (qualifier '14') if only the GLN is configured.
+        Raises UserError if neither is set — callers building a PRODUCTION
+        payload must not silently fall back to a placeholder identity
+        (see AN-01 / OPS-identity).
+        """
+        self.ensure_one()
+        if self.edi_sender_id:
+            return self.edi_sender_id, (self.edi_sender_qualifier or "ZZZ")
+        if self.supplier_gln:
+            return self.supplier_gln, "14"
+        raise UserError(
+            _("Trading partner '%s' has no EDI sender identity configured "
+              "(edi_sender_id or supplier_gln). Set one before sending "
+              "EDIFACT interchanges.") % self.name
+        )
+
+    def get_unb_recipient(self):
+        """Return (id, qualifier) for the Animates side of an outbound UNB.
+
+        Switches on ``environment``: the TEST portal mailbox is a DISTINCT
+        recipient identity 'TST1ANIMATES' (per the ORDRSP/ORDERS MIG worked
+        examples), not the production 'ANIMATES' id with a flag — sending to
+        the wrong one silently misroutes the interchange in SPS Commerce.
+        """
+        self.ensure_one()
+        recipient = "TST1ANIMATES" if self.environment == "test" else "ANIMATES"
+        return recipient, "ZZZ"
 
     # ── Notifications ─────────────────────────────────────────────────────
 
@@ -371,36 +465,46 @@ class EDITradingPartner(models.Model):
                     % ', '.join(sorted(unknown))
                 )
 
-    @api.constrains('pricelist_id')
-    def _validate_pricelist_gst(self):
-        """Reject pricelists that resolve to GST-inclusive prices.
+    def _pricelist_gst_inclusive_message(self):
+        """Return an advisory message if the assigned pricelist references
+        products carrying a GST-inclusive (``price_include``) tax, else False.
 
-        EDI prices from retail trading partners (Briscoes, etc.) are quoted
-        ex-GST. If the assigned pricelist references products whose
-        ``taxes_id`` includes any ``account.tax`` with
-        ``price_include=True``, every line will show a systematic ~15%
-        discrepancy and produce false-positive ``price_discrepancy``
-        issues that block otherwise-clean orders.
-
-        Hard fail at the boundary so the misconfiguration is impossible
-        by construction.
+        EDI prices are ex-GST. This used to be a hard ``@api.constrains`` that
+        blocked the save, but ``price_include`` is only a *proxy*: a product can
+        legitimately carry both an ex-GST and an inc-GST tax (retail vs
+        wholesale / multi-company) while its EDI pricelist value is ex-GST — e.g.
+        the live Animates pricelist ($8.10 ex-GST on products that also hold an
+        inc-GST retail tax). The price comparison uses the *raw* pricelist value,
+        and the per-line ``price_discrepancy`` check at order time is the
+        authoritative guard, so this is now a non-blocking notice rather than a
+        hard fail (which would wrongly block onboarding a valid ex-GST pricelist).
         """
-        for rec in self:
-            pricelist = rec.pricelist_id
-            if not pricelist:
+        self.ensure_one()
+        pricelist = self.pricelist_id
+        if not pricelist:
+            return False
+        flagged = []
+        for item in pricelist.item_ids or ():
+            target = item.product_id or item.product_tmpl_id
+            if not target:
                 continue
-            for item in pricelist.item_ids or ():
-                target = item.product_id or item.product_tmpl_id
-                if not target:
-                    continue
-                for tax in target.taxes_id or ():
-                    if getattr(tax, 'price_include', False):
-                        raise ValidationError(
-                            "EDI pricelists must be GST-exclusive (ex-GST). "
-                            "Pricelist '%s' resolves to GST-inclusive prices, "
-                            "which would cause a 15%% discrepancy with "
-                            "Briscoes net prices." % pricelist.display_name
-                        )
+            if any(getattr(tax, 'price_include', False) for tax in target.taxes_id or ()):
+                flagged.append(target.display_name)
+        if not flagged:
+            return False
+        sample = ', '.join(flagged[:3])
+        more = '' if len(flagged) <= 3 else ' (+%d more)' % (len(flagged) - 3)
+        return (
+            "Heads up: pricelist '%s' has %d product(s) carrying a GST-inclusive "
+            "tax (%s%s). EDI prices are ex-GST — confirm this pricelist's prices "
+            "are ex-GST. The order-time price-discrepancy check remains the "
+            "authoritative guard." % (pricelist.display_name, len(flagged), sample, more)
+        )
+
+    @api.depends('pricelist_id')
+    def _compute_pricelist_gst_warning(self):
+        for rec in self:
+            rec.pricelist_gst_warning = rec._pricelist_gst_inclusive_message()
 
     # ── ORM overrides (credential encryption) ────────────────────────────
 
@@ -430,11 +534,11 @@ class EDITradingPartner(models.Model):
     def action_test_ftp_connection(self):
         """Test FTP connectivity. Called from form view button."""
         self.ensure_one()
-        from .edi_ftp import EDIFTPHandler
+        from .edi_ftp import get_transport_handler
         from ..parsers.base_parser import EDIFTPError
 
         try:
-            handler = EDIFTPHandler(self)
+            handler = get_transport_handler(self)
             with handler.connection():
                 files = handler.list_files()
             return {

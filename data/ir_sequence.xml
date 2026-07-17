@@ -2,14 +2,20 @@
 <odoo>
     <data noupdate="1">
 
+        <!-- Order-review reference: year-segmented with a yearly-reset
+             subsequence (use_date_range) -> EDI/26/00001, EDI/26/00002, ...
+             counter resets each Jan 1. Internal review reference only;
+             idempotency keys on customer_po_number, not on this name, and no
+             code parses the EDI/ format (verified 2026-06-22). -->
         <record id="seq_edi_order_review" model="ir.sequence">
             <field name="name">EDI Order Review</field>
             <field name="code">edi.order.review</field>
-            <field name="prefix">EDI/</field>
+            <field name="prefix">EDI/%(range_y)s/</field>
             <field name="suffix"></field>
             <field name="padding">5</field>
             <field name="number_increment">1</field>
             <field name="number_next">1</field>
+            <field name="use_date_range" eval="True"/>
         </record>
 
         <record id="seq_edi_log" model="ir.sequence">
@@ -27,6 +33,36 @@
             <field name="code">edi.asn.ctrl.ref</field>
             <field name="prefix"></field>
             <field name="padding">6</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+        </record>
+
+        <!-- Animates UNB 0020 interchange control reference. Numeric, monotonically
+             increasing, shared across every outbound Animates message type (ORDRSP/
+             CONTRL/DESADV/INVOIC) so each interchange we send Animates carries a
+             globally-unique control ref — echoed verbatim in that interchange's own
+             UNZ 0020. No date-range reset (Animates has no documented rollover rule
+             and a reset risks colliding with an earlier control ref still open on
+             their side). -->
+        <record id="seq_animates_interchange_ref" model="ir.sequence">
+            <field name="name">Animates EDIFACT Interchange Control Reference</field>
+            <field name="code">mml_edi.animates.interchange.ref</field>
+            <field name="prefix"></field>
+            <field name="padding">1</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+        </record>
+
+        <!-- SSCC (Serial Shipping Container Code) serial component for DESADV
+             carton/pallet labels. Per GS1 the SSCC serial must be unique for at
+             least 12 months against our GS1 company prefix; this sequence supplies
+             that serial (the extension digit + GS1 prefix + check digit are composed
+             by the DESADV/SSCC label builder, not stored here). -->
+        <record id="seq_animates_sscc_serial" model="ir.sequence">
+            <field name="name">Animates SSCC Serial</field>
+            <field name="code">mml_edi.sscc.serial</field>
+            <field name="prefix"></field>
+            <field name="padding">1</field>
             <field name="number_next">1</field>
             <field name="number_increment">1</field>
         </record>

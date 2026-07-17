@@ -4,12 +4,13 @@
         <field name="name">edi.seed.stores.wizard.form</field>
         <field name="model">edi.seed.stores.wizard</field>
         <field name="arch" type="xml">
-            <form string="Seed Briscoes Store Partners">
+            <form string="Seed Store Partners">
                 <group>
                     <field name="trading_partner_id"/>
                 </group>
                 <group invisible="state == 'draft'">
                     <field name="result_created"/>
+                    <field name="result_updated"/>
                     <field name="result_skipped"/>
                     <field name="result_message"/>
                 </group>

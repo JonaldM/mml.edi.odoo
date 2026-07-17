@@ -313,11 +313,18 @@ def _ean13_check_digit_valid(barcode: str) -> bool:
 
 
 def _validate_ean13_for_ordrsp(order_lines):
-    """Raise UserError if any line product has no valid EAN-13 barcode."""
+    """Raise UserError if any *shipping* line product has no valid EAN-13 barcode.
+
+    Only lines that carry a confirmed qty (product_uom_qty > 0) transmit a barcode
+    to Briscoes. A fully out-of-stock line (qty 0, ORDRSP action 7) is an absence
+    acknowledgement — it must not block the whole ORDRSP just because that product
+    happens to lack a valid barcode (e.g. a fallback-matched OOS SKU)."""
     import re
     ean13_re = re.compile(r'^\d{13}$')
     missing = []
     for line in order_lines:
+        if (getattr(line, 'product_uom_qty', 0) or 0) <= 0:
+            continue
         barcode = getattr(line.product_id, 'barcode', '') or ''
         if not ean13_re.match(barcode) or not _ean13_check_digit_valid(barcode):
             missing.append(line.product_id.display_name)
@@ -381,7 +388,12 @@ def _generate_ordrsp(review) -> bytes:
             if review.state == "rejected":
                 line_action = _ORDRSP_LINE_REJECTED
             elif sol.edi_qty_shortfall > 0:
-                line_action = _ORDRSP_LINE_QTY_CHANGED
+                # Fully out of stock (nothing ships) is a line rejection, not a
+                # qty-change carrying a confirmed qty of 0.
+                line_action = (
+                    _ORDRSP_LINE_REJECTED if sol.product_uom_qty <= 0
+                    else _ORDRSP_LINE_QTY_CHANGED
+                )
             else:
                 line_action = _ORDRSP_LINE_ACCEPTED
 

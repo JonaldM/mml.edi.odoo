@@ -1,6 +1,6 @@
 {
     "name": "MML EDI",
-    "version": "19.0.1.0.1",
+    "version": "19.0.1.2.0",
     "summary": "Electronic Data Interchange for retail partners (Briscoes Group and others)",
     "description": """
         Customer-agnostic EDI module for Odoo 19.
@@ -44,6 +44,8 @@
         "data/edi_trading_partner_briscoes.xml",
         # Templates
         "data/mail_template.xml",
+        # Reports
+        "report/sscc_label_report.xml",
     ],
     "assets": {
         "web.assets_backend": [

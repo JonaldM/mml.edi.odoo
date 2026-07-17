@@ -14,7 +14,7 @@ import html
 import json
 import logging
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
@@ -25,6 +25,98 @@ _logger = logging.getLogger(__name__)
 def build_session_id() -> str:
     """Generate a short unique ID for correlating log messages within one poll run."""
     return secrets.token_hex(4)
+
+
+# Default lead (days) beyond which an EDI delivery date marks the PO as an
+# INDENT — a forward commitment placed months before the stock arrives.
+# Overridable via ir.config_parameter 'mml_edi.indent_threshold_days'.
+INDENT_THRESHOLD_DAYS = 28
+
+
+def _is_indent_commitment(commitment, now, threshold_days=INDENT_THRESHOLD_DAYS):
+    """True when a requested delivery date is far enough out to be an indent.
+
+    Pure so the threshold maths is unit-testable: an order whose committed
+    delivery sits more than ``threshold_days`` past ``now`` is a forward
+    commitment, not a fulfil-now order.
+    """
+    if not commitment:
+        return False
+    return commitment > now + timedelta(days=threshold_days)
+
+
+def _short_ship_split(ordered, available):
+    """Split an ordered qty into ``(ship_qty, shortfall)`` given DC-available qty.
+
+    Policy: never backorder. Ship what the fulfilment DC holds, acknowledge the
+    rest as a shortfall in the ORDRSP. A negative availability (over-reservation)
+    ships nothing rather than a negative qty.
+    """
+    ship = min(ordered, max(available, 0.0))
+    return ship, ordered - ship
+
+
+def _reclamp_line(ordered, available, current_qty, cap_to_current=False):
+    """Pure re-clamp decision for one SO line at approve/ORDCHG time (SS-1/SS-5).
+
+    Same math as the parse-time gate (_short_ship_split): clamp to
+    min(ordered, available) with a floor of 0. Returns
+    ``(new_qty, shortfall, changed)`` where ``changed`` is True when the line's
+    current qty differs from the re-clamped qty (float-tolerant compare).
+
+    ``cap_to_current=True`` (the Approve-with-Corrections path): the operator's
+    current qty is a deliberate human decision — the re-clamp may only move
+    the line DOWN from it (stock vanished), never restore it back up toward
+    the customer's ordered qty. Basis becomes min(ordered, current_qty); the
+    reported shortfall stays relative to the customer's ordered qty so the
+    ORDRSP still tells the partner the truth about the original request.
+    """
+    basis = min(ordered, current_qty or 0.0) if cap_to_current else ordered
+    new_qty, _base_short = _short_ship_split(basis, available)
+    shortfall = max(0.0, (ordered or 0.0) - new_qty)
+    changed = abs(new_qty - (current_qty or 0.0)) > 1e-6
+    return new_qty, shortfall, changed
+
+
+# Fixed class-id for the per-partner poll advisory lock (IDEM-1a). Both halves
+# of pg_advisory_xact_lock(class, id) are signed int4; this constant must stay
+# STABLE across releases — changing it would let two code versions poll the
+# same partner concurrently. 0x45444950 == ASCII 'EDIP' (EDI Poll).
+EDI_POLL_LOCK_CLASS = 0x45444950
+
+# DB backstop unique index rejecting duplicate live EDI SOs (IDEM-1b). Created
+# by sale.order.init() and migrations/19.0.1.0.3; referenced here to convert a
+# losing create-race into the standard duplicate_skipped path.
+SO_EDI_CLIENT_REF_INDEX = "sale_order_edi_client_ref_uniq"
+
+
+def _is_duplicate_so_violation(exc) -> bool:
+    """True when ``exc`` is the unique violation raised by the EDI client-ref
+    backstop index — i.e. a concurrent transaction created (and committed) the
+    same EDI SO first. Matched on the index name so no psycopg2 import is
+    needed at module level (keeps the pure-pytest import path clean)."""
+    return SO_EDI_CLIENT_REF_INDEX in str(exc)
+
+
+def _commit_suppressed(env) -> bool:
+    """True when the enclosing transaction belongs to a test harness and must
+    never be really committed.
+
+    Odoo 19 REMOVED Registry.in_test_mode() — calling it on a live registry
+    raises AttributeError (caught by CI: it silently killed every ACK send).
+    The registry hook is still consulted first so environments (and the pure
+    test fakes) that provide one keep working; otherwise the ``--test-enable``
+    config flag is the reliable signal. Undeterminable -> suppress (a
+    maybe-test cursor must never be really committed; production always has a
+    readable config, so durability there is unaffected)."""
+    checker = getattr(getattr(env, "registry", None), "in_test_mode", None)
+    if callable(checker):
+        return bool(checker())
+    try:
+        from odoo.tools import config
+        return bool(config.get("test_enable"))
+    except Exception:
+        return True
 
 
 def _escape_ilike(value: str) -> str:
@@ -68,19 +160,10 @@ class EDIProcessor(models.AbstractModel):
                 )
                 continue
             try:
-                self.poll_trading_partner(partner)
-                partner.write({"circuit_failure_count": 0, "circuit_open_since": False})
+                failed_files = self.poll_trading_partner(partner)
             except Exception as exc:
                 _logger.exception("[EDI] Poll failed for partner %s", partner.code)
-                new_count = partner.circuit_failure_count + 1
-                vals = {"circuit_failure_count": new_count}
-                if new_count >= partner.circuit_failure_threshold and not partner.circuit_open_since:
-                    vals["circuit_open_since"] = fields.Datetime.now()
-                    _logger.error(
-                        "[EDI] Circuit breaker TRIPPED for %s after %d consecutive failures",
-                        partner.code, new_count,
-                    )
-                partner.write(vals)
+                self._record_poll_failure(partner)
                 self.env["edi.log"].log(
                     partner, "inbound", "error", "error",
                     "Scheduled poll failed: %s" % str(exc),
@@ -91,6 +174,35 @@ class EDIProcessor(models.AbstractModel):
                     'EDI poll failed for %s' % partner.code,
                     str(exc),
                 )
+                continue
+            if failed_files:
+                # OPS-25: file-level failures COUNT TOWARD the breaker — never
+                # reset it. Previously the poll "succeeded" (no exception), the
+                # count was zeroed, and a poisoned file re-failed silently every
+                # cycle forever. The rate-limited per-file alert is sent inside
+                # poll_trading_partner.
+                _logger.warning(
+                    "[EDI] Poll for %s completed with %d failed file(s) — "
+                    "counting toward the circuit breaker",
+                    partner.code, failed_files,
+                )
+                self._record_poll_failure(partner)
+            else:
+                partner.write({"circuit_failure_count": 0, "circuit_open_since": False})
+
+    def _record_poll_failure(self, partner):
+        """Increment the partner's circuit-breaker failure count and open the
+        circuit when the threshold is reached. Shared by the poll-exception
+        path and the per-file failure path (OPS-25)."""
+        new_count = partner.circuit_failure_count + 1
+        vals = {"circuit_failure_count": new_count}
+        if new_count >= partner.circuit_failure_threshold and not partner.circuit_open_since:
+            vals["circuit_open_since"] = fields.Datetime.now()
+            _logger.error(
+                "[EDI] Circuit breaker TRIPPED for %s after %d consecutive failures",
+                partner.code, new_count,
+            )
+        partner.write(vals)
 
     # ── Deferred-ACK retry safety net ─────────────────────────────────────
 
@@ -120,6 +232,14 @@ class EDIProcessor(models.AbstractModel):
         seen_exchanges = set()
         requeued = 0
         for review in resolved:
+            # C5: a cancellation review is a terminal, no-ACK record by design
+            # — it must NEVER be offered to _queue_ack (Animates gets a CONTRL
+            # only). Checked first so a cancellation can never enter the
+            # per-exchange dedup set and (via seen_exchanges) accidentally
+            # suppress a legitimate sibling exchange's retry.
+            if self._is_cancellation_review(review):
+                continue
+
             partner = review.trading_partner_id
             po = review.customer_po_number
             exchange = (partner.id, po, review.edi_file_hash or review.id)
@@ -136,9 +256,12 @@ class EDIProcessor(models.AbstractModel):
             ]):
                 continue
 
-            # Skip if an ACK for this exact exchange already uploaded successfully.
-            exchange_key = (review.edi_file_hash or str(review.id))[:8]
-            filename = "ACK_%s_%s_%s.edi" % (partner.code, po, exchange_key)
+            # Skip if an ACK for this exact exchange already uploaded
+            # successfully. The shared helper includes the ACK attempt
+            # counter (IDEM-4): after a reset-after-sent the exchange moves
+            # to a '_aN' filename, so the OLD attempt's success row must not
+            # suppress the corrected re-send.
+            filename = review._ack_exchange_filename()
             if Log.search_count([
                 ("trading_partner_id", "=", partner.id),
                 ("event_type", "=", "ack_sent"),
@@ -165,14 +288,41 @@ class EDIProcessor(models.AbstractModel):
 
     @api.model
     def poll_trading_partner(self, partner):
-        """Download and process all files from a trading partner's FTP inbox."""
-        from .edi_ftp import EDIFTPHandler
+        """Download and process all files from a trading partner's FTP inbox.
+
+        Returns the number of files that FAILED this pass (0 = clean poll);
+        run_scheduled_poll counts a non-zero return toward the circuit breaker
+        so a poisoned file cannot re-fail silently forever (OPS-25).
+
+        Concurrency (IDEM-1a): a per-partner Postgres advisory lock serializes
+        concurrent polls of the SAME partner (cron tick vs 'Run Poll Now' vs
+        two HTTP workers). The loser blocks until the winner's transaction
+        ends and then sees its committed dedup rows. The partial unique index
+        on EDI SOs (IDEM-1b, see sale_order.init) is the DB backstop for
+        anything that still slips through.
+
+        ORDERING INVARIANT per file (IDEM-2):
+            process -> write dedup marker -> COMMIT -> FTP rename -> ACK/OOS.
+        See the inline comment at the marker write.
+        """
+        from .edi_ftp import get_transport_handler
         from ..parsers.base_parser import EDIFTPError
+
+        # Per-poll memo for the reservation-method config warning (SS-3):
+        # a mutable set in context so the sanity check warns at most once
+        # per poll per picking type.
+        self = self.with_context(edi_reservation_warned=set())
+
+        # IDEM-1a: serialize concurrent polls of this partner. Transaction-
+        # scoped, so it is released automatically on commit/rollback — and
+        # therefore RE-ACQUIRED after every per-file commit (_poll_commit).
+        self._acquire_poll_lock(partner)
 
         sid = build_session_id()
         prefix = "[EDI:%s]" % sid
         _logger.info("%s Polling %s", prefix, partner.code)
-        handler = EDIFTPHandler(partner)
+        handler = get_transport_handler(partner)
+        failed_files = 0
 
         try:
             with handler.connection():
@@ -218,17 +368,47 @@ class EDIProcessor(models.AbstractModel):
                                 % (len(failures), filename),
                                 filename=filename, file_hash=file_hash,
                             )
+                            # Persist the stores that DID succeed (and their
+                            # logs) — without a commit a worker death would roll
+                            # them back, and the retry pass relies on their
+                            # committed SO-ref dedup rows.
+                            self._poll_commit(partner)
+                            # OPS-25: a file re-failing every cycle must not stay
+                            # silent (rate-limited).
+                            self._alert_file_failure(
+                                partner, filename,
+                                "%d store-order(s) failed: %s" % (
+                                    len(failures),
+                                    "; ".join("%s: %s" % f for f in failures)),
+                            )
+                            failed_files += 1
                             continue
 
-                        # Mark the file processed (the dedup marker) only after
-                        # EVERY store-order succeeded.
+                        # ORDERING INVARIANT (IDEM-2) — do NOT reorder:
+                        #   1. dedup marker (file_download/success) written
+                        #   2. COMMIT — SOs/reviews/logs/marker become durable
+                        #   3. FTP rename to '.processed'
+                        #   4. ACK / OOS summary
+                        # The DB must be durable BEFORE the rename: a worker
+                        # death after the rename but before a commit would
+                        # archive the file while rolling back its SOs — the PO
+                        # silently lost forever. A death between 2 and 3 leaves
+                        # the file in the inbox; the next poll dup-skips it by
+                        # hash and just re-renames (existing self-heal). The
+                        # ACK goes LAST so the partner can never hold an ORDRSP
+                        # for uncommitted state; a death before 4 is covered by
+                        # the retry_pending_acks cron.
                         self.env["edi.log"].log(
                             partner, "inbound", "file_download", "success",
                             "Downloaded: %s (%d bytes)" % (filename, len(content)),
                             filename=filename, file_hash=file_hash,
                         )
 
+                        self._poll_commit(partner)
+
                         handler.move_to_processed(filename)
+
+                        self._send_file_responses(partner, file_hash)
 
                     except Exception as exc:
                         _logger.exception(
@@ -239,6 +419,8 @@ class EDIProcessor(models.AbstractModel):
                             "Error processing %s: %s" % (filename, str(exc)),
                             filename=filename, detail=str(exc),
                         )
+                        self._alert_file_failure(partner, filename, str(exc))
+                        failed_files += 1
 
         except EDIFTPError as exc:
             _logger.error("%s FTP connection failed for %s: %s", prefix, partner.code, exc)
@@ -249,7 +431,354 @@ class EDIProcessor(models.AbstractModel):
             )
             raise
 
+        return failed_files
+
+    def _acquire_poll_lock(self, partner):
+        """Per-partner transaction-scoped advisory lock (IDEM-1a). Blocks until
+        any concurrent poll of the same partner commits or rolls back."""
+        self.env.cr.execute(
+            "SELECT pg_advisory_xact_lock(%s, %s)",
+            (EDI_POLL_LOCK_CLASS, partner.id),
+        )
+
+    def _poll_commit(self, partner):
+        """Durability point in the poll loop (IDEM-2).
+
+        Commits the transaction so SOs/reviews/logs/dedup markers survive a
+        worker death, then immediately re-takes the per-partner advisory lock
+        (pg_advisory_xact_lock is transaction-scoped — the commit released it).
+        Guarded so the test runner's enclosing transaction is never committed;
+        under tests the lock also survives (nothing was committed).
+        """
+        if _commit_suppressed(self.env):
+            return
+        self.env.cr.commit()
+        self._acquire_poll_lock(partner)
+
+    def _alert_file_failure(self, partner, filename, detail):
+        """Rate-limited email for a per-file processing failure (OPS-25).
+
+        Without this, a poisoned file re-fails silently every poll: the poll
+        itself 'succeeds', so neither the poll-level alert nor the breaker
+        ever fires. Uses its own rate-limit bucket (mml_edi.file_failure) so
+        it cannot suppress — or be suppressed by — the poll-failure alert.
+        """
+        self._send_cron_alert(
+            'mml_edi.file_failure',
+            'EDI file failed for %s: %s' % (partner.code, filename),
+            detail,
+        )
+
+    def _send_file_responses(self, partner, file_hash):
+        """Queue the per-PO ORDRSP + OOS summary for every PO of a file that
+        just fully processed, then the mandatory per-interchange CONTRL.
+
+        Runs AFTER the per-file commit + FTP rename (ordering invariant — see
+        poll_trading_partner), so the partner can never receive an ACK for
+        uncommitted state. Covers every PO in the file (not just the first);
+        _queue_ack itself defers while sibling store-reviews are pending and
+        is idempotent per exchange, and any miss here (e.g. worker death) is
+        picked up by the retry_pending_acks cron.
+
+        CONTRL ordering (documented per the C4 contract): emitted AFTER the
+        ORDRSP queueing loop, independent of whether any ORDRSP actually sent
+        (queue_ack legitimately defers while sibling stores are pending) —
+        CONTRL acknowledges RECEIPT of the interchange at the syntax level
+        and per the MIG is not contingent on business-level acceptance, so it
+        must not wait on ORDRSP completion. C5: cancellation reviews are
+        skipped by _queue_ack's caller here exactly like everywhere else
+        (they hold state='rejected' with the CANCELLATION_MARKER and
+        _queue_ack is simply never reached for them via this path either,
+        since process_parsed_order never returns to a queueable state for a
+        cancellation) — see _is_cancellation_review.
+        """
+        reviews = self.env["edi.order.review"].search([
+            ("trading_partner_id", "=", partner.id),
+            ("edi_file_hash", "=", file_hash),
+        ], order="id")
+        seen_pos = []
+        for review in reviews:
+            if self._is_cancellation_review(review):
+                # C5: cancellations are CONTRL-only — never queue an ORDRSP,
+                # and never let the ACK retry cron pick one up either (see
+                # the matching guard in retry_pending_acks).
+                continue
+            po_number = review.customer_po_number
+            if po_number in seen_pos:
+                continue
+            seen_pos.append(po_number)
+            latest = reviews.filtered(
+                lambda r, po=po_number: r.customer_po_number == po
+            )[-1]
+            latest._queue_ack()
+            # Stock-shortfall (OOS) heads-up: one summary email per PO. OOS
+            # lines do not block — this is informational, not a review request.
+            try:
+                self._send_oos_summary(partner, po_number)
+            except Exception:
+                _logger.warning(
+                    "[EDI] OOS summary email failed for PO %s", po_number,
+                    exc_info=True,
+                )
+
+        # AN-02: every inbound ORDERS interchange gets exactly one supplier
+        # CONTRL, mandatory regardless of business outcome (accept/reject/
+        # cancel) — emitted once per file/interchange, not per PO. hasattr-
+        # guarded so partners whose parser has no CONTRL support (Briscoes)
+        # are a strict no-op; must never raise into the poll loop.
+        try:
+            self._emit_inbound_contrl(partner, file_hash)
+        except Exception:
+            _logger.warning(
+                "[EDI] CONTRL emission failed for file_hash=%s (%s)",
+                file_hash, partner.code, exc_info=True,
+            )
+
+    def _emit_inbound_contrl(self, partner, file_hash):
+        """Emit + upload the mandatory CONTRL functional acknowledgement for
+        one just-processed inbound interchange (C4 / AN-02).
+
+        No-op (hasattr-guarded) for any parser without generate_contrl (e.g.
+        Briscoes) — preserves that partner's behaviour byte-for-byte. Failure
+        here is logged (rate-limited alert) and NEVER raised into the poll
+        loop: a missing/failed CONTRL must not turn a successfully processed
+        ORDERS file into a failed poll (that would re-download and re-process
+        it, defeating the file-hash dedup that already ran).
+        """
+        parser = partner.get_parser_instance()
+        generate_contrl = getattr(parser, "generate_contrl", None)
+        if not callable(generate_contrl):
+            return
+
+        review = self.env["edi.order.review"].search([
+            ("trading_partner_id", "=", partner.id),
+            ("edi_file_hash", "=", file_hash),
+        ], order="id", limit=1)
+        if not review:
+            return
+        raw_text = review.edi_raw_data
+        if not raw_text:
+            return
+
+        filename = "CONTRL_%s_%s.edi" % (partner.code, file_hash[:12])
+        Log = self.env["edi.log"]
+        if Log.search_count([
+            ("trading_partner_id", "=", partner.id),
+            ("event_type", "=", "contrl_sent"),
+            ("status", "=", "success"),
+            ("filename", "=", filename),
+        ]):
+            # Already sent for this exact interchange (e.g. a retry re-running
+            # _send_file_responses after a partial earlier failure).
+            return
+
+        try:
+            contrl_bytes = generate_contrl(raw_text, partner)
+        except Exception as exc:
+            Log.log(
+                partner, "outbound", "contrl_sent", "error",
+                "CONTRL generation failed: %s" % str(exc),
+                filename=filename, detail=str(exc),
+            )
+            self._send_cron_alert(
+                'mml_edi.contrl_failure',
+                'CONTRL generation failed for %s' % partner.code,
+                str(exc),
+            )
+            return
+
+        from .edi_ftp import get_transport_handler
+        handler = get_transport_handler(partner)
+        try:
+            with handler.connection():
+                handler.upload_file(filename, contrl_bytes)
+        except Exception as exc:
+            Log.log(
+                partner, "outbound", "contrl_sent", "error",
+                "CONTRL upload failed: %s" % str(exc),
+                filename=filename, detail=str(exc),
+            )
+            self._send_cron_alert(
+                'mml_edi.contrl_failure',
+                'CONTRL upload failed for %s' % partner.code,
+                str(exc),
+            )
+            return
+
+        Log.log(
+            partner, "outbound", "contrl_sent", "success",
+            "CONTRL sent acknowledging inbound interchange: %s" % filename,
+            filename=filename, review=review,
+        )
+
     # ── File processing ───────────────────────────────────────────────────
+
+    # EDI formats whose wire encoding is EDIFACT's UNOC level-C single-byte
+    # charset (Latin-1 / ISO-8859-1), never UTF-8. Decoding these as UTF-8
+    # with errors='replace' permanently corrupts any non-ASCII byte (0x80-0xFF)
+    # into U+FFFD BEFORE the parser ever sees it — a Latin-1 round-trip cannot
+    # recover the original character once replaced (verified missed finding,
+    # AN gate review). iDOC/CSV partners (Briscoes) are unaffected and keep
+    # their existing utf-8 decode.
+    _EDIFACT_FORMATS = frozenset({"edifact_d96a", "edifact_d01b"})
+
+    def _decode_raw_text(self, content: bytes, partner) -> str:
+        """Decode raw file bytes for storage/audit (edi.order.review.edi_raw_data)
+        and CONTRL detection, using the partner's wire encoding.
+
+        This is ONLY the fallback/storage decode — it must never overwrite a
+        raw_data the parser itself already set from a decode it trusts more
+        (see the loop in _process_file, which only assigns when raw_data is
+        still empty).
+        """
+        encoding = "iso-8859-1" if partner.edi_format in self._EDIFACT_FORMATS else "utf-8"
+        return content.decode(encoding, errors="replace")
+
+    def _is_contrl_message(self, raw_text: str) -> bool:
+        """True when an EDIFACT interchange's UNH identifies it as a CONTRL
+        (functional acknowledgement) rather than a business message (ORDERS/
+        ORDRSP/...). Cheap substring probe — full tokenizing is left to the
+        partner's own parse_contrl so this stays format-agnostic and never
+        raises on a malformed file (a false negative just falls through to
+        the normal ORDERS parse, which then fails loudly and visibly instead
+        of silently, per the code's own fail-closed convention)."""
+        return "UNH+" in raw_text and ":CONTRL:" in raw_text.replace("+", ":")
+
+    def _handle_inbound_contrl(
+        self, raw_text: str, filename: str, file_hash: str, partner
+    ) -> bool:
+        """Route an inbound CONTRL to the parser's parse_contrl (AN gate
+        review: 'Inbound CONTRL swallowed'). Returns True when this file WAS
+        a CONTRL (whether or not it correlated) — the caller must stop and
+        not fall through to parser.parse_file, which would silently emit
+        'parsed 0 orders' for a CONTRL body with no BGM/LIN.
+
+        A NEGATIVE CONTRL (action code other than '8' = interchange received)
+        must create a blocking review, not vanish — Animates uses only '8' by
+        spec, but the wire is not trusted to enforce that.
+        """
+        parser = partner.get_parser_instance()
+        parse_contrl = getattr(parser, "parse_contrl", None)
+        if not callable(parse_contrl):
+            # Parser has no CONTRL support (e.g. Briscoes) — nothing to do;
+            # the probe in _is_contrl_message is best-effort and format-
+            # agnostic, so a partner without CONTRL support simply can't
+            # receive one in practice, but guard anyway (hasattr contract).
+            return False
+
+        try:
+            parsed = parse_contrl(raw_text)
+        except Exception as exc:
+            self.env["edi.log"].log(
+                partner, "inbound", "error", "error",
+                "Inbound CONTRL in %s failed to parse: %s" % (filename, str(exc)),
+                filename=filename, file_hash=file_hash, detail=str(exc),
+            )
+            return True
+
+        action = parsed.get("action")
+        original_ref = parsed.get("original_ref")
+        # Correlate against our sent exchanges via edi_log filename/control-ref
+        # so a dropped/negative ack is visible rather than silently archived.
+        matched = bool(original_ref) and bool(self.env["edi.log"].search_count([
+            ("trading_partner_id", "=", partner.id),
+            ("event_type", "=", "contrl_sent"),
+            ("filename", "like", "%%%s%%" % original_ref),
+        ]))
+
+        if action != "8":
+            # NEGATIVE CONTRL (rejection) — fail closed: this must block, not
+            # vanish. No review/issue infrastructure is owned by this file for
+            # a standalone interchange-level rejection, so a high-severity
+            # edi.log row + the standard cron alert (rate-limited) is the
+            # blocking signal until an operator-facing review type exists.
+            self.env["edi.log"].log(
+                partner, "inbound", "contrl_received", "error",
+                "NEGATIVE CONTRL received in %s (action=%s, original_ref=%s, "
+                "correlated=%s) — the interchange we sent was NOT accepted "
+                "by the partner." % (filename, action, original_ref, matched),
+                filename=filename, file_hash=file_hash,
+            )
+            self._send_cron_alert(
+                'mml_edi.negative_contrl',
+                'Negative CONTRL from %s' % partner.code,
+                "CONTRL in %s rejected interchange %s (action=%s)" % (
+                    filename, original_ref, action),
+            )
+            return True
+
+        self.env["edi.log"].log(
+            partner, "inbound", "contrl_received", "success",
+            "CONTRL received in %s: interchange %s acknowledged (action=8, "
+            "correlated=%s)" % (filename, original_ref, matched),
+            filename=filename, file_hash=file_hash,
+        )
+        if not matched:
+            # We cannot find a matching contrl_sent — informational only
+            # (the sent-side filename format may predate this feature, or
+            # this CONTRL acks a business message from a channel outside
+            # our own sends); does not block, per the module's file-level
+            # non-blocking convention for informational mismatches.
+            _logger.info(
+                "[EDI] CONTRL in %s (ref %s) has no matching contrl_sent log "
+                "row — informational only", filename, original_ref,
+            )
+        return True
+
+    def _validate_inbound_envelope(self, raw_text: str, partner) -> None:
+        """Envelope validation + sender-mismatch check for inbound EDIFACT
+        (AN gate review 'No inbound envelope validation').
+
+        Fail-closed: raises EDIParseError on ANY violation so the file lands
+        in the normal per-file failure path (left in the inbox, alerted,
+        counted toward the circuit breaker) rather than silently producing a
+        partial/wrong order. No-ops for non-EDIFACT partners and for any
+        partner whose parser/trading-partner record doesn't yet expose the
+        validator or the C1 sender-identity helpers (hasattr-guarded so this
+        never regresses Briscoes and degrades gracefully before Wave1-A's
+        partner fields land).
+        """
+        if partner.edi_format not in self._EDIFACT_FORMATS:
+            return
+        try:
+            from ..parsers import animates_edifact as edifact_mod
+        except Exception:
+            # Shared EDIFACT helper module absent/broken — skip rather than
+            # block every inbound EDIFACT file on an import error.
+            return
+        tokenize = getattr(edifact_mod, "tokenize", None)
+        validate_interchange = getattr(edifact_mod, "validate_interchange", None)
+        if not callable(tokenize) or not callable(validate_interchange):
+            return
+
+        from ..parsers.base_parser import EDIParseError
+
+        try:
+            _, segments = tokenize(raw_text)
+            validate_interchange(segments)
+        except Exception as exc:
+            raise EDIParseError(
+                "Inbound envelope validation failed: %s" % str(exc)) from exc
+
+        get_unb_recipient = getattr(partner, "get_unb_recipient", None)
+        if not callable(get_unb_recipient):
+            # C1 helper not yet available on this DB (Wave1-A not landed /
+            # older partner record) — skip the sender check rather than
+            # block every inbound file on a missing capability.
+            return
+        unb = next((s for s in segments if getattr(s, "tag", None) == "UNB"), None)
+        if unb is None:
+            return
+        sender_id, sender_qual = unb.comp(1, 0), unb.comp(1, 1)
+        expected_id, expected_qual = get_unb_recipient()
+        if (sender_id, sender_qual) != (expected_id, expected_qual):
+            raise EDIParseError(
+                "UNB sender %s:%s does not match expected counterparty %s:%s "
+                "for environment=%s — refusing to process (fail-closed)" % (
+                    sender_id, sender_qual, expected_id, expected_qual,
+                    partner.environment,
+                )
+            )
 
     def _process_file(self, content: bytes, file_hash: str, filename: str, partner) -> list:
         """Parse a downloaded file and dispatch each ParsedOrder.
@@ -266,8 +795,22 @@ class EDIProcessor(models.AbstractModel):
             )
             return []
 
+        raw_text = self._decode_raw_text(content, partner)
+
+        # AN-15: an inbound CONTRL (SPS/Animates acking OUR outbound ORDRSP or
+        # ORDERS) must be routed to parse_contrl, not silently swallowed as
+        # "parsed 0 orders" by the ORDERS parser. Checked before parse_file so
+        # a CONTRL body (no BGM/LIN) never reaches the ORDERS code path at all.
+        if partner.edi_format in self._EDIFACT_FORMATS and self._is_contrl_message(raw_text):
+            self._handle_inbound_contrl(raw_text, filename, file_hash, partner)
+            return []
+
+        # AN envelope validation: catches truncated/malformed interchanges and
+        # sender/recipient mismatches (wrong mailbox, TST1ANIMATES vs ANIMATES)
+        # BEFORE any order is parsed from them — fail-closed, not partial-accept.
+        self._validate_inbound_envelope(raw_text, partner)
+
         parser = partner.get_parser_instance()
-        raw_text = content.decode("utf-8", errors="replace")
         parsed_orders = parser.parse_file(content, partner)
 
         self.env["edi.log"].log(
@@ -285,11 +828,36 @@ class EDIProcessor(models.AbstractModel):
         # previously-failed store(s) are re-attempted — no duplicate SOs.
         failures = []
         for order in parsed_orders:
-            order.raw_data = raw_text
+            # Only fill raw_data when the parser did not already set it — a
+            # parser (e.g. Briscoes) that decodes and stores its own raw_data
+            # is trusted over this generic fallback; this only fires for
+            # parsers (e.g. Animates) that leave it to the processor.
+            if not order.raw_data:
+                order.raw_data = raw_text
             try:
                 with self.env.cr.savepoint():
                     self.process_parsed_order(order, partner, filename, file_hash)
             except Exception as exc:
+                if _is_duplicate_so_violation(exc):
+                    # IDEM-1c: a concurrent transaction won the create race and
+                    # committed first — the DB backstop index rejected our
+                    # insert. The savepoint has already rolled this store back
+                    # to a clean state, so convert the loss into the standard
+                    # duplicate_skipped path instead of failing the file.
+                    _logger.info(
+                        "[EDI] Duplicate SO create for store '%s' of PO %s "
+                        "blocked by DB unique index (%s) — created concurrently "
+                        "by another worker; skipping",
+                        order.store_code, order.po_number, filename,
+                    )
+                    self.env["edi.log"].log(
+                        partner, "inbound", "duplicate_skipped", "warning",
+                        "Duplicate PO — store '%s' of PO %s in %s was created "
+                        "concurrently by another worker (DB unique index)" % (
+                            order.store_code, order.po_number, filename),
+                        filename=filename, file_hash=file_hash,
+                    )
+                    continue
                 _logger.exception(
                     "[EDI] Failed to process store '%s' of PO %s from %s",
                     order.store_code, order.po_number, filename,
@@ -302,32 +870,10 @@ class EDIProcessor(models.AbstractModel):
                 )
                 failures.append((order.store_code, str(exc)))
 
-        # Per-PO ACK: every store of this PO has now been processed. Send a single
-        # ORDRSP if the order auto-approved cleanly; this is a no-op (deferred)
-        # while any store-review is still in manual review, and idempotent so it
-        # uploads at most once per PO. (Briscoes expects one ORDRSP per PO.)
-        # Skip the ACK when any store failed — the PO is not yet fully processed,
-        # and the deferred-ACK retry cron (see retry_pending_acks) will pick it up
-        # once the file is retried and all stores have resolved.
-        if parsed_orders and not failures:
-            po_number = parsed_orders[0].po_number
-            any_review = self.env["edi.order.review"].search([
-                ("trading_partner_id", "=", partner.id),
-                ("customer_po_number", "=", po_number),
-            ], order="id desc", limit=1)
-            if any_review:
-                any_review._queue_ack()
-            # Stock-shortfall (OOS) heads-up: one summary email per PO. OOS lines
-            # do not block — the order is accepted in full and the short qty
-            # backorders — so this is informational, not a review request.
-            try:
-                self._send_oos_summary(partner, po_number)
-            except Exception:
-                _logger.warning(
-                    "[EDI] OOS summary email failed for PO %s", po_number,
-                    exc_info=True,
-                )
-
+        # NOTE: the per-PO ACK + OOS summary are deliberately NOT sent here.
+        # They are dispatched by the poll loop via _send_file_responses AFTER
+        # the per-file commit and FTP rename (ordering invariant IDEM-2), so
+        # the partner can never hold an ORDRSP for uncommitted state.
         return failures
 
     @api.model
@@ -338,7 +884,15 @@ class EDIProcessor(models.AbstractModel):
         """
         client_ref = partner.render_client_ref(order.po_number, order.store_code)
 
-        if order.document_type == "change_order":
+        # C5: a cancellation (BGM 1225=1, Animates) carries no order lines and
+        # must NEVER be treated as a change order that mutates+re-confirms a
+        # SO, and must NEVER queue an ORDRSP — only a CONTRL. Routed before
+        # the change_order/new_order split so it can never fall through to
+        # apply_change_order (which would try to diff lines against a
+        # cancellation that has none).
+        if order.document_type == "cancellation":
+            self._process_cancellation(order, partner, client_ref, filename, file_hash)
+        elif order.document_type == "change_order":
             self._process_change_order(order, partner, client_ref, filename, file_hash)
         else:
             self._process_new_order(order, partner, client_ref, filename, file_hash)
@@ -349,7 +903,7 @@ class EDIProcessor(models.AbstractModel):
         self, order, partner, client_ref: str, filename: str, file_hash: str
     ):
         """Full new order pipeline: dedup → SO → lines → issues → routing."""
-        existing_so = self._find_existing_so(client_ref)
+        existing_so = self._find_existing_so(client_ref, partner)
         if existing_so:
             if existing_so.state == 'cancel':
                 _logger.info(
@@ -381,6 +935,15 @@ class EDIProcessor(models.AbstractModel):
             "edi_trading_partner_id": partner.id,
             "company_id": self.env.company.id,
         }
+        # Indent detection: a delivery date far in the future marks a FORWARD
+        # COMMITMENT (e.g. Briscoes indent POs placed months ahead of stock
+        # arrival). Indents skip the OOS short-ship gate — the stock is
+        # EXPECTED to be absent at import — and are held from the 3PL until
+        # their release window (see stock_3pl_rohlig outbound gating).
+        indent_days = int(self.env['ir.config_parameter'].sudo().get_param(
+            'mml_edi.indent_threshold_days', str(INDENT_THRESHOLD_DAYS)))
+        so_vals['x_is_indent'] = _is_indent_commitment(
+            so_vals['commitment_date'], fields.Datetime.now(), indent_days)
         # Carry the clean customer PO number onto the SO. Per-store SOs otherwise
         # only have the suffixed client_order_ref (e.g. "4500180080_1080"); the
         # full Briscoes PO must be visible per store for matching, packing slips
@@ -414,6 +977,12 @@ class EDIProcessor(models.AbstractModel):
             if target_wh_id:
                 so_vals['warehouse_id'] = target_wh_id
         so = self.env["sale.order"].create(so_vals)
+        if so_vals.get('x_is_indent'):
+            so.message_post(body=_(
+                'Indent order — forward commitment for delivery on %(date)s. '
+                'Accepted in full (out-of-stock gate skipped by design); the '
+                'delivery is held from the DC until its release window.',
+                date=str(so_vals['commitment_date'])[:10]))
 
         blocking_issues = []
 
@@ -456,9 +1025,13 @@ class EDIProcessor(models.AbstractModel):
         # Route
         if not blocking_issues and partner.auto_confirm_clean:
             so.action_confirm()
+            # SS-3: reservations must actually exist after confirm — force +
+            # verify them (free_qty for every subsequent order depends on it).
+            self.verify_order_reservation(so, partner)
             review.write({"state": "auto_approved"})
-            # ACK is sent once per PO after the whole file is processed
-            # (see _process_file) — Briscoes expects a single per-PO ORDRSP.
+            # ACK is sent once per PO after the whole file is processed,
+            # committed and renamed (see poll loop -> _send_file_responses) —
+            # Briscoes expects a single per-PO ORDRSP.
             self.env["edi.log"].log(
                 partner, "inbound", "order_created", "success",
                 "Auto-approved: SO %s from %s" % (so.name, filename),
@@ -488,6 +1061,32 @@ class EDIProcessor(models.AbstractModel):
         )
 
     # ── Order line processing ─────────────────────────────────────────────
+
+    def _dc_available_qty(self, product, so):
+        """Free-to-promise qty for a product at the order's fulfilment DC.
+
+        Scoped to the order's island DC (never company-wide) so deprecated/untagged
+        warehouses (e.g. retired Auckland's phantom stock) can't inflate availability.
+        Returns 0.0 when the order has no warehouse. Degrades to warehouse-scoped
+        free_qty when the ROQ island helper/tags are absent (mml_roq_forecast not
+        installed, or the DC not yet tagged).
+        """
+        wh = so.warehouse_id if 'warehouse_id' in so._fields else False
+        if not wh:
+            return 0.0
+        # Availability fields are computed + cached per transaction: inside a
+        # long poll (or an approve that follows quant changes in the same
+        # transaction) the cache can serve a figure computed BEFORE stock
+        # moved, silently over- or under-promising. Always read fresh.
+        product.invalidate_recordset(["free_qty", "qty_available", "virtual_available"])
+        island = wh.roq_island if 'roq_island' in wh._fields else False
+        if island and hasattr(product, '_fulfilment_free_qty'):
+            return product._fulfilment_free_qty(island=island)
+        # Fallback (DC not yet tagged): scope to the warehouse's stock location to
+        # match _fulfilment_free_qty (WH/Stock only, not transit/input/output), and
+        # NEVER the company-wide {} context.
+        loc = wh.lot_stock_id
+        return product.with_context(location=loc.id).free_qty if loc else 0.0
 
     def _process_order_line(
         self, parsed_line, so, partner, review
@@ -519,12 +1118,44 @@ class EDIProcessor(models.AbstractModel):
             blocking.append({"type": "product_not_found"})
             return blocking
 
+        # OOS policy (per edi.trading.partner): short_ship reduces the line to the
+        # qty available at the fulfilment DC and ACKs the shortfall (so the WMS only
+        # receives stock we can ship); backorder keeps the legacy accept-in-full
+        # behaviour and warns. edi_ordered_qty always holds the original ordered qty.
+        ordered = parsed_line.quantity
+        policy = partner.oos_policy if 'oos_policy' in partner._fields else 'backorder'
+        # Indent orders accept in full regardless of the partner's OOS policy:
+        # the commitment is placed BEFORE the stock arrives by design, so an
+        # availability gate at import time would zero every line. Availability
+        # is enforced at release time instead.
+        if getattr(so, 'x_is_indent', False):
+            policy = 'backorder'
+        # Short-ship math and availability are both in EA. If a line ever arrives in
+        # a non-EA UoM (e.g. cartons), ordered and available aren't comparable —
+        # accept in full rather than mis-ship (plan decision 5.5; all live Briscoes
+        # lines are EA today, this guards a future format change).
+        line_uom = (getattr(parsed_line, 'uom', None) or '').strip().upper()
+        uom_shippable = line_uom in ('', 'EA', 'EACH', 'PCE', 'PC', 'UNIT', 'UNITS')
+        if policy == 'short_ship' and uom_shippable:
+            ship_qty, shortfall = _short_ship_split(
+                ordered, self._dc_available_qty(product, so))
+        else:
+            if policy == 'short_ship' and not uom_shippable:
+                _logger.warning(
+                    "[EDI] short-ship skipped for line %s (%s): non-EA UoM %r — "
+                    "accepting in full to avoid mis-ship",
+                    parsed_line.line_number,
+                    product.default_code or product.name, line_uom)
+            ship_qty, shortfall = ordered, 0.0
+
         sol = self.env["sale.order.line"].create({
             "order_id": so.id,
             "product_id": product.id,
-            "product_uom_qty": parsed_line.quantity,
+            "product_uom_qty": ship_qty,
             "price_unit": parsed_line.unit_price,
             "edi_line_number": parsed_line.line_number,
+            "edi_ordered_qty": ordered,
+            "edi_qty_shortfall": shortfall,
             "edi_price": parsed_line.unit_price,
             "edi_matched_by": matched_by,
         })
@@ -545,32 +1176,48 @@ class EDIProcessor(models.AbstractModel):
                 "sale_order_line_id": sol.id,
             })
 
-        # Stock check (warning, non-blocking)
-        # warehouse_id is added by sale_stock; fall back to no warehouse context if absent
-        wh_ctx = {}
-        if 'warehouse_id' in self.env['sale.order']._fields and so.warehouse_id:
-            wh_ctx = {'warehouse': so.warehouse_id.id}
-        qty_available = product.with_context(**wh_ctx).qty_available
-        if qty_available < parsed_line.quantity:
-            shortfall = parsed_line.quantity - qty_available
-            sol.edi_qty_shortfall = shortfall
-            self.env["edi.order.issue"].create({
-                "review_id": review.id,
-                "issue_type": "qty_shortfall",
-                "severity": "warning",
-                "description": "%s — requested %.0f, available %.0f, shortfall %.0f" % (
-                    product.name, parsed_line.quantity, qty_available, shortfall,
-                ),
-                "sale_order_line_id": sol.id,
-            })
+        # Stock shortfall (non-blocking warning; edi_qty_shortfall also drives the
+        # ORDRSP line action — short = qty-changed, fully OOS = rejected).
+        if policy == 'short_ship':
+            if shortfall > 0:
+                # edi_qty_shortfall is already set at create; just raise the heads-up.
+                self.env["edi.order.issue"].create({
+                    "review_id": review.id,
+                    "issue_type": "qty_shortfall",
+                    "severity": "warning",
+                    "description": "%s — ordered %.0f, shipping %.0f, short %.0f "
+                                   "(acknowledged in ORDRSP)" % (
+                        product.name, ordered, ship_qty, shortfall,
+                    ),
+                    "sale_order_line_id": sol.id,
+                })
+        else:
+            # Legacy backorder: accept in full, warn if short. warehouse_id is added
+            # by sale_stock; fall back to no warehouse context if absent.
+            wh_ctx = {}
+            if 'warehouse_id' in self.env['sale.order']._fields and so.warehouse_id:
+                wh_ctx = {'warehouse': so.warehouse_id.id}
+            qty_available = product.with_context(**wh_ctx).qty_available
+            if qty_available < ordered:
+                sol.edi_qty_shortfall = ordered - qty_available
+                self.env["edi.order.issue"].create({
+                    "review_id": review.id,
+                    "issue_type": "qty_shortfall",
+                    "severity": "warning",
+                    "description": "%s — requested %.0f, available %.0f, shortfall %.0f" % (
+                        product.name, ordered, qty_available, ordered - qty_available,
+                    ),
+                    "sale_order_line_id": sol.id,
+                })
 
-        # Price comparison (blocking if outside tolerance).
-        # NOTE: EDI prices from Briscoes are ex-GST (trade/wholesale net prices).
-        # GST-inclusive pricelists would cause a systematic ~15% discrepancy on
-        # every line and are now rejected at write-time by
-        # edi.trading.partner._validate_pricelist_gst (api.constrains). The
-        # debug log below is retained as a belt-and-braces diagnostic for
-        # operators reading server logs.
+        # Price comparison (blocking if outside tolerance) — this IS the
+        # authoritative GST guard. EDI prices are ex-GST (trade/wholesale net).
+        # _get_pricelist_price returns the RAW pricelist value, so an ex-GST
+        # pricelist compares cleanly while a genuinely GST-inclusive one shows a
+        # ~15% discrepancy here and is flagged per line. edi.trading.partner only
+        # surfaces a non-blocking advisory (pricelist_gst_warning) when products
+        # carry an inc-GST tax — it no longer hard-blocks, because a product can
+        # legitimately hold both taxes while being priced ex-GST (e.g. Animates).
         system_price = self._get_pricelist_price(product, parsed_line.quantity, partner)
         if system_price is not None:
             _logger.debug(
@@ -611,7 +1258,7 @@ class EDIProcessor(models.AbstractModel):
         self, order, partner, client_ref: str, filename: str, file_hash: str
     ):
         """Route a change order to pending review with a diff summary."""
-        existing_so = self._find_existing_so(client_ref)
+        existing_so = self._find_existing_so(client_ref, partner)
         if not existing_so:
             self.env["edi.log"].log(
                 partner, "inbound", "error", "warning",
@@ -665,6 +1312,112 @@ class EDIProcessor(models.AbstractModel):
         if partner.alert_on_issues:
             self._send_review_alert(partner, review)
 
+    # ── Cancellation flow (C5) ────────────────────────────────────────────
+
+    # Sentinel prefix on edi.order.review.change_summary that marks a review
+    # as a CANCELLATION (as opposed to an ordinary change-order or a manually
+    # rejected new order that also ends with an SO in state='cancel'). This is
+    # a module-owned marker rather than a new field/selection value on
+    # edi.order.review (out of this file's scope) — retry_pending_acks and
+    # _is_cancellation_review both match on it, so the two can never disagree.
+    CANCELLATION_MARKER = "EDI-CANCELLATION:"
+
+    def _is_cancellation_review(self, review) -> bool:
+        """True when ``review`` was created by _process_cancellation — i.e. it
+        must never be offered to _queue_ack (see CANCELLATION_MARKER)."""
+        summary = getattr(review, "change_summary", None) or ""
+        return summary.startswith(self.CANCELLATION_MARKER)
+
+    def _process_cancellation(
+        self, order, partner, client_ref: str, filename: str, file_hash: str
+    ):
+        """Route a cancellation (BGM 1225=1) — C5.
+
+        Per the Testing Scenario Handbook (scenario 3B) a cancellation is
+        acknowledged with CONTRL ONLY: the SO is cancelled, a review is
+        created purely for audit trail (state='rejected' — no operator action
+        needed), and NO ORDRSP is ever queued for it. The mandatory CONTRL is
+        still emitted by the normal per-file path (_emit_inbound_contrl),
+        which is keyed off the whole interchange, not the document type — a
+        cancellation still received an interchange that must be syntactically
+        acked.
+
+        Two failure modes guarded against here (gate review AN-05/AN-12):
+        - Cancel-before-original: the PO referenced no existing SO yet. There
+          is nothing to cancel; log a warning and STOP — do not create a
+          phantom review that could confuse a later ORDERS for the same PO.
+        - Any accidental route into apply_change_order/ORDRSP: prevented
+          structurally — this method never touches pending_changes JSON and
+          never calls _queue_ack.
+        """
+        existing_so = self._find_existing_so(client_ref, partner)
+        if not existing_so:
+            self.env["edi.log"].log(
+                partner, "inbound", "error", "warning",
+                "Cancellation for PO '%s' but no matching SO found (ref: %s) "
+                "— cancel arrived before (or without) the original order; "
+                "nothing to cancel." % (order.po_number, client_ref),
+                filename=filename,
+            )
+            return
+
+        original_review = self.env["edi.order.review"].search([
+            ("sale_order_id", "=", existing_so.id),
+            ("document_type", "=", "new_order"),
+        ], limit=1)
+
+        already_cancelled = existing_so.state == "cancel"
+        if not already_cancelled and existing_so.state in ("draft", "sent", "sale"):
+            existing_so.action_cancel()
+
+        change_summary = "%s PO %s cancelled by customer (BGM 1225=1)%s" % (
+            self.CANCELLATION_MARKER, order.po_number,
+            " — SO was already cancelled" if already_cancelled else "",
+        )
+
+        review = self.env["edi.order.review"].create({
+            "trading_partner_id": partner.id,
+            "customer_po_number": order.po_number,
+            "store_code": order.store_code,
+            "sale_order_id": existing_so.id,
+            "edi_file_hash": file_hash,
+            "edi_filename": filename,
+            "edi_raw_data": order.raw_data,
+            "document_type": "change_order",
+            "original_review_id": original_review.id if original_review else False,
+            "change_summary": change_summary,
+            # Terminal state directly — no operator action is expected or
+            # wanted for a cancellation; the state machine's action_approve/
+            # action_reject paths (which both end by calling _queue_ack) are
+            # deliberately never invoked for this review.
+            "state": "rejected",
+            "reviewed_date": fields.Datetime.now(),
+        })
+
+        # Chatter audit trail on both the review and the SO — a cancellation
+        # is a customer-initiated, no-operator-input event, so the record of
+        # WHY the SO is cancelled must live on the record itself, not just in
+        # edi.log (which most users never open).
+        review.message_post(body=_(
+            "EDI cancellation received for PO %s. Sale order %s cancelled "
+            "automatically. No ORDRSP is sent for a cancellation — only a "
+            "CONTRL functional acknowledgement."
+        ) % (order.po_number, existing_so.name))
+        existing_so.message_post(body=_(
+            "Cancelled via EDI: customer sent a cancellation (BGM 1225=1) "
+            "for PO %s."
+        ) % order.po_number)
+
+        self.env["edi.log"].log(
+            partner, "inbound", "order_created", "warning",
+            "Cancellation processed: SO %s cancelled for PO %s" % (
+                existing_so.name, order.po_number),
+            filename=filename, sale_order=existing_so, review=review,
+        )
+
+        if partner.alert_on_issues:
+            self._send_review_alert(partner, review)
+
     @api.model
     def apply_change_order(self, review):
         """
@@ -702,7 +1455,13 @@ class EDIProcessor(models.AbstractModel):
                 ("edi_line_number", "=", line_change["line_number"]),
             ], limit=1)
             if so_line:
-                so_line.product_uom_qty = line_change["new_qty"]
+                # An approved ORDCHG redefines what the customer ORDERED: keep
+                # edi_ordered_qty (the basis for the availability re-clamp
+                # below and the ORDRSP shortfall) in sync with the new qty.
+                so_line.write({
+                    "product_uom_qty": line_change["new_qty"],
+                    "edi_ordered_qty": line_change["new_qty"],
+                })
 
         # Handle removed lines (ORDCHG action code 3)
         for removed_line_num in changes.get('removed_lines', []):
@@ -714,16 +1473,228 @@ class EDIProcessor(models.AbstractModel):
                 if so.state == 'draft':
                     so_line.unlink()
                 else:
-                    so_line.write({'product_uom_qty': 0})
+                    # Zero the ordered basis too — otherwise the availability
+                    # re-clamp below would resurrect the removed line.
+                    so_line.write({
+                        'product_uom_qty': 0,
+                        'edi_ordered_qty': 0,
+                        'edi_qty_shortfall': 0,
+                    })
                     _logger.warning(
                         'EDI ORDCHG: SO %s is confirmed — zeroed qty on line %s '
                         '(action code 3). Manual review required.',
                         so.name, removed_line_num,
                     )
 
+        # SS-5: an ORDCHG qty increase must not bypass the availability gate.
+        # For short_ship partners re-run the re-clamp over the whole SO so a
+        # raised qty is cut back to what the DC can actually supply — the
+        # later ACK reads the live line qty + shortfall, so it confirms
+        # reality. No-op ([]) for backorder partners.
+        #
+        # DRAFT ORDERS ONLY: a confirmed SO has already reserved its stock,
+        # and free_qty nets that reservation OUT — reclamping would count the
+        # order's own reservation against itself and clamp healthy, fully-
+        # reserved lines toward zero (then ACK "cannot supply" stock reserved
+        # for this very PO). Confirmed-SO changes stay human-gated: the
+        # operator sees the raised qty on the review and Odoo's own
+        # availability UI at re-reservation.
+        reclamped = []
+        if so.state == 'draft' and not getattr(so, 'x_is_indent', False):
+            # Indents are never availability-clamped (see _process_order_line).
+            reclamped = self.reclamp_order_lines(so, review.trading_partner_id)
+        else:
+            _logger.info(
+                "[EDI] ORDCHG on confirmed SO %s — availability re-clamp "
+                "skipped (own reservation would be double-counted); operator "
+                "review is the gate.", so.name,
+            )
+
+        body = _("EDI change order approved: %s") % review.change_summary
+        if reclamped:
+            clamp_summary = "; ".join(
+                "%s: %.0f -> %.0f (short %.0f)" % (
+                    c["line"].product_id.display_name or c["line"].name,
+                    c["old_qty"], c["new_qty"], c["shortfall"],
+                ) for c in reclamped
+            )
+            body += _(" — availability re-clamp applied: %s") % clamp_summary
+            # Audit trail on the review itself so the approver sees exactly
+            # what diverged from the customer's requested quantities.
+            review.message_post(
+                body=_("Change-order quantities re-clamped to DC availability: "
+                       "%s") % clamp_summary,
+                subtype_xmlid="mail.mt_note",
+            )
         so.message_post(
-            body=_("EDI change order approved: %s") % review.change_summary,
+            body=body,
             subtype_xmlid="mail.mt_note",
+        )
+
+    # ── Availability re-clamp (shared helper — approve/ORDCHG consumers) ──
+
+    @api.model
+    def reclamp_order_lines(self, sale_order, partner, cap_to_current=False):
+        """Re-run the availability gate on an EDI sale order at APPROVE time
+        — SS-1/SS-5. CALLERS MUST ONLY PASS DRAFT ORDERS: a confirmed SO has
+        reserved its own stock, which free_qty nets out, so reclamping it
+        would count the order against itself.
+
+        For ``partner.oos_policy == 'short_ship'``: every SO line with
+        ``edi_ordered_qty > 0`` is re-clamped to
+        ``min(edi_ordered_qty, DC-available)`` with a floor of 0 (the same
+        math as the parse-time gate: _dc_available_qty + _short_ship_split),
+        and ``edi_qty_shortfall`` is updated to match. Availability NEVER
+        raises: a missing product/warehouse or a lookup error fails toward
+        0.0 available (fail-closed — never promise stock we cannot see).
+
+        ``cap_to_current=True`` (Approve-with-Corrections): operator qty
+        reductions are deliberate — lines may only move DOWN from the
+        operator's value, never be restored up toward the ordered qty
+        (see _reclamp_line).
+
+        For ``'backorder'`` partners: returns ``[]`` without touching lines.
+
+        Returns ``[{'line': sol, 'old_qty': float, 'new_qty': float,
+        'shortfall': float}]`` for CHANGED lines only, and writes ONE edi.log
+        warning row when any line changed.
+        """
+        policy = partner.oos_policy if 'oos_policy' in partner._fields else 'backorder'
+        if policy != 'short_ship':
+            return []
+
+        changes = []
+        for sol in sale_order.order_line:
+            ordered = sol.edi_ordered_qty or 0.0
+            if ordered <= 0:
+                continue
+            try:
+                available = (
+                    self._dc_available_qty(sol.product_id, sale_order)
+                    if sol.product_id else 0.0
+                )
+            except Exception:
+                _logger.warning(
+                    "[EDI] reclamp: availability lookup failed for %s line %s "
+                    "— treating as 0.0 available (fail-closed)",
+                    sale_order.name, sol.id, exc_info=True,
+                )
+                available = 0.0
+            new_qty, shortfall, changed = _reclamp_line(
+                ordered, available, sol.product_uom_qty,
+                cap_to_current=cap_to_current)
+            if not changed:
+                # Keep the derived shortfall honest even when the qty itself
+                # is unchanged (shortfall = ordered - qty).
+                if sol.edi_qty_shortfall != shortfall:
+                    sol.edi_qty_shortfall = shortfall
+                continue
+            old_qty = sol.product_uom_qty
+            sol.write({
+                "product_uom_qty": new_qty,
+                "edi_qty_shortfall": shortfall,
+            })
+            changes.append({
+                "line": sol,
+                "old_qty": old_qty,
+                "new_qty": new_qty,
+                "shortfall": shortfall,
+            })
+
+        if changes:
+            detail = "; ".join(
+                "%s: %.0f -> %.0f (short %.0f)" % (
+                    c["line"].product_id.display_name or c["line"].name,
+                    c["old_qty"], c["new_qty"], c["shortfall"],
+                ) for c in changes
+            )
+            self.env["edi.log"].log(
+                partner, "internal", "info", "warning",
+                "Availability re-clamped %d line(s) on %s at approve: %s" % (
+                    len(changes), sale_order.name, detail),
+                sale_order=sale_order,
+            )
+        return changes
+
+    # ── Post-confirm reservation verify (SS-3) ────────────────────────────
+
+    @api.model
+    def verify_order_reservation(self, sale_order, partner):
+        """Force + verify stock reservation on the outgoing picking(s) of a
+        just-confirmed EDI SO (SS-3).
+
+        ``action_assign()`` is idempotent (a no-op on already-reserved moves),
+        so this is safe regardless of the picking type's reservation_method.
+        Any move that still fails to reserve is listed in ONE edi.log warning
+        — free_qty correctness for every subsequent order depends on the
+        reservation actually existing. Never raises. Returns the moves that
+        failed to reserve.
+        """
+        unreserved = self.env["stock.move"]
+        try:
+            pickings = sale_order.picking_ids.filtered(
+                lambda p: p.picking_type_code == "outgoing"
+                and p.state not in ("done", "cancel"))
+            for picking in pickings:
+                try:
+                    picking.action_assign()
+                except Exception:
+                    _logger.warning(
+                        "[EDI] action_assign failed on %s (SO %s)",
+                        picking.name, sale_order.name, exc_info=True)
+                unreserved |= picking.move_ids.filtered(
+                    lambda m: m.state not in ("assigned", "done", "cancel")
+                    and m.product_uom_qty > 0)
+        except Exception:
+            _logger.warning(
+                "[EDI] reservation verify failed for SO %s",
+                sale_order.name, exc_info=True)
+            return unreserved
+
+        if unreserved:
+            detail = "; ".join(
+                "%s: demand %.0f, state %s" % (
+                    m.product_id.display_name, m.product_uom_qty, m.state)
+                for m in unreserved)
+            self.env["edi.log"].log(
+                partner, "internal", "info", "warning",
+                "%d move(s) failed to reserve after confirming %s: %s" % (
+                    len(unreserved), sale_order.name, detail),
+                sale_order=sale_order,
+            )
+        self._warn_reservation_method(sale_order, partner)
+        return unreserved
+
+    def _warn_reservation_method(self, sale_order, partner):
+        """Config sanity check (SS-3): the DC outgoing picking type should
+        reserve at confirm. With 'manual'/'by_date', free_qty never decrements
+        on its own and every subsequent order is promised the same units.
+        Warns at most once per poll per picking type via the mutable set
+        placed in context by poll_trading_partner; outside a poll (tests,
+        direct calls) it warns on every call."""
+        wh = sale_order.warehouse_id if 'warehouse_id' in sale_order._fields else False
+        picking_type = wh.out_type_id if wh else False
+        if not picking_type or 'reservation_method' not in picking_type._fields:
+            return
+        if picking_type.reservation_method == 'at_confirm':
+            return
+        warned = self.env.context.get('edi_reservation_warned')
+        if isinstance(warned, set):
+            if picking_type.id in warned:
+                return
+            warned.add(picking_type.id)
+        _logger.warning(
+            "[EDI] Picking type '%s' has reservation_method=%r (expected "
+            "'at_confirm') — confirmed EDI orders will not reserve stock "
+            "automatically", picking_type.display_name,
+            picking_type.reservation_method,
+        )
+        self.env["edi.log"].log(
+            partner, "internal", "info", "warning",
+            "Picking type '%s' has reservation_method '%s' (expected "
+            "'at_confirm'): confirmed EDI orders will not reserve stock "
+            "automatically and free_qty will over-promise." % (
+                picking_type.display_name, picking_type.reservation_method),
         )
 
     # ── Helpers ───────────────────────────────────────────────────────────
@@ -737,10 +1708,16 @@ class EDIProcessor(models.AbstractModel):
             ("status", "=", "success"),
         ], limit=1))
 
-    def _find_existing_so(self, client_ref: str):
-        """Find an existing SO by client reference. Returns record or None."""
+    def _find_existing_so(self, client_ref: str, partner):
+        """Find an existing EDI SO by client reference, scoped to the trading
+        partner and company (IDEM major 3). An unrelated SO that happens to
+        carry the same client_order_ref (e.g. a manually-entered ref colliding
+        with Animates' bare '{po_number}' template) must never suppress a real
+        order as duplicate_skipped. Returns record or None."""
         return self.env["sale.order"].search([
             ("client_order_ref", "=", client_ref),
+            ("edi_trading_partner_id", "=", partner.id),
+            ("company_id", "=", self.env.company.id),
         ], limit=1) or None
 
     def _resolve_delivery_partner(self, partner, order):
@@ -1000,11 +1977,11 @@ class EDIProcessor(models.AbstractModel):
     def _send_oos_summary(self, partner, po_number):
         """Email a per-PO summary of stock-shortfall (OOS) lines after import.
 
-        OOS lines are non-blocking warnings: the order is accepted in full and
-        the short quantity backorders, so the ORDRSP confirms it and no manual
-        review is needed. This is a heads-up for operations, not an approval
-        request — sent to the partner's Alert Email Recipients. Fires once per
-        file import (re-polls of the same file are dedup-skipped before here).
+        OOS lines are non-blocking warnings; the body reflects the partner's
+        oos_policy — short-shipped + ACKed in the ORDRSP (short_ship) or accepted
+        in full + backordered (backorder). A heads-up for operations, not an
+        approval request — sent to the partner's Alert Email Recipients. Fires once
+        per file import (re-polls of the same file are dedup-skipped before here).
         """
         recipients = partner.alert_email_ids.filtered('email')
         if not recipients:
@@ -1031,14 +2008,21 @@ class EDIProcessor(models.AbstractModel):
         more = len(shortfalls) - cap
         extra = ('<p style="color:#888;">… and %d more line(s).</p>' % more
                  if more > 0 else "")
+        if partner.oos_policy == 'short_ship':
+            policy_msg = ('The available qty was short-shipped and the shortfall '
+                          'acknowledged to the customer in the ORDRSP — no backorder '
+                          'is created. No action is required unless you want to '
+                          'expedite stock.')
+        else:
+            policy_msg = ('The order was accepted in full and acknowledged to the '
+                          'customer; the short quantity will backorder. No action is '
+                          'required unless you want to expedite stock.')
         body = (
             '<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;max-width:680px;">'
             '<h2 style="color:#e67e22;border-bottom:2px solid #e67e22;padding-bottom:6px;">'
             'Stock shortfall summary — PO %s</h2>'
             '<p>%d line(s) on this auto-approved order are short on available stock. '
-            'The order was accepted in full and acknowledged to the customer; the '
-            'short quantity will backorder. No action is required unless you want to '
-            'expedite stock.</p>'
+            '%s</p>'
             '<table style="border-collapse:collapse;margin:12px 0;">'
             '<thead><tr>'
             '<th style="padding:4px 10px;border:1px solid #ddd;text-align:left;background:#f7f7f7;">Store</th>'
@@ -1046,7 +2030,7 @@ class EDIProcessor(models.AbstractModel):
             '</tr></thead><tbody>%s</tbody></table>%s'
             '<p style="color:#999;font-size:12px;">Automated summary from the MML EDI system.</p>'
             '</div>'
-        ) % (html.escape(str(po_number)), len(shortfalls), rows, extra)
+        ) % (html.escape(str(po_number)), len(shortfalls), policy_msg, rows, extra)
 
         from_addr, server = self._edi_mailer()
         vals = {

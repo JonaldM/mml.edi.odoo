@@ -1,0 +1,119 @@
+# Animates EDI — AUTONOMOUS BUILD RUNBOOK
+
+> Build tracker + build-critical detail. If context resets, READ THIS, then continue from "Progress".
+> Companion spec: `specs/2026-06-26-animates-edi-integration-plan.md`. Source MIGs: `mml_edi/docs/animates/`.
+
+## Autonomy contract
+User: "read and plan a sprint for integration with existing edi app, basically a translation layer. use octo and go fully autonomous." → Plan (done, grounded by 9-agent workflow) + build B1..B9 TDD autonomously. Don't ask the user. Build the CODE against the verbatim-MIG golden fixtures (self-contained); cert/go-live is gated on external IDs (R1-R12) which get `ir.config_parameter` placeholders. Octo review the plan first (personas; droids are broken in this env). Commit on branch `feat/animates-edi`; never to master directly.
+
+## Key facts
+- Module: `mml_edi` (repo JonaldM/mml.edi.odoo, branch master clean). Build branch: `feat/animates-edi`.
+- 5 messages, EANCOM2002/UN-EDIFACT **D.01B**, over SPS Commerce VAN. UNOC:3, UNA always present (honour `?` release char), NO UNG/UNE, numeric interchange control ref.
+- Parser interface `parsers/base_parser.py`: only `parse_file` + `generate_ack` are abstract. Outbound beyond ORDRSP needs the §A dispatch extension.
+- Allowlist (single mandatory edit to existing code): `models/edi_trading_partner.py:18-27` `_ALLOWED_PARSER_CLASSES`.
+- Inbound flow: `ir.cron → EDIProcessor.run_scheduled_poll → poll_trading_partner → EDIFTPHandler → _process_file → parser.parse_file() → ParsedOrder → process_parsed_order → sale.order + edi.order.review`.
+- ORDRSP path: `EDIOrderReview._queue_ack()` (`edi_order_review.py:288-365`) → `parser.generate_ack(review)`.
+- ASN hardcoded today: `edi_service.py:131` `BriscoesASNGenerator` → must be generalised to partner-dispatched.
+- Product cascade `_find_product` (`edi_processor.py:771-830`): barcode→default_code→vendor_code→supplier_sku. ISC (buyer code) is NOT a strategy yet → add it.
+
+## §A — Outbound-dispatch extension (the base/service change Briscoes doesn't cover)
+Add a thin partner-dispatched outbound layer modelled on `EDIService` (`services/edi_service.py`):
+- Generalise `_generate_and_upload_asn` so the ASN builder resolves from the partner (`partner.get_asn_builder()` / `build_message(msg_type, payload)`), not hardcoded `BriscoesASNGenerator`.
+- Add `EDIService.on_invoice_posted` (account.move post hook) → INVOIC builder → upload.
+- Auto-emit CONTRL inside the inbound path after successful interchange parse (UCI action 8), idempotent via `edi.log`; + inbound CONTRL consumer correlating Animates' acks to sent interchanges, alert on missing/≠8.
+- `generate_ack` stays the ORDRSP entry (keeps `_queue_ack` idempotency).
+
+## Per-message build detail
+- **ORDERS (in):** BGM 1225 9/5/1 → new/change/cancel; DTM 137/2; NAD BY/SU/ST; LIN/PIA(IN=ISC + SA=MML code)/IMD/QTY(21 ordered, 59 pack)/MOA/PRI/TAX; CNT validation. Map ISC→buyer_article_no, SA→vendor_code; qty in EA. Cancel(+1)→order no lines; replace(+5)→change_order.
+- **ORDRSP (out):** BGM 231 (1225 29/27/4); ALL PO lines echoed; LIN 1229 ∈ {5 accepted,7 rejected,3 changed}; QTY 21+59+113(committed; 0 on reject); FTX+LIN reason mandatory when 1229=7; PRI AAA 4dp; TAX 7/GST; BGM 1004=ORDRSP seq; RFF ON=PO. BGM1225↔LIN1229 coupling (full-accept→all 5).
+- **DESADV (out):** hierarchy CPS 1E shipment + PAC totals → per-unit CPS 3 → PAC(09/CT) → PCI 33E → GIN AW+SSCC → [pallet: inner PAC carton count] → LIN/PIA(IN+SA)/QTY 12. RFF ON(PO)+CN(connote); ALI 165/164 on splits; QVR (AC/BP/CP) + DTM 17 ETA on variance. Fixtures: p.57 (pallet, UNT=39,CNT=3), p.58 (split, ALI165+QVR200:66+BP+DTM17, UNT=27,CNT=1).
+- **INVOIC (out):** BGM 388:::TAX INVOICE; DTM 137 (not future); RFF ON+(AAK|CN); NAD BY/SU/ST + RFF AMT (NZBN/ABN); CUX 2:NZD:4; LIN/PIA(IN+SA)/IMD/QTY(47+59); **line MOA 128/369/203 + PRI = 4dp; summary MOA 128/369/39 + TAX rate = 2dp**; CNT; SG50 totals. Fixture p.64-65 UNT=32,CNT=1.
+- **CONTRL (both):** build UNA→UNB(→ANIMATES/TST1ANIMATES)→UNH(CONTRL:D:3:UN:EAN004)→UCI(orig ctrl-ref, inverted parties, action 8)→UNT(3)→UNZ. Parse: validate, read UCI 0020 to correlate, ≠8/missing → alert. Fixture p.8.
+- **Envelope invariants (validate read+write):** UNB0020==UNZ0020; UNH0062==UNT0062; UNT0074=segcount incl UNH/UNT; UNZ0036=msg count; CNT 2==LIN count.
+
+## Store master seed (B7)
+xlsx `Animates-Clinic-Store-Master-File-12112025.xlsx`, sheet "Clinic _ Store Master File", header at ROW 3: `Site Name | Address | Store Email | Manager Phone | Store Code`. 66 data rows + region divider rows + trailing blanks. → res.partner delivery children of Animates (clone `wizards/edi_seed_stores.py`, tuple (ref,name,email,phone,address,region,is_vet)). CRITICAL: 10 vet clinics SHARE retail codes (08,25,11,13,33,09,18,29,03,05) → namespace clinic ref as `<code>-V` (idempotency key (parent_id, ref) else silently drops clinics). Strip BOM/﻿ in addresses. No GLN/active in file → GLN null, active True.
+
+## External blockers (config placeholders during build; needed for cert) 
+R1 transport+endpoints+creds (if AS2/API, EDIFTPHandler gap) · R2 MML supplier GLN · R3 Animates supplier code V#### · R4 GS1 company prefix (SSCC) · R5 ISC↔SKU map · R6 NZBN/ABN · R7 store GLNs · R8 SSCC label-print scope · R9 numbering schemes · R10 doc artifacts (emit IN+SA both; CTA SU) · R11 go-live timeline+cert plan · R12 re-cert trigger. Store as `ir.config_parameter mml_edi.animates.*` placeholders.
+
+## Reference files
+base_parser.py · parsers/briscoes.py + briscoes_asn.py + briscoes_idoc.py (pattern, D96A — NOT reusable code, structure only) · services/edi_service.py:131 (ASN to generalise) · models/edi_order_review.py:288-365 (_queue_ack) · edi_processor.py:771-830 (_find_product cascade) · wizards/edi_seed_stores.py (seed pattern) · data/edi_trading_partner_briscoes.xml · tests/conftest.py + common.py + fixtures/loader.py (TDD harness).
+
+## OCTO REVIEW CORRECTIONS (v2 — these SUPERSEDE the detail above)
+Two octo personas verified the plan against real code + the MIGs. Build MUST follow these:
+
+CRITICAL (message-generation):
+- C1 ENVELOPE QUALIFIERS: recipient `ANIMATES` uses qualifier **`ZZZ`**, supplier uses **`14`**. Outbound: `UNB+UNOC:3+SUPPLIER_GLN:14+ANIMATES:ZZZ+...`; inbound/CONTRL invert. Do NOT copy Briscoes' `:14`-on-both (`briscoes_asn.py:75`). Add write-invariant UNB0007==14 / recipient qual==ZZZ.
+- C2 CONTRL ENVELOPE: CONTRL UNB OMITS the trailing application-ref/ack-request tail (`++++1`) — DE0031 not included (CONTRL MIG p13). Envelope builder needs a `contrl=True`/msg_type branch that omits trailing composites. CONTRL UNB ends at control reference.
+- C3 NO BYTE-EQUALITY TESTS: MIG samples are internally inconsistent on UNH/UNT 0062 padding (some `0001`, some `1`) → strict byte-match is unsatisfiable. Builder padding policy = zero-pad `0001`. Assert the INVARIANT (UNH0062==UNT0062), not literal bytes.
+
+HIGH:
+- H-ISC (overrides §"product cascade"): do NOT add a new product field or new match strategy. ISC = buyer item code → store on `product.supplierinfo.product_code` keyed to the Animates supplier; the EXISTING `supplier_sku` strategy reads it. Map PIA+IN(ISC)→ParsedOrderLine.buyer_article_no, PIA+SA(MML)→vendor_code; partner.product_match_field='supplier_sku'. ZERO change to _lookup_by_strategy/selection/schema. For ORDRSP/INVOIC build, source ISC from supplierinfo at build time.
+- H-SEAM (overrides §A): add ONE non-abstract `build_message(self, msg_type, payload, trading_partner) -> bytes` on BaseEDIParser (default raises NotImplementedError). Generalise `edi_service.py:~131` to resolve via the EXISTING `partner.get_parser_instance().build_message(...)` (keeps `_ALLOWED_PARSER_CLASSES` as the single gated loader). Do NOT add `get_asn_builder()`/`get_*_builder()` (bypasses allowlist). Wrap Briscoes ASN behind the seam too (regression baseline). **Build this seam in B1** (B3 ORDRSP via generate_ack; B4 DESADV + B5 INVOIC + B6 CONTRL all need the seam).
+- H-PII: do NOT commit store data. Briscoes precedent = empty `<odoo/>` partner XML with config as a COMMENT (manual create post-install) + seed wizard reads an OPERATOR-UPLOADED file at runtime (`edi_seed_stores.py`). Animates partner XML = stub-comment; seed wizard reads the xlsx at runtime (attachment/configured path), NEVER inline 66 stores+emails+phones into committed code. (docs/animates is already gitignored.)
+- H-WIRING (add to B1): ir.model.access.csv rows for edi.sscc.register (+ any new Model); manifest `data` entries in correct order (sequences BEFORE partner XML, AFTER security); ir.sequence records (interchange ctrl-ref numeric, ORDRSP/INVOIC/DESADV doc nums, SSCC serial); seed wizard view+menu+manifest+__init__.
+- H-DESADV shape: LIN carries GTIN `LIN+n++<gtin>:SRV` (optional/conditional — p58 has it, p57 doesn't) → LIN must be GTIN-aware. DESADV NAD order is **BY/ST/SU** (differs from ORDRSP/INVOIC/ORDERS = BY/SU/ST). ALI reason in 3rd elem: `ALI+++165`. QVR = `QVR+<qty>:66+BP` + `DTM+17:<date>:102`.
+- H-SSCC: SSCC-18 = extension digit + GS1 company prefix + serial + mod-10 check (weights 3,1 from right over first 17). Unit-test check digit vs label-spec sample `00 39342835 0015329463`. Concurrency: `ir.sequence` for serial → format → check → INSERT with UNIQUE(sscc)+UNIQUE(serial), retry on IntegrityError; NO read-max-then-increment. Register purpose = exhaustion/no-reuse audit (monotonic serial already prevents reuse).
+- H-COMPARE: test helper = tokenize expected+actual via the SAME tokenizer, compare ordered (tag, composites) tuples; assert control invariants (counts/refs) not literal bytes; assert formatted decimal strings for money. Keep one raw byte-snapshot as a canary only.
+- H-INVARIANTS (add): UNB qualifiers (C1); UCI0020==originating UNB0020 (CONTRL correlation); DESADV `CNT+2` counts LIN across ALL CPS groups; INVOIC summary MOA (39/128/369) reconciles to Σ line MOA at 2dp.
+
+MEDIUM:
+- M-ROUND: Decimal ROUND_HALF_UP; summaries = sum-then-round (4dp lines → 2dp summary). Multi-line rounding test.
+- M-CONTRL-UCI: UCI parties = the ORIGINAL interchange's UNB sender/recipient verbatim (reverse of the CONTRL envelope's). Test both directions.
+- M-TOKENIZER: Briscoes `_split_segments` does NOT honor `?` release — the Animates tokenizer is genuinely NEW. Read separators from UNA. Test vectors: `??`→`?`, `?+`→`+`, `?:`→`:`, `?'`→`'`, trailing lone `?`, `???+`, round-trip escape(parse(x))==x.
+- M-CT-EA: DESADV `QTY+12` is ALWAYS item count in EA; carton/pallet counts live in `PAC` (CT), never in QTY. Test a multi-carton despatch.
+- ASN/outbound gating: reuse the `ir.config_parameter mml_edi.asn_enabled` gate pattern (`edi_service.py:24-28`), per-partner, so outbound can't fire before cert.
+
+LOW: ORDERS total = MOA+86 (inbound); UNT 0074 count by construction, golden values 39/32/39(p57)/27(p58)/3 as oracles; CUX rate qualifier differs (:9 ORDRSP/ORDERS, :4 INVOIC); CONTRL missing/negative → define timeout window + ≠8 handling.
+
+VERDICT: architecturally sound + precision correct, but the above (esp. C1/C2/C3, H-ISC, H-PII, H-SEAM, H-WIRING) must be applied. B1 now also includes: build_message seam + manifest/ACL/sequence wiring + the normalized-compare test helper + fixture extraction.
+
+## Progress
+- [x] Grounding workflow (9 agents) → sprint plan
+- [x] Spec + runbook committed (41e9b9c)
+- [x] Octo review of plan (2 personas) — corrections folded in above (v2)
+- [x] **B1 EDIFACT engine** `parsers/animates_edifact.py` — UNA tokenizer honouring `?`
+      release (single unescape at leaf), envelope builders (ZZZ/14, CONTRL no-tail),
+      control-count/qualifier validators, normalized compare. 6 golden fixtures
+      extracted. + `AnimatesParser` allowlisted. (d7a5518, 25 tests)
+- [x] **B2 ORDERS inbound parser** `parsers/animates.py` — D01B ORDERS→ParsedOrder,
+      ISC→buyer_article_no / MML→product_code+vendor_code (cascade-friendly). (ca8fdf9, 4 tests)
+- [x] **B3-B6 outbound builders** ORDRSP/DESADV/INVOIC/CONTRL — pure
+      `build_<msg>(payload)->bytes`, fixture-verified via assert_equivalent +
+      validate_interchange. (76b1a8e, +parse_contrl)
+- [x] **ORDRSP ack adapter** `generate_ack` review→payload (re-parse edi_raw_data for
+      ISC + SO for confirmed qty/shortfall/state → action 5/3/7). (7dadb25, 3 tests)
+- [x] **Partner-dispatched outbound seam** `base_parser.build_outbound` +
+      `AnimatesParser.build_outbound` (DESADV/INVOIC/CONTRL/ORDRSP). (2d8856f, 2 tests)
+- [x] Local pure suite GREEN: 60 Animates tests; whole `mml_edi` pure suite
+      **190 passed / 55 skipped, no regressions**.
+
+### REMAINING — needs the Odoo runtime (test DB) to build+verify
+Everything above is pure-Python and fully unit-tested without Odoo. The rest is
+Odoo-coupled (models/XML/triggers) and should be done with the test DB so `-u` and
+the B9 integration tests can actually run:
+- **edi_service ASN generalisation** (`edi_service.py:131`): replace the hardcoded
+  `BriscoesASNGenerator` dispatch with `partner_parser.build_outbound(msg_type, payload)`.
+  Keep Briscoes ASN working (run the Briscoes integration tests as regression). Gate
+  per-partner via `ir.config_parameter mml_edi.asn_enabled` (edi_service.py:24-28 pattern).
+- **Outbound triggers + source→payload adapters** (Odoo): stock.picking validated →
+  DESADV (with SSCC mint), account.move posted → INVOIC, ORDERS received → CONTRL.
+- **B4-model SSCC register** `edi.sscc.register`: pure check-digit helper (mod-10 over
+  first 17, sample `00 39342835 0015329463`) + ir.sequence serial + UNIQUE(sscc)/UNIQUE
+  (serial) INSERT-retry (no read-max). The pure helper is unit-testable now; the model wraps it.
+- **B1-rest wiring**: partner config XML stub (NO store PII — empty like Briscoes),
+  ir.sequence records (ORDRSP/DESADV/INVOIC/CONTRL ctrl-refs + SSCC serial), manifest
+  data/ACL entries.
+- **B7 store seed**: runtime xlsx upload wizard (clone `wizards/edi_seed_stores.py`); the
+  66 stores + emails/phones are PII → upload at runtime, never commit (Briscoes precedent).
+- **B8 gates**: ASN-enabled config gate + sequencing/compliance pre-flight.
+- **B9 integration tests**: full pipeline on the Odoo test DB (ORDERS file → SO → ORDRSP
+  bytes; picking → DESADV; invoice → INVOIC), mirroring `test_briscoes_integration.py`.
+
+### Cert blockers (external — config placeholders only, not build-gating)
+Transport endpoint, MML's GLN, Animates supplier code, GS1 company prefix, ISC↔SKU map,
+NZBN — all supplied by SPS/Animates at enablement. Re-verify the ORDRSP + INVOIC golden
+fixtures against SPS's authoritative samples (my pdftotext extraction dropped a
+`QTY+21:48:EA` in ORDRSP and a `CNT+2:1` in INVOIC — the latter restored, the former
+handled by normalizing the defective UNT count in the test).

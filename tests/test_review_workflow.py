@@ -19,6 +19,7 @@ import unittest
 
 from odoo import fields
 from odoo.tests.common import TransactionCase, tagged
+from odoo.tools import mute_logger
 
 from .common import EDITestSetup
 
@@ -27,6 +28,13 @@ _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
 @unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime — run with odoo-bin --test-enable")
 @tagged("post_install", "-at_install")  # run after ALL modules load (e.g. website_sale's product fields)
+# ACK transport is NOT under test here (see module docstring): the shared
+# fixture's parser is allow-list-blocked, so _queue_ack's swallowed failure
+# would otherwise fail these tests purely via Odoo's error-log detection.
+# Real ACK send/claim/retry coverage lives in test_ack_send_claim.py /
+# test_ack_reset_reapprove.py (IDOC parser + recording FTP handler).
+@mute_logger("odoo.addons.mml_edi.models.edi_order_review",
+             "odoo.addons.mml_edi.models.edi_log")
 class TestReviewWorkflow(EDITestSetup, TransactionCase):
 
     def setUp(self):

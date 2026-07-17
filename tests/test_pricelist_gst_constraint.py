@@ -1,24 +1,31 @@
 # mml.edi/tests/test_pricelist_gst_constraint.py
 """
-GST-inclusive pricelist constraint on edi.trading.partner.
+GST-inclusive pricelist advisory on edi.trading.partner.
 
-EDI prices from Briscoes (and similar retail partners) are quoted ex-GST.
-If an Odoo pricelist resolves to GST-inclusive prices, every line will
-show a systematic ~15% discrepancy and produce false-positive
-price_discrepancy issues, blocking otherwise-clean orders.
+EDI prices are quoted ex-GST. A pricelist whose products carry a
+GST-inclusive (``price_include``) tax USED to hard-fail the partner save.
+That proved too aggressive: a product can legitimately carry both an
+ex-GST and an inc-GST tax (retail vs wholesale / multi-company) while its
+EDI pricelist value is ex-GST — e.g. the live Animates pricelist ($8.10
+ex-GST on products that also hold an inc-GST retail tax). The price
+comparison uses the raw pricelist value, and the per-line
+``price_discrepancy`` check at order time is the authoritative guard.
 
-These tests pin down the @api.constrains('pricelist_id') behaviour:
-- Reject when the pricelist's items reference products whose taxes
-  include any account.tax with price_include=True.
-- Accept when no items reference GST-inclusive taxes.
-- Accept when the pricelist is unset (price comparison is opt-in).
+So this is now a NON-BLOCKING advisory: ``_pricelist_gst_inclusive_message``
+returns a notice string (surfaced as a form banner) instead of raising.
+
+These tests pin down that behaviour:
+- No pricelist                                  -> no notice (falsy).
+- Pricelist with only ex-GST taxes              -> no notice.
+- Pricelist with any inc-GST tax                -> notice naming the pricelist
+                                                   (and it must NOT raise).
+- Template-only items are inspected too.
+- Empty pricelist                               -> no notice.
 
 Pure Python — no Odoo runtime needed.
 Run with:  pytest mml_edi/tests/test_pricelist_gst_constraint.py -v
 """
 from unittest.mock import MagicMock
-
-import pytest
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -30,10 +37,11 @@ def _make_tax(price_include=False):
     return tax
 
 
-def _make_product(taxes=()):
+def _make_product(taxes=(), name="SKU"):
     product = MagicMock()
     # Odoo recordsets behave like iterables; a list is good enough for the test.
     product.taxes_id = list(taxes)
+    product.display_name = name
     return product
 
 
@@ -57,111 +65,80 @@ def _make_pricelist(items=(), name="Test Pricelist"):
 
 
 def _make_partner(pricelist=None):
-    """Construct a mock edi.trading.partner with the constraint method bound."""
+    """Construct a mock edi.trading.partner with the advisory method bound."""
     from mml_edi.models.edi_trading_partner import EDITradingPartner
 
     partner = MagicMock()
     partner.pricelist_id = pricelist if pricelist is not None else False
-    # Bind the unbound method so `self` resolves to this mock.
-    partner._validate_pricelist_gst = (
-        lambda: EDITradingPartner._validate_pricelist_gst(partner)
+    # ensure_one() is a no-op on a single-record mock.
+    partner.ensure_one = lambda: partner
+    partner._pricelist_gst_inclusive_message = (
+        lambda: EDITradingPartner._pricelist_gst_inclusive_message(partner)
     )
-    # Iteration over a recordset yields its records; for a single-record
-    # mock, iterate over [partner] itself.
-    partner.__iter__ = lambda self: iter([partner])
     return partner
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 
 
-class TestPricelistGstConstraint:
+class TestPricelistGstAdvisory:
 
-    def test_no_pricelist_is_accepted(self):
-        """A trading partner without a pricelist must not raise."""
+    def test_no_pricelist_has_no_notice(self):
         partner = _make_partner(pricelist=False)
-        # Should not raise.
-        partner._validate_pricelist_gst()
+        assert not partner._pricelist_gst_inclusive_message()
 
-    def test_ex_gst_pricelist_is_accepted(self):
-        """A pricelist whose items reference only ex-GST taxes is accepted."""
-        ex_gst_tax = _make_tax(price_include=False)
-        product = _make_product(taxes=[ex_gst_tax])
+    def test_ex_gst_pricelist_has_no_notice(self):
+        product = _make_product(taxes=[_make_tax(price_include=False)])
         pricelist = _make_pricelist(items=[_make_pricelist_item(product=product)])
         partner = _make_partner(pricelist=pricelist)
+        assert not partner._pricelist_gst_inclusive_message()
 
-        # Should not raise.
-        partner._validate_pricelist_gst()
-
-    def test_gst_inclusive_pricelist_is_rejected(self):
-        """A pricelist whose product taxes include price_include=True must
-        raise ValidationError with a message naming the pricelist."""
-        from odoo.exceptions import ValidationError
-
-        gst_tax = _make_tax(price_include=True)
-        product = _make_product(taxes=[gst_tax])
+    def test_gst_inclusive_pricelist_warns_but_does_not_raise(self):
+        product = _make_product(taxes=[_make_tax(price_include=True)])
         pricelist = _make_pricelist(
             items=[_make_pricelist_item(product=product)],
-            name="Briscoes Products (Inc. GST)",
+            name="Animates",
         )
         partner = _make_partner(pricelist=pricelist)
 
-        with pytest.raises(ValidationError) as excinfo:
-            partner._validate_pricelist_gst()
+        msg = partner._pricelist_gst_inclusive_message()  # must NOT raise
+        assert msg
+        assert "Animates" in msg
+        assert "ex-GST" in msg
+        assert "GST-inclusive" in msg
 
-        msg = str(excinfo.value)
-        assert "GST-exclusive" in msg or "ex-GST" in msg
-        assert "Briscoes Products (Inc. GST)" in msg
-        assert "15%" in msg or "discrepancy" in msg
-
-    def test_mixed_taxes_with_one_inclusive_is_rejected(self):
-        """If any single product on the pricelist has a price-include tax,
-        the entire pricelist is rejected (defence in depth)."""
-        from odoo.exceptions import ValidationError
-
-        ex_gst_tax = _make_tax(price_include=False)
-        gst_tax = _make_tax(price_include=True)
-
-        clean_product = _make_product(taxes=[ex_gst_tax])
-        dirty_product = _make_product(taxes=[ex_gst_tax, gst_tax])
-
+    def test_mixed_taxes_with_one_inclusive_warns(self):
+        """A product carrying BOTH an ex-GST and an inc-GST tax (the real
+        Animates shape) still triggers the advisory — but does not block."""
+        ex_gst = _make_tax(price_include=False)
+        inc_gst = _make_tax(price_include=True)
+        clean = _make_product(taxes=[ex_gst], name="Clean SKU")
+        dual = _make_product(taxes=[ex_gst, inc_gst], name="Dual-tax SKU")
         pricelist = _make_pricelist(
             items=[
-                _make_pricelist_item(product=clean_product, name="Clean SKU"),
-                _make_pricelist_item(product=dirty_product, name="Dirty SKU"),
+                _make_pricelist_item(product=clean),
+                _make_pricelist_item(product=dual),
             ],
             name="Partial-GST Pricelist",
         )
         partner = _make_partner(pricelist=pricelist)
 
-        with pytest.raises(ValidationError):
-            partner._validate_pricelist_gst()
+        msg = partner._pricelist_gst_inclusive_message()
+        assert msg and "Partial-GST Pricelist" in msg
 
-    def test_pricelist_with_template_only_item_is_checked(self):
-        """Items that target a product template (not a variant) must also
-        be inspected via product_tmpl_id.taxes_id."""
-        from odoo.exceptions import ValidationError
-
-        gst_tax = _make_tax(price_include=True)
-        tmpl = _make_product(taxes=[gst_tax])
-
+    def test_template_only_item_is_inspected(self):
+        inc_gst = _make_tax(price_include=True)
+        tmpl = _make_product(taxes=[inc_gst], name="Tmpl SKU")
         item = MagicMock()
         item.product_id = None
         item.product_tmpl_id = tmpl
         item.display_name = "Template Item"
-
         pricelist = _make_pricelist(items=[item], name="Template Pricelist")
         partner = _make_partner(pricelist=pricelist)
 
-        with pytest.raises(ValidationError):
-            partner._validate_pricelist_gst()
+        assert partner._pricelist_gst_inclusive_message()
 
-    def test_pricelist_with_no_items_is_accepted(self):
-        """An empty pricelist (no items) cannot resolve to GST-inclusive
-        prices on its own, so it is accepted. The processor will fall back
-        to product.list_price; that is treated as a separate concern."""
+    def test_empty_pricelist_has_no_notice(self):
         pricelist = _make_pricelist(items=[], name="Empty Pricelist")
         partner = _make_partner(pricelist=pricelist)
-
-        # Should not raise.
-        partner._validate_pricelist_gst()
+        assert not partner._pricelist_gst_inclusive_message()

@@ -58,8 +58,12 @@ class ParsedOrder:
     # Delivery address GLN/code — looked up against res.partner.ref
     delivery_address_code: str | None = None
 
-    # 'new_order' or 'change_order'. Parsers set this from EDI message type.
-    # If the format doesn't distinguish, detect by matching PO number to existing SO.
+    # 'new_order', 'change_order', or 'cancellation'. Parsers set this from the
+    # EDI message type. If the format doesn't distinguish, detect by matching PO
+    # number to existing SO. 'cancellation' (e.g. Animates BGM 1225=1 / contract
+    # C5) carries no order lines — the processor cancels the existing SO and
+    # never queues an ORDRSP for it (see models/edi_processor.py
+    # _process_cancellation / CANCELLATION_MARKER).
     document_type: str = "new_order"
 
     # Optional reason code / description from the EDI change order message
@@ -119,6 +123,19 @@ class BaseEDIParser(ABC):
             Raw bytes to upload to the FTP outbox
         """
         raise NotImplementedError
+
+    def build_outbound(self, msg_type: str, payload) -> bytes:
+        """Build an outbound document OTHER than the ORDRSP ack (e.g. DESADV/INVOIC/
+        CONTRL). Partner-dispatched outbound seam.
+
+        Not abstract: parsers that only emit an ORDRSP ack (via ``generate_ack``)
+        need not override it. ``payload`` is a partner-specific dict assembled by the
+        caller from the relevant Odoo record (stock.picking, account.move, the inbound
+        interchange, ...). Returns the serialized message bytes for the FTP outbox.
+        """
+        raise NotImplementedError(
+            "%s does not emit outbound %s" % (type(self).__name__, msg_type)
+        )
 
 
 class EDIParseError(Exception):

@@ -12,3 +12,4 @@ from . import edi_partner_health
 from . import edi_processing_log
 from . import edi_wall
 from . import edi_mobile
+from . import sscc_register

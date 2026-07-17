@@ -69,6 +69,10 @@ class EDIBulkAction(models.TransientModel):
                 skipped += 1
                 continue
             try:
+                # action_approve runs the full approve pipeline, including the
+                # SS-1 approve-time availability re-clamp and the SS-3
+                # post-confirm reservation verify — bulk approval gets the
+                # same stock gating as a one-by-one approval.
                 review.action_approve()
                 approved += 1
             except Exception:
