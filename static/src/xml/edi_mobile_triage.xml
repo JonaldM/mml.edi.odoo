@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/static/src/xml/edi_mobile_triage.xml
+     EDI MOBILE TRIAGE (OWL client action `edi_mobile_triage`). Recreates
+     design_handoff "Mobile Triage.dc.html" as a responsive one-tap triage for
+     Odoo mobile / PWA (the iOS frame is presentation-only). Themes via the
+     shared edi token bridge (.o_edi_screen) so Odoo's native colour scheme
+     drives light/dark. The root owns its scroll via `.o_content
+     .edi-screen-body` (the `.o_action` clipping contract). Hit targets 46px+. -->
+<templates xml:space="preserve">
+
+<t t-name="mml_edi.EdiMobileTriage" owl="1">
+    <div class="o_action o_edi_screen edi-mobile">
+
+        <!-- ============ Loading ============ -->
+        <t t-if="state.loading">
+            <div class="edi-screen-body edi-m-body">
+                <div class="edi-m-loading">
+                    <div class="edi-spinner"/>
+                    <span class="text-muted" style="font-size:13px">Loading triage…</span>
+                </div>
+                <div class="edi-m-card edi-skel" style="height:120px"/>
+                <div class="edi-m-card edi-skel" style="height:120px;animation-delay:.15s"/>
+                <div class="edi-m-card edi-skel" style="height:120px;animation-delay:.3s"/>
+            </div>
+        </t>
+
+        <!-- ============ Error ============ -->
+        <t t-elif="state.error">
+            <div class="edi-screen-body edi-m-body">
+                <div class="edi-m-state">
+                    <div class="edi-state-icon edi-state-icon--error"><i class="fa fa-exclamation-triangle"/></div>
+                    <div class="edi-m-state-title" t-esc="state.error"/>
+                    <button class="edi-m-btn edi-m-btn--accent" t-on-click="onRetry">Retry</button>
+                </div>
+            </div>
+        </t>
+
+        <!-- ============ Board ============ -->
+        <t t-else="">
+            <div class="edi-screen-body edi-m-body o_content" t-att-class="{ 'edi-m-refreshing': state.refreshing }">
+
+                <!-- Partner segmented filter -->
+                <div class="edi-m-filter">
+                    <EdiPartnerFilter partners="partners" partnerFilter="partnerFilter"
+                                      onChange="() => this.onPartnerChange()"/>
+                </div>
+
+                <!-- Header counts -->
+                <div class="edi-m-counts">
+                    <span class="edi-m-pending"><t t-esc="pending"/> pending</span>
+                    <span t-if="redCount" class="edi-m-count edi-m-count--red"><t t-esc="redCount"/> blocking</span>
+                    <span t-if="amberCount" class="edi-m-count edi-m-count--amber"><t t-esc="amberCount"/> warning</span>
+                </div>
+
+                <!-- Empty (no poll yet) -->
+                <t t-if="!dataAvailable">
+                    <div class="edi-m-state">
+                        <div class="edi-state-icon edi-state-icon--empty"><i class="fa fa-feed"/></div>
+                        <div class="edi-m-state-title">No exchange activity yet</div>
+                        <div class="edi-m-state-sub">Nothing has been polled for this partner.</div>
+                    </div>
+                </t>
+
+                <!-- All-clear -->
+                <t t-elif="allClear">
+                    <div class="edi-m-state">
+                        <div class="edi-state-icon edi-state-icon--empty" style="background:#d1e7dd;color:#0a3622">
+                            <i class="fa fa-check"/>
+                        </div>
+                        <div class="edi-m-state-title">All clear</div>
+                        <div class="edi-m-state-sub">No orders need a decision right now.</div>
+                    </div>
+                </t>
+
+                <!-- Triage cards -->
+                <t t-else="">
+                    <t t-foreach="cards()" t-as="c" t-key="c.id">
+                        <div class="edi-m-card">
+                            <div class="edi-m-card-head">
+                                <span class="edi-m-dot" t-att-style="c.dotStyle"/>
+                                <span class="edi-m-title" t-esc="c.title"/>
+                                <span t-att-class="c.ageClass" t-esc="c.age"/>
+                            </div>
+                            <div class="edi-m-tagline">
+                                <span t-if="c.partnerTag" class="edi-tag" t-esc="c.partnerTag"/>
+                            </div>
+                            <div class="edi-m-summary" t-esc="c.summary"/>
+                            <div class="edi-m-actions">
+                                <t t-foreach="c.actions" t-as="a" t-key="a.key">
+                                    <button t-att-class="a.cls"
+                                            t-att-disabled="state.busyId === c.id"
+                                            t-on-click="() => this.onAction(c, a)"
+                                            t-esc="a.label"/>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+
+            </div>
+        </t>
+    </div>
+</t>
+
+</templates>

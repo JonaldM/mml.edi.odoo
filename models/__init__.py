@@ -10,3 +10,5 @@ from . import edi_dashboard
 from . import edi_review_queue
 from . import edi_partner_health
 from . import edi_processing_log
+from . import edi_wall
+from . import edi_mobile

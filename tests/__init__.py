@@ -24,6 +24,8 @@ try:
         test_processor,
         test_review_workflow,
         test_edi_review_queue,
+        test_edi_wall,
+        test_edi_mobile_triage,
     )
 except (ImportError, ModuleNotFoundError):
     # conftest stubs not yet in place — pytest will collect these directly.
@@ -48,6 +50,8 @@ if _STUB:
             test_edi_service,
             test_ftp_handler,
             test_pricelist_gst_constraint,
+            test_wall_format,
+            test_mobile_triage_format,
         )
     except (ImportError, ModuleNotFoundError):
         pass
