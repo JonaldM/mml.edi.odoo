@@ -65,7 +65,7 @@
                                t-on-input="onSearch"
                                placeholder="Find an order — PO, store, SO or partner ref"/>
                     </div>
-                    <t t-if="state.query.trim()">
+                    <t t-if="state.query.trim() and (state.results.length or state.noResults)">
                         <div class="edi-search-results">
                             <t t-foreach="state.results" t-as="r" t-key="r.key">
                                 <div class="edi-search-row" t-on-click="() => this.openResult(r)">
@@ -117,7 +117,9 @@
 
             <!-- == body grid == -->
             <t t-else="">
-            <div class="edi-body-grid p-3 o_content edi-screen-body">
+            <div class="edi-body-grid p-3 o_content edi-screen-body"
+                 t-att-class="{ 'edi-refreshing': state.refreshing }"
+                 t-att-aria-busy="state.refreshing">
 
                 <!-- left column -->
                 <div class="d-flex flex-column gap-3 min-width-0">

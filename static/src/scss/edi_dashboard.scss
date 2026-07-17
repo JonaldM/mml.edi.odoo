@@ -68,6 +68,13 @@
         display: grid;
         grid-template-columns: minmax(0, 1fr) 322px;
         gap: 16px;
+        transition: opacity .12s ease;
+    }
+    // In-place filter refresh: dim + lock the board body (not the control bar)
+    // while the scoped payload loads. The full skeleton is initial-mount only.
+    .edi-body-grid.edi-refreshing {
+        opacity: .55;
+        pointer-events: none;
     }
     @media (max-width: 1100px) {
         .edi-body-grid { grid-template-columns: minmax(0, 1fr); }
@@ -169,7 +176,7 @@
         &.edi-clickable { cursor: pointer; }
         &.edi-clickable:hover { background: var(--edi-hover); }
     }
-    .edi-feed-time { font-size: 11px; color: var(--edi-faint); width: 42px; flex: none; }
+    .edi-feed-time { font-size: 11px; color: var(--edi-faint); min-width: 42px; flex: none; white-space: nowrap; }
     .edi-feed-text { font-size: 12px; color: var(--edi-muted); min-width: 0; }
     .edi-feed-tag { font-weight: 700; font-size: 10px; letter-spacing: .04em; margin-right: 4px; }
 

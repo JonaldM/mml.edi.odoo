@@ -71,10 +71,11 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         })
 
     def _log(self, partner=None, direction="inbound", event_type="file_download",
-             status="success", message="msg", filename=None):
+             status="success", message="msg", filename=None, review=None):
         partner = partner or self.trading_partner
         return self.env["edi.log"].log(
-            partner, direction, event_type, status, message, filename=filename)
+            partner, direction, event_type, status, message,
+            filename=filename, review=review)
 
     # ---- fresh-install guard ----
 
@@ -156,6 +157,64 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         self.assertEqual(len(ack), 1)
         self.assertEqual(ack[0]["severity"], "red")
         self.assertIn("retry_ack", ack[0]["actions"])
+
+    def test_attention_ack_failed_producer_shape(self):
+        # Companion to the row test above, exercising the REAL producer shape:
+        # edi_order_review._queue_ack's except branch logs an error 'ack_sent'
+        # WITH filename (the root-cause fix) AND review_id — the row the
+        # dashboard must find. A hand-crafted filename-only log (the old test)
+        # is not what production emits.
+        r = self._review(po="POACKP", state="approved", file_hash="feedface99",
+                         reviewed=fields.Datetime.now())
+        exchange_key = "feedface99"[:8]
+        filename = "ACK_%s_%s_%s.edi" % (self.trading_partner.code, "POACKP", exchange_key)
+        # Emitted exactly as _queue_ack does on upload failure.
+        self._log(direction="outbound", event_type="ack_sent", status="error",
+                  message="ACK generation/upload failed: SFTP timeout",
+                  filename=filename, review=r)
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
+        ack = [i for i in items if i["kind"] == "ack_failed"]
+        self.assertEqual(len(ack), 1)
+        self.assertEqual(ack[0]["res_id"], r.id)
+        self.assertIn("retry_ack", ack[0]["actions"])
+
+    def test_attention_ack_failed_auto_approved(self):
+        # An auto-approved clean PO (the majority class for Briscoes) carries NO
+        # reviewed_date — retry_pending_acks still covers it, so a failed ACK on
+        # one must surface. The failed-ORDRSP scan bounds it by received_date.
+        r = self._review(po="POAUTO", state="auto_approved", file_hash="0ddba11abc",
+                         received=fields.Datetime.now())
+        exchange_key = "0ddba11abc"[:8]
+        filename = "ACK_%s_%s_%s.edi" % (self.trading_partner.code, "POAUTO", exchange_key)
+        self._log(direction="outbound", event_type="ack_sent", status="error",
+                  message="ACK generation/upload failed: SFTP timeout",
+                  filename=filename, review=r)
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
+        ack = [i for i in items if i["kind"] == "ack_failed"]
+        self.assertEqual(len(ack), 1)
+        self.assertEqual(ack[0]["res_id"], r.id)
+
+    def test_attention_ack_failed_dedupes_siblings(self):
+        # Two store-review siblings of one inbound file share edi_file_hash ->
+        # identical ACK filename -> one exchange. A single failed ACK must render
+        # exactly ONE row, not one per sibling.
+        common = fields.Datetime.now()
+        r1 = self._review(po="POSIB", store="1", state="approved",
+                          file_hash="5157e12345", reviewed=common)
+        r2 = self._review(po="POSIB", store="2", state="approved",
+                          file_hash="5157e12345", reviewed=common)
+        exchange_key = "5157e12345"[:8]
+        filename = "ACK_%s_%s_%s.edi" % (self.trading_partner.code, "POSIB", exchange_key)
+        self._log(direction="outbound", event_type="ack_sent", status="error",
+                  message="ACK generation/upload failed: SFTP timeout",
+                  filename=filename, review=r1)
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
+        ack = [i for i in items if i["kind"] == "ack_failed"]
+        self.assertEqual(len(ack), 1)
+        self.assertIn(ack[0]["res_id"], (r1.id, r2.id))
 
     def test_all_clear_when_no_attention(self):
         self._log(event_type="file_download")  # data available, nothing pending

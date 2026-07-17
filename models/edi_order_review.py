@@ -359,6 +359,7 @@ class EDIOrderReview(models.Model):
             self.env["edi.log"].log(
                 partner, "outbound", "ack_sent", "error",
                 "ACK generation/upload failed: %s" % str(e),
+                filename=filename,
                 review=self,
                 detail=str(e),
             )

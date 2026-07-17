@@ -60,6 +60,7 @@ class EdiDashboard extends Component {
 
         this.state = useState({
             loading: true,
+            refreshing: false,
             error: null,
             summary: null,
             query: "",
@@ -105,8 +106,15 @@ class EdiDashboard extends Component {
     }
 
     async onPartnerChange() {
-        this.state.loading = true;
-        await this._load();
+        // A filter change is an in-place refresh: keep the loaded board (and the
+        // control bar under the user's cursor) mounted, dim it while the scoped
+        // payload arrives. The full skeleton is reserved for the initial mount.
+        this.state.refreshing = true;
+        try {
+            await this._load();
+        } finally {
+            this.state.refreshing = false;
+        }
     }
 
     async onRetry() {

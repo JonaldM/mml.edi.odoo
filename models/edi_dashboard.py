@@ -394,9 +394,12 @@ class EdiDashboard(models.AbstractModel):
     def _median_turnaround_h(self, pdom, window_start):
         """Median hours from received -> resolved over reviewed orders (30d).
 
-        Only reviews with a real ``reviewed_date`` count (auto-approved orders
-        are resolved at receipt, so they contribute ~0h and correctly pull the
-        median down — clean flow IS fast). None when nothing resolved.
+        Only human-reviewed orders count: the domain requires a real
+        ``reviewed_date``, and auto-approval never sets one (edi.processor
+        writes only ``state='auto_approved'``). Auto-approved orders are
+        therefore excluded — the KPI stays an honest measure of the manual
+        review turnaround, not diluted to ~0h by the clean auto-flow. None
+        when nothing resolved.
         """
         reviews = self.env["edi.order.review"].search(
             pdom + [("reviewed_date", "!=", False),
@@ -441,8 +444,13 @@ class EdiDashboard(models.AbstractModel):
         #    upload only ever errored (a log exists for its ACK filename, none
         #    succeeded — mirrors edi.order.review._compute_ack_status).
         resolved = Review.search(
-            pdom + [("state", "in", ("approved", "rejected")),
-                    ("reviewed_date", ">=", window_start)],
+            pdom + [
+                ("state", "in", ("approved", "rejected", "auto_approved")),
+                "|",
+                ("reviewed_date", ">=", window_start),
+                "&", ("reviewed_date", "=", False),
+                ("received_date", ">=", window_start),
+            ],
             order="reviewed_date desc")
         if resolved:
             fname_of = {
@@ -462,11 +470,21 @@ class EdiDashboard(models.AbstractModel):
                 slot["any"] = True
                 if log.status == "success":
                     slot["success"] = True
+            # Dedupe by filename: all store-review siblings of one inbound file
+            # share edi_file_hash -> identical ACK filename -> one exchange, one
+            # row. ``resolved`` is reviewed_date-desc, so the newest sibling wins.
+            emitted = set()
             for rec in resolved:
-                slot = by_file.get(fname_of[rec.id])
-                if slot and slot["any"] and not slot["success"]:
-                    items.append(self._item_ack_failed(now, rec))
+                fname = fname_of[rec.id]
+                slot = by_file.get(fname)
+                if not (slot and slot["any"] and not slot["success"]):
+                    continue
+                if fname in emitted:
                     seen.add(rec.id)
+                    continue
+                items.append(self._item_ack_failed(now, rec))
+                seen.add(rec.id)
+                emitted.add(fname)
 
         # 2. Blocking reviews (red).
         blocking = Review.search(
