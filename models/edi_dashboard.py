@@ -546,7 +546,7 @@ class EdiDashboard(models.AbstractModel):
             "res_id": rec.id,
             "partner_tag": self._partner_tag(rec),
             "title": "ORDRSP for PO %s — upload failed" % (rec.customer_po_number or ""),
-            "summary": "ORDRSP upload to the EDIS VAN failed · retry from the log",
+            "summary": "ORDRSP upload to the EDIS VAN failed · Retry ACK re-queues it",
             "age_hours": self._age_hours(now, rec.reviewed_date or rec.received_date),
             "actions": ["retry_ack", "log"],
         }

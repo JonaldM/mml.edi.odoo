@@ -279,6 +279,10 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
     # ---- partner-health rail ----
 
     def test_partner_health_rows(self):
+        # An inbound poll must have happened for health to be anything but
+        # "never" — set last_poll_date, then the pending review drives
+        # health_state="review" ("Awaiting review").
+        self._log(event_type="file_download")
         self._review(po="PH1")  # pending -> partner health = review
         rows = self.dash.get_dashboard_summary(
             partner_code="TESTPARTNER")["partner_health"]

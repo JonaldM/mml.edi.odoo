@@ -227,10 +227,17 @@ class EdiDashboard extends Component {
         });
     }
 
-    onTriageAction(row, action) {
+    async onTriageAction(row, action) {
         const item = row._item;
         switch (action.actionKey) {
             case "retry_ack":
+                // Re-queue every failed ORDRSP for fully-resolved POs via the
+                // idempotent cron entrypoint, then refresh the board and confirm
+                // — the button now genuinely retries rather than just opening a log.
+                await this.orm.call("edi.processor", "retry_pending_acks", []);
+                await this._load();
+                this.notification.add("Pending ACKs re-queued", { type: "success" });
+                break;
             case "log":
                 this.actionService.doAction("mml_edi.action_edi_log");
                 break;
