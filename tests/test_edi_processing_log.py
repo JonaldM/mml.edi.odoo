@@ -21,6 +21,11 @@ class TestEdiProcessingLog(TransactionCase, EDITestSetup):
         super().setUp()
         self.setup_edi_test_data()
         self.svc = self.env["edi.processing.log"]
+        # The technical-detail gate keys off group_edi_manager. On a prod-clone
+        # DB the admin test user is not in that group (unlike a dev DB), so
+        # grant it explicitly; the transaction rolls it back.
+        self.env.user.write({
+            "group_ids": [(4, self.env.ref("mml_edi.group_edi_manager").id)]})
 
     # ---- helpers ----
 
@@ -32,34 +37,39 @@ class TestEdiProcessingLog(TransactionCase, EDITestSetup):
 
     # ---- row list ----
 
+    # Count assertions are scoped with a fixture-unique "ZZUIT" marker: the
+    # clone-gate DB is a full prod copy with thousands of real edi.log rows,
+    # so unscoped counts are meaningless there.
+
     def test_page_returns_rows_newest_first(self):
-        self._log(message="first", filename="A.xml")
-        self._log(event_type="file_parse", message="second", filename="A.xml")
-        page = self.svc.get_log_page()
+        self._log(message="first", filename="ZZUIT_A.xml")
+        self._log(event_type="file_parse", message="second", filename="ZZUIT_A.xml")
+        page = self.svc.get_log_page(query="ZZUIT_A")
         self.assertEqual(page["count"], 2)
         # Newest first: the parse event was logged last.
         self.assertEqual(page["rows"][0]["message"], "second")
 
     def test_direction_filter(self):
-        self._log(direction="inbound", filename="in.xml")
-        self._log(direction="outbound", event_type="ack_sent", filename="out.edi")
-        inbound = self.svc.get_log_page(direction="inbound")
+        self._log(direction="inbound", filename="ZZUIT_in.xml")
+        self._log(direction="outbound", event_type="ack_sent", filename="ZZUIT_out.edi")
+        inbound = self.svc.get_log_page(direction="inbound", query="ZZUIT_")
         self.assertEqual(inbound["count"], 1)
-        self.assertEqual(inbound["rows"][0]["filename"], "in.xml")
+        self.assertEqual(inbound["rows"][0]["filename"], "ZZUIT_in.xml")
 
     def test_status_filter(self):
-        self._log(status="success", filename="ok.xml")
-        self._log(event_type="error", status="error", message="boom", filename="bad.xml")
-        errors = self.svc.get_log_page(status="error")
+        self._log(status="success", filename="ZZUIT_ok.xml")
+        self._log(event_type="error", status="error", message="boom",
+                  filename="ZZUIT_bad.xml")
+        errors = self.svc.get_log_page(status="error", query="ZZUIT_")
         self.assertEqual(errors["count"], 1)
         self.assertEqual(errors["rows"][0]["status"], "Error")
 
     def test_query_matches_filename_and_message(self):
-        self._log(message="Downloaded from VAN", filename="ORDERS_4500.xml")
-        self._log(message="unrelated", filename="OTHER.xml")
-        by_file = self.svc.get_log_page(query="4500")
+        self._log(message="zzuitDownloaded from VAN", filename="ORDERS_ZZQ4500.xml")
+        self._log(message="unrelated", filename="ZZUIT_OTHER.xml")
+        by_file = self.svc.get_log_page(query="ZZQ4500")
         self.assertEqual(by_file["count"], 1)
-        by_msg = self.svc.get_log_page(query="Downloaded")
+        by_msg = self.svc.get_log_page(query="zzuitDownloaded")
         self.assertEqual(by_msg["count"], 1)
 
     def test_row_tag_and_status_presentation(self):
@@ -155,7 +165,7 @@ class TestEdiProcessingLog(TransactionCase, EDITestSetup):
         user = self.env["res.users"].create({
             "name": "EDI Operator",
             "login": "edi_operator_test",
-            "groups_id": [(6, 0, [self.env.ref("mml_edi.group_edi_user").id])],
+            "group_ids": [(6, 0, [self.env.ref("mml_edi.group_edi_user").id])],
         })
         ex = self.svc.with_user(user).get_exchange_chain(err.id)
         self.assertFalse(ex["has_detail"])
