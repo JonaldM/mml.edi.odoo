@@ -34,6 +34,9 @@
         "views/edi_dashboard_action.xml",
         # Menus (after all view actions are defined)
         "views/menuitems.xml",
+        # Wall Display + Mobile Triage client actions + menus (after the EDI root
+        # menu is defined in menuitems.xml).
+        "views/edi_wall_mobile_actions.xml",
         # Seed data (noupdate=1 inside)
         "data/edi_trading_partner_briscoes.xml",
         # Templates
@@ -52,6 +55,15 @@
             "mml_edi/static/src/scss/edi_dashboard.scss",
             "mml_edi/static/src/js/edi_dashboard.js",
             "mml_edi/static/src/xml/edi_dashboard.xml",
+            # Wall Display radiator (client action `edi_wall`) — fixed dark
+            # palette, both colour schemes.
+            "mml_edi/static/src/scss/edi_wall.scss",
+            "mml_edi/static/src/js/edi_wall.js",
+            "mml_edi/static/src/xml/edi_wall.xml",
+            # Mobile Triage pocket view (client action `edi_mobile_triage`).
+            "mml_edi/static/src/scss/edi_mobile.scss",
+            "mml_edi/static/src/js/edi_mobile_triage.js",
+            "mml_edi/static/src/xml/edi_mobile_triage.xml",
         ],
         # Dark-mode token overrides — same bundle key web_enterprise uses for
         # its own *.dark.scss companions, so Odoo loads it only under the dark

@@ -1,0 +1,315 @@
+// mml_edi/static/src/scss/edi_wall.scss
+//
+// EDI operations WALL DISPLAY (client action `edi_wall`) — a 1920x1080 dark ops
+// radiator for a TV browser session. Recreates design_handoff "Wall
+// Display.dc.html". Unlike the other EDI screens this uses a FIXED dark palette
+// (README shared-theme "Wall Display" row) in BOTH Odoo colour schemes — the
+// board must read identically on a TV regardless of the operator's theme — so
+// it does NOT consume the `--edi-*` token bridge; the radiator hexes are local.
+//
+// Scroll contract (the OWL client-action clipping bug): `.o_action` is locked
+// to overflow:hidden by web core, so the root delegates scrolling to the single
+// `.o_content .edi-wall-scroll` wrapper (`flex:1 1 auto` + `min-height:0` +
+// `overflow-y:auto`). The dark canvas fills the wrapper (`min-height:100%`).
+
+$wall-bg: #0D1220;
+$wall-panel: #131A2B;
+$wall-border: #212B42;
+$wall-text: #E8ECF4;
+$wall-muted: #8A93A8;
+$wall-faint: #5C6784;
+$wall-green: #46A758;
+
+.o_edi_wall {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: $wall-bg;
+
+    .edi-wall-scroll {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        background: $wall-bg;
+    }
+
+    .edi-wall-canvas {
+        min-height: 100%;
+        box-sizing: border-box;
+        background: $wall-bg;
+        color: $wall-text;
+        // Archivo is the wall face (README typography); system fallbacks keep it
+        // legible if the webfont is not bundled.
+        font-family: Archivo, -apple-system, "Segoe UI", sans-serif;
+        padding: clamp(20px, 2.4vw, 40px);
+        display: flex;
+        flex-direction: column;
+        gap: clamp(16px, 1.8vw, 26px);
+        // The 1920px design centres on a wider TV rather than stretching.
+        max-width: 2100px;
+        margin: 0 auto;
+        width: 100%;
+    }
+
+    // ---- header --------------------------------------------------------------
+    .edi-wall-header {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex: none;
+    }
+    .edi-wall-logo { width: 44px; height: 44px; border-radius: 9px; }
+    .edi-wall-title { font-size: clamp(22px, 1.9vw, 30px); font-weight: 800; letter-spacing: .01em; }
+    .edi-wall-subtitle {
+        font-size: 15px;
+        color: $wall-muted;
+        font-weight: 500;
+        letter-spacing: .18em;
+        text-transform: uppercase;
+    }
+    .edi-wall-headright {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 28px;
+    }
+    .edi-wall-live {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 17px;
+        color: $wall-muted;
+        font-weight: 500;
+    }
+    .edi-wall-clock {
+        font-size: clamp(26px, 2.2vw, 34px);
+        font-weight: 700;
+        font-family: "JetBrains Mono", monospace;
+        letter-spacing: .02em;
+    }
+
+    // Pulsing live dot (the only wall animation, per the README motion note).
+    .edi-wall-live-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: $wall-green;
+        box-shadow: 0 0 0 4px rgba(70, 167, 88, .22);
+        flex: none;
+        animation: edi-wall-pulse 2.4s ease-in-out infinite;
+        &--stale {
+            background: $wall-faint;
+            box-shadow: none;
+            animation: none;
+        }
+    }
+    @keyframes edi-wall-pulse {
+        0%, 100% { box-shadow: 0 0 0 4px rgba(70, 167, 88, .22); }
+        50% { box-shadow: 0 0 0 7px rgba(70, 167, 88, .10); }
+    }
+
+    // ---- alarm tiles ---------------------------------------------------------
+    .edi-wall-alarms {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: clamp(14px, 1.5vw, 22px);
+        flex: none;
+    }
+    @media (max-width: 1100px) {
+        .edi-wall-alarms { grid-template-columns: repeat(2, 1fr); }
+    }
+    .edi-wall-alarm {
+        background: $wall-panel;
+        border-radius: 16px;
+        padding: 20px 24px;
+    }
+    .edi-wall-alarm-label {
+        font-size: 15px;
+        color: $wall-muted;
+        font-weight: 600;
+        letter-spacing: .1em;
+        text-transform: uppercase;
+    }
+    .edi-wall-alarm-row {
+        display: flex;
+        align-items: flex-end;
+        gap: 14px;
+        margin-top: 8px;
+    }
+    .edi-wall-alarm-value { font-size: clamp(46px, 4.2vw, 66px); font-weight: 800; line-height: .9; }
+    .edi-wall-alarm-sub { font-size: 16px; color: $wall-muted; padding-bottom: 8px; }
+
+    // ---- panels --------------------------------------------------------------
+    .edi-wall-panel {
+        background: $wall-panel;
+        border: 1px solid $wall-border;
+        border-radius: 16px;
+        padding: 24px 28px;
+    }
+    .edi-wall-panel-head {
+        display: flex;
+        align-items: baseline;
+        gap: 20px;
+        margin-bottom: 18px;
+        flex-wrap: wrap;
+    }
+    .edi-wall-panel-title { font-size: 19px; font-weight: 700; letter-spacing: .02em; }
+    .edi-wall-panel-sub { font-size: 16px; color: $wall-muted; }
+
+    // ---- pipeline ramp -------------------------------------------------------
+    .edi-wall-pipeline { flex: none; }
+    .edi-wall-ramp {
+        display: flex;
+        align-items: center;
+        gap: clamp(8px, 1vw, 14px);
+    }
+    .edi-wall-stage {
+        flex: 1;
+        border-radius: 12px;
+        padding: 20px 14px;
+        text-align: center;
+        min-width: 0;
+    }
+    .edi-wall-stage-val { font-size: clamp(34px, 3.1vw, 48px); font-weight: 800; line-height: 1; }
+    .edi-wall-stage-lbl { font-size: 16px; font-weight: 600; margin-top: 6px; }
+    .edi-wall-stage-note { font-size: 13px; opacity: .7; margin-top: 2px; }
+    .edi-wall-ramp-arrow { color: #3A4560; font-size: 26px; flex: none; }
+
+    // ---- lower grid: service levels | live feed ------------------------------
+    .edi-wall-lower {
+        display: grid;
+        grid-template-columns: 1.35fr 1fr;
+        gap: clamp(14px, 1.5vw, 22px);
+        flex: 1;
+        min-height: 0;
+    }
+    @media (max-width: 1100px) {
+        .edi-wall-lower { grid-template-columns: 1fr; }
+    }
+
+    // ---- service-level bars --------------------------------------------------
+    .edi-wall-levels { display: flex; flex-direction: column; }
+    .edi-wall-bars {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        flex: 1;
+        justify-content: center;
+        padding: 8px 0;
+    }
+    .edi-wall-bar-head {
+        display: flex;
+        align-items: baseline;
+        margin-bottom: 8px;
+    }
+    .edi-wall-bar-label { font-size: 17px; font-weight: 600; }
+    .edi-wall-bar-value { margin-left: auto; font-size: 26px; font-weight: 800; }
+    .edi-wall-bar-target { font-size: 14px; color: $wall-muted; margin-left: 10px; width: 82px; text-align: right; }
+    .edi-wall-bar-track {
+        position: relative;
+        height: 14px;
+        background: $wall-bg;
+        border-radius: 99px;
+        overflow: hidden;
+    }
+    .edi-wall-bar-fill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        border-radius: 99px;
+    }
+    .edi-wall-bar-mark {
+        position: absolute;
+        top: -3px;
+        bottom: -3px;
+        width: 2px;
+        background: $wall-text;
+        opacity: .55;
+    }
+
+    // ---- partner strip -------------------------------------------------------
+    .edi-wall-partners {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 26px;
+        margin-top: 22px;
+        padding-top: 20px;
+        border-top: 1px solid $wall-border;
+    }
+    .edi-wall-partner { display: flex; align-items: center; gap: 11px; }
+    .edi-wall-partner-dot { width: 11px; height: 11px; border-radius: 50%; flex: none; }
+    .edi-wall-partner-name { font-size: 16px; font-weight: 600; }
+    .edi-wall-partner-sub { font-size: 14px; color: $wall-muted; }
+
+    // ---- live feed -----------------------------------------------------------
+    .edi-wall-feed { display: flex; flex-direction: column; min-height: 0; }
+    .edi-wall-feed-head {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        margin-bottom: 16px;
+    }
+    .edi-wall-feed-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+    .edi-wall-feed-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 11px 0;
+        border-bottom: 1px solid $wall-border;
+    }
+    .edi-wall-feed-time {
+        font-size: 15px;
+        color: $wall-faint;
+        width: 52px;
+        flex: none;
+        font-family: "JetBrains Mono", monospace;
+    }
+    .edi-wall-feed-tag {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: .05em;
+        padding: 3px 9px;
+        border-radius: 6px;
+        color: $wall-bg;
+        flex: none;
+    }
+    .edi-wall-feed-text {
+        font-size: 16px;
+        color: #C6CEDE;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .edi-wall-feed-empty { font-size: 15px; color: $wall-muted; padding: 12px 0; }
+
+    // ---- system states -------------------------------------------------------
+    .edi-wall-state {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        color: $wall-muted;
+        font-size: 18px;
+        padding: 60px 20px;
+    }
+    .edi-wall-state-icon { font-size: 40px; color: $wall-faint; }
+    .edi-wall-spinner {
+        width: 30px;
+        height: 30px;
+        border: 3px solid $wall-border;
+        border-top-color: $wall-green;
+        border-radius: 50%;
+        animation: edi-wall-spin .8s linear infinite;
+    }
+    @keyframes edi-wall-spin { to { transform: rotate(360deg); } }
+}

@@ -7,3 +7,5 @@ from . import edi_ftp
 from . import edi_processor
 from . import stock_location_ext
 from . import edi_dashboard
+from . import edi_wall
+from . import edi_mobile
