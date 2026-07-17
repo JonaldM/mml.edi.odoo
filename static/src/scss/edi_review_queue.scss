@@ -1,0 +1,339 @@
+// mml_edi/static/src/scss/edi_review_queue.scss
+//
+// EDI Review Queue (`edi_review_queue`) + Order Review Detail (`edi_review_detail`)
+// client actions. Layout + component styles for the master-detail triage board,
+// the single-review page and their shared system states. All rules are scoped
+// under the `.o_edi_screen` root (shared token layer, edi_shared.scss); colours
+// resolve from the `--edi-*` custom properties so light/dark follow Odoo's
+// native colour scheme with no per-rule theme handling and no custom toggle.
+
+// ======================================================================
+//  Shared chrome — both screens (control bar, chips, pills, states)
+// ======================================================================
+.o_edi_screen.edi-review-queue,
+.o_edi_screen.edi-review-detail {
+    background: var(--edi-bg);
+
+    .edi-controlbar {
+        background: var(--edi-surface);
+        border-bottom: 1px solid var(--edi-line);
+        flex: none;
+    }
+    .edi-title { font-size: 19px; font-weight: 500; }
+
+    // ---- dot ----
+    .edi-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+    // ---- fixed subtle chip pairs (identical both schemes) ----
+    .edi-chip-red { background: #f8d7da; color: #58151c; }
+    .edi-chip-amber { background: #fff3cd; color: #664d03; }
+    .edi-chip-green { background: #d1e7dd; color: #0a3622; }
+    .edi-chip-blue { background: #cfe2ff; color: #052c65; }
+    .edi-chip-grey { background: #e2e3e5; color: #41464b; }
+    .edi-pill-red { background: #f8d7da; color: #dc3545; }
+    .edi-pill-amber { background: #fff3cd; color: #664d03; }
+    .edi-pill-green { background: #d1e7dd; color: #0a3622; }
+
+    // ---- card head ----
+    .edi-card-head {
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+
+    // ---- degraded-partner banner ----
+    .edi-degraded-banner {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 14px;
+        background: #fff3cd;
+        color: #664d03;
+        border-left: 3px solid #ffc107;
+        border-radius: 0 6px 6px 0;
+        font-size: 12.5px;
+
+        a { color: #664d03; font-weight: 500; text-decoration: underline; white-space: nowrap; }
+    }
+
+    // ---- issue card (shared by pane + detail page) ----
+    .edi-rq-issue {
+        border: 1px solid var(--edi-line-soft);
+        border-radius: 6px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+    }
+    .edi-rq-issue-desc { font-size: 12px; margin-top: 5px; line-height: 1.45; }
+    .edi-rq-issue-btn { font-size: 11px; padding: 3px 9px; }
+    .edi-rq-price {
+        display: flex;
+        gap: 16px;
+        margin-top: 8px;
+        padding: 7px 10px;
+        background: var(--edi-hover);
+        border-radius: 5px;
+        font-size: 12px;
+    }
+
+    // ---- SO-lines table ----
+    .edi-rq-lines {
+        border: 1px solid var(--edi-line-soft);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .edi-rq-lines-head,
+    .edi-rq-lines-row {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr) 92px 78px 78px 78px;
+        gap: 0;
+        align-items: center;
+    }
+    .edi-rq-lines-head {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: .05em;
+        color: var(--edi-muted);
+        text-transform: uppercase;
+        background: var(--edi-hover);
+        padding: 8px 12px;
+    }
+    .edi-rq-lines-row {
+        font-size: 12px;
+        padding: 9px 12px;
+        border-top: 1px solid var(--edi-line-soft);
+    }
+    .edi-rq-line-product {
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .edi-rq-match { display: inline-block; margin-top: 3px; }
+    .edi-rq-line-note { font-size: 11px; margin-top: 8px; font-style: italic; }
+
+    // ======================================================================
+    //  System states — spinner, skeleton, state icon
+    // ======================================================================
+    @keyframes edi-rq-shim { 0% { opacity: .55 } 50% { opacity: 1 } 100% { opacity: .55 } }
+    @keyframes edi-rq-spin { to { transform: rotate(360deg) } }
+
+    .edi-spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid var(--edi-line);
+        border-top-color: var(--edi-accent);
+        border-radius: 50%;
+        animation: edi-rq-spin .8s linear infinite;
+    }
+    .edi-skel {
+        background: var(--edi-line-soft);
+        border-radius: 8px;
+        animation: edi-rq-shim 1.4s ease-in-out infinite;
+    }
+    .edi-state-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+        margin-bottom: 14px;
+    }
+    .edi-state-icon--empty { background: var(--edi-accent-bg); color: var(--edi-accent); }
+    .edi-state-icon--error { background: #f8d7da; color: #dc3545; }
+    .edi-state-code {
+        font-size: 11px;
+        color: #dc3545;
+        background: var(--edi-hover);
+        border-radius: 5px;
+        padding: 5px 10px;
+    }
+}
+
+// ======================================================================
+//  Review Queue — master-detail
+// ======================================================================
+.o_edi_screen.edi-review-queue {
+    .edi-rq-skel-grid {
+        display: grid;
+        grid-template-columns: 410px minmax(0, 1fr);
+        gap: 16px;
+    }
+
+    .edi-rq-grid {
+        display: grid;
+        grid-template-columns: 410px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+        transition: opacity .12s ease;
+    }
+    .edi-rq-refreshing {
+        opacity: .55;
+        pointer-events: none;
+    }
+    @media (max-width: 1100px) {
+        .edi-rq-grid, .edi-rq-skel-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    // ---- master list ----
+    .edi-rq-list { overflow: hidden; padding: 0; }
+    .edi-rq-group-label {
+        padding: 8px 16px 4px;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        color: var(--edi-muted);
+        text-transform: uppercase;
+        background: var(--edi-hover);
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-queue-row {
+        align-items: flex-start;
+        cursor: pointer;
+    }
+    .edi-rq-ref { font-size: 13px; font-weight: 500; }
+    .edi-rq-short {
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .flex-none { flex: none; }
+    .edi-rq-list-foot {
+        padding: 10px 16px;
+        font-size: 11.5px;
+        border-top: 1px solid var(--edi-line-soft);
+    }
+
+    // ---- detail pane ----
+    .edi-rq-detail {
+        min-width: 0;
+        transition: opacity .12s ease;
+    }
+    .edi-rq-detail-loading { opacity: .55; }
+    .edi-rq-detail-ref { font-size: 19px; font-weight: 500; }
+    .edi-rq-subtitle { font-size: 12.5px; }
+
+    .edi-rq-hint {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 14px;
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        line-height: 1.45;
+    }
+
+    .edi-rq-context {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-top: 16px;
+        border: 1px solid var(--edi-line-soft);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    .edi-rq-ctx-cell {
+        padding: 9px 14px;
+        background: var(--edi-hover);
+        border-right: 1px solid var(--edi-line-soft);
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-rq-ctx-k {
+        font-size: 10.5px;
+        color: var(--edi-muted);
+        text-transform: uppercase;
+        letter-spacing: .06em;
+    }
+    .edi-rq-ctx-v { font-size: 13px; font-weight: 500; margin-top: 2px; }
+
+    .edi-rq-cols {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-top: 18px;
+    }
+    @media (max-width: 1400px) {
+        .edi-rq-cols { grid-template-columns: minmax(0, 1fr); }
+    }
+    .edi-rq-mono { font-size: 11px; line-height: 1.65; }
+}
+
+// ======================================================================
+//  Order Review Detail — single-record page
+// ======================================================================
+.o_edi_screen.edi-review-detail {
+    .edi-rd-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 340px;
+        gap: 16px;
+        align-items: start;
+    }
+    @media (max-width: 1100px) {
+        .edi-rd-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    // ---- ORDRSP progress ----
+    .edi-rd-progress {
+        flex: 1;
+        height: 8px;
+        background: var(--edi-line-soft);
+        border-radius: 99px;
+        overflow: hidden;
+        display: flex;
+
+        span { display: block; height: 100%; }
+    }
+    .edi-rd-store { padding: 4px 10px; border-radius: 6px; font-size: 11.5px; }
+
+    // ---- lifecycle timeline ----
+    .edi-rd-tl-row {
+        display: flex;
+        gap: 12px;
+        padding: 0 0 14px;
+    }
+    .edi-rd-tl-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: none;
+        width: 10px;
+    }
+    .edi-rd-tl-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex: none;
+        margin-top: 3px;
+    }
+    .edi-rd-tl-line { width: 1px; flex: 1; background: var(--edi-line); margin-top: 3px; }
+    .edi-rd-tl-title { font-size: 12.5px; font-weight: 500; }
+    .edi-rd-tl-time {
+        font-weight: 400;
+        color: var(--edi-faint);
+        font-size: 11px;
+        margin-left: 4px;
+    }
+    .edi-rd-tl-sub { font-size: 12px; margin-top: 1px; }
+
+    // ---- message log ----
+    .edi-rd-msg {
+        display: flex;
+        gap: 10px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-rd-avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        flex: none;
+    }
+    .edi-rd-msg-body { font-size: 12px; line-height: 1.45; }
+    .edi-rd-msg-time { font-size: 11px; margin-top: 2px; }
+}

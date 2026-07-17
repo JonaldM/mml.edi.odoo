@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/views/edi_review_queue_action.xml
+     Client actions + nav menu for the EDI review-queue screens (OWL):
+       - edi_review_queue  : master-detail triage board (README EDI screen 2)
+       - edi_review_detail : single-record order-review page (screen 3)
+     The "Review Queue" nav item sits between Dashboard and Orders, per the
+     README EDI nav (Dashboard · Review Queue · Trading Partners · Logs · Config).
+     Additive to the existing menu tree — no existing action or menu is edited. -->
+<odoo>
+
+    <record id="action_edi_review_queue" model="ir.actions.client">
+        <field name="name">Review Queue</field>
+        <field name="tag">edi_review_queue</field>
+    </record>
+
+    <record id="action_edi_review_detail" model="ir.actions.client">
+        <field name="name">Order Review</field>
+        <field name="tag">edi_review_detail</field>
+    </record>
+
+    <menuitem id="menu_edi_review_queue"
+              name="Review Queue"
+              parent="menu_edi_root"
+              action="mml_edi.action_edi_review_queue"
+              sequence="15"/>
+
+</odoo>

@@ -1,0 +1,299 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/static/src/xml/edi_review_queue.xml
+     EDI Review Queue (master-detail triage). Recreates design_handoff "Review
+     Queue.dc.html" + the Loading / Empty / Error system states as one OWL
+     client action. Every colour resolves from the shared edi-* CSS tokens
+     (edi_shared.scss) so light/dark follow Odoo's native scheme with no toggle. -->
+<templates xml:space="preserve">
+
+<t t-name="mml_edi.EdiReviewQueue" owl="1">
+    <div class="edi-review-queue o_action o_edi_screen">
+
+        <!-- ============ Loading (skeleton) ============ -->
+        <t t-if="state.loading">
+            <div class="edi-screen-body p-4">
+                <div class="d-flex align-items-center gap-2 mb-4">
+                    <div class="edi-spinner"/>
+                    <span class="text-muted" style="font-size:13px">Loading the review queue…</span>
+                </div>
+                <div class="edi-rq-skel-grid">
+                    <div class="edi-skel" style="height:340px"/>
+                    <div class="edi-skel" style="height:340px;animation-delay:.2s"/>
+                </div>
+            </div>
+        </t>
+
+        <!-- ============ Error (RPC failure) ============ -->
+        <t t-elif="state.error">
+            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                <div class="edi-state-icon edi-state-icon--error"><i class="fa fa-exclamation-triangle"/></div>
+                <div class="fw-medium" style="font-size:15px">Couldn't load the review queue</div>
+                <div class="text-muted mt-1" style="font-size:12.5px;max-width:360px;line-height:1.5">
+                    The server request failed. Your data is safe — this is a display error, not a
+                    processing one. Reviews and ACKs keep running on their crons.
+                </div>
+                <div class="edi-mono edi-state-code my-3">RPC_ERROR · edi.review.queue.get_queue</div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-primary" t-on-click="onRetry">
+                        <i class="fa fa-refresh me-1"/>Retry
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openDashboard">Back to dashboard</button>
+                </div>
+            </div>
+        </t>
+
+        <!-- ============ Loaded ============ -->
+        <t t-elif="state.queue">
+            <t t-set="q" t-value="state.queue"/>
+
+            <!-- == control bar (sub-header) == -->
+            <div class="edi-controlbar d-flex align-items-center gap-3 px-3 py-2 border-bottom flex-wrap">
+                <a href="#" class="small text-muted" t-on-click.prevent="openDashboard">← Dashboard</a>
+                <h4 class="mb-0 edi-title">Review queue</h4>
+                <span class="small text-muted" t-esc="q.summary_line"/>
+
+                <EdiPartnerFilter partners="q.partners" partnerFilter="partnerFilter"
+                                  onChange="() => this.onPartnerChange()"/>
+
+                <div class="edi-seg">
+                    <t t-foreach="filterPills()" t-as="pill" t-key="pill.key">
+                        <span t-att-class="pill.cls" t-on-click="() => this.setGroup(pill.key)" t-esc="pill.label"/>
+                    </t>
+                </div>
+
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <button t-if="q.clean_ids.length" type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            t-att-disabled="state.acting"
+                            t-on-click="onApproveAllClean">
+                        <i class="fa fa-check me-1"/>Approve all clean (<t t-esc="q.clean_ids.length"/>)
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="onRepoll">
+                        <i class="fa fa-refresh me-1"/>Re-poll partners
+                    </button>
+                </div>
+            </div>
+
+            <!-- == Empty: no EDI activity in scope == -->
+            <t t-if="!q.data_available">
+                <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                    <div class="edi-state-icon edi-state-icon--empty"><i class="fa fa-inbox"/></div>
+                    <div class="fw-medium" style="font-size:15px">Nothing to review</div>
+                    <div class="text-muted mt-1" style="font-size:12.5px;max-width:340px;line-height:1.5">
+                        No trading partner has been polled in this scope. Configure a partner and run a
+                        poll — orders that need a human decision land here.
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="btn btn-sm btn-primary" t-on-click="() => this.openPartner()">Configure a partner</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openDashboard">Back to dashboard</button>
+                    </div>
+                </div>
+            </t>
+
+            <!-- == body == -->
+            <t t-else="">
+            <div class="edi-screen-body o_content p-3"
+                 t-att-class="{ 'edi-rq-refreshing': state.refreshing }"
+                 t-att-aria-busy="state.refreshing">
+
+                <!-- degraded-partner banner -->
+                <div t-if="q.degraded" class="edi-degraded-banner mb-3">
+                    <i class="fa fa-plug me-1"/>
+                    <span t-esc="q.degraded.text"/>
+                    <a href="#" class="ms-auto" t-on-click.prevent="() => this.openPartner(q.degraded.partner_id)">Open partner →</a>
+                </div>
+
+                <div class="edi-rq-grid">
+
+                    <!-- ===== master list ===== -->
+                    <div class="edi-card edi-rq-list">
+                        <t t-if="visibleGroups.length">
+                            <t t-foreach="visibleGroups" t-as="grp" t-key="grp.key">
+                                <div class="edi-rq-group-label" t-esc="grp.label"/>
+                                <t t-foreach="grp.items" t-as="it" t-key="it.id">
+                                    <div t-att-class="rowClass(it.id)" t-on-click="() => this.selectRow(it.id)">
+                                        <span class="edi-dot mt-1" t-attf-style="background:#{it.sev}"/>
+                                        <div class="min-width-0 flex-fill">
+                                            <div class="edi-rq-ref">
+                                                <t t-esc="it.ref"/>
+                                                <span class="text-muted fw-normal"> · <t t-esc="it.customer"/></span>
+                                            </div>
+                                            <div class="edi-rq-short text-muted" t-esc="it.short"/>
+                                        </div>
+                                        <div class="d-flex flex-column align-items-end gap-1 flex-none">
+                                            <span class="edi-tag" t-esc="it.partner_tag"/>
+                                            <span class="edi-pill" t-attf-style="background:#{it.age_bg};color:#{it.age_color}" t-esc="it.age"/>
+                                        </div>
+                                    </div>
+                                </t>
+                            </t>
+                        </t>
+                        <t t-else="">
+                            <div class="p-4 text-center text-muted small">
+                                <i class="fa fa-check-circle me-1" style="color:#198754"/>
+                                Nothing in this filter — every order here is parsed, reviewed and acknowledged.
+                            </div>
+                        </t>
+                        <div class="edi-rq-list-foot text-muted">
+                            Resolved reviews move to the audit log ·
+                            <a href="#" t-on-click.prevent="openHistory">history →</a>
+                        </div>
+                    </div>
+
+                    <!-- ===== detail pane ===== -->
+                    <div class="edi-card edi-rq-detail" t-att-class="{ 'edi-rq-detail-loading': state.detailLoading }">
+                        <t t-if="detail">
+                            <t t-call="mml_edi.EdiReviewDetailBody"/>
+                        </t>
+                        <t t-else="">
+                            <div class="p-5 text-center text-muted">
+                                <i class="fa fa-hand-o-left mb-2" style="font-size:22px;display:block;color:var(--edi-faint)"/>
+                                Select a review on the left to see its issues, payload and lines.
+                            </div>
+                        </t>
+                    </div>
+                </div>
+            </div>
+            </t>
+        </t>
+    </div>
+</t>
+
+<!-- ================================================================
+     Shared detail BODY — issues / payload / SO-lines / actions.
+     Rendered inline in the queue's right pane. `detail` is the getter
+     on whichever component calls it (queue or standalone page); both
+     expose onHeaderAction / onIssueAction / headerBtnClass / openFullDetail.
+     ================================================================ -->
+<t t-name="mml_edi.EdiReviewDetailBody" owl="1">
+    <div class="edi-rq-detail-body p-3">
+
+        <!-- header: ref + chips + actions -->
+        <div class="d-flex align-items-start gap-2 flex-wrap">
+            <div class="min-width-0">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="edi-rq-detail-ref" t-esc="detail.ref"/>
+                    <span t-attf-class="edi-chip #{detail.state_cls}" t-esc="detail.state_label"/>
+                    <span class="edi-tag" t-esc="detail.partner_tag"/>
+                    <span t-attf-class="edi-chip #{detail.doc_is_change ? 'edi-chip-blue' : 'edi-chip-grey'}" t-esc="detail.doc_label"/>
+                    <span class="edi-pill" t-attf-style="background:#{detail.age_bg};color:#{detail.age_color}">open <t t-esc="detail.age"/></span>
+                </div>
+                <div class="edi-rq-subtitle text-muted mt-1" t-esc="detail.subtitle"/>
+            </div>
+            <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+                <span class="small text-muted d-flex align-items-center gap-1">
+                    <i class="fa fa-reply" t-attf-style="color:#{detail.ack.color}"/><t t-esc="detail.ack.label"/>
+                </span>
+                <t t-foreach="detail.actions" t-as="act" t-key="act.key">
+                    <button type="button" t-att-class="headerBtnClass(act.kind)"
+                            t-att-disabled="state.acting"
+                            t-on-click="() => this.onHeaderAction(act)" t-esc="act.label"/>
+                </t>
+            </div>
+        </div>
+
+        <!-- diagnosis hint -->
+        <div class="edi-rq-hint" t-attf-style="background:#{detail.hint_bg};color:#{detail.hint_fg}">
+            <i class="fa fa-lightbulb-o mt-1"/><span t-esc="detail.hint"/>
+        </div>
+
+        <!-- context grid (4-col) -->
+        <div class="edi-rq-context">
+            <t t-foreach="detail.context" t-as="kv" t-key="kv_index">
+                <div class="edi-rq-ctx-cell">
+                    <div class="edi-rq-ctx-k" t-esc="kv.k"/>
+                    <div class="edi-rq-ctx-v" t-esc="kv.v"/>
+                </div>
+            </t>
+        </div>
+
+        <!-- two columns: issues + payload -->
+        <div class="edi-rq-cols">
+            <div class="min-width-0">
+                <div class="d-flex align-items-baseline gap-2 mb-2">
+                    <div class="edi-section-label">Issues (<t t-esc="detail.issue_count"/>)</div>
+                    <span t-if="detail.issue_summary" class="small text-muted" t-esc="detail.issue_summary"/>
+                </div>
+                <t t-if="detail.no_issues">
+                    <div class="edi-rq-issue d-flex align-items-center gap-2 text-muted small">
+                        <i class="fa fa-check-circle" style="color:#198754"/>No issues — order parsed clean and matched on every line.
+                    </div>
+                </t>
+                <t t-else="">
+                    <t t-foreach="detail.issues" t-as="iss" t-key="iss.id">
+                        <div class="edi-rq-issue">
+                            <div class="d-flex align-items-center gap-2">
+                                <span t-attf-class="edi-chip #{iss.badge_cls}" t-esc="iss.badge"/>
+                                <span class="fw-medium" style="font-size:12.5px" t-esc="iss.type_label"/>
+                                <span t-if="iss.resolved and iss.res_label" t-attf-class="edi-pill #{iss.res_cls} ms-auto" t-esc="iss.res_label"/>
+                            </div>
+                            <div class="edi-rq-issue-desc text-muted" t-esc="iss.desc"/>
+                            <div t-if="iss.has_price" class="edi-rq-price">
+                                <span>EDI <strong class="edi-mono" t-esc="iss.edi_price"/></span>
+                                <span class="text-muted">System <strong class="edi-mono text-body" t-esc="iss.sys_price"/></span>
+                                <span class="ms-auto fw-medium" style="color:#dc3545" t-esc="iss.diff"/>
+                            </div>
+                            <div t-if="iss.show_actions" class="d-flex gap-2 mt-2 flex-wrap">
+                                <t t-foreach="iss.actions" t-as="ra" t-key="ra.key">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary edi-rq-issue-btn"
+                                            t-att-disabled="state.acting"
+                                            t-on-click="() => this.onIssueAction(iss, ra)" t-esc="ra.label"/>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+            </div>
+
+            <div class="min-width-0">
+                <div class="d-flex align-items-baseline gap-2 mb-2">
+                    <div class="edi-section-label" t-esc="detail.mono_label"/>
+                    <a t-if="detail.so and detail.so.id" href="#" class="ms-auto small" t-on-click.prevent="() => this._openRecord('edi.order.review', detail.id)">view record →</a>
+                </div>
+                <div class="edi-mono-block edi-rq-mono">
+                    <t t-foreach="detail.mono" t-as="line" t-key="line_index">
+                        <div t-attf-style="color:#{line.warn ? '#dc3545' : 'var(--edi-muted)'}" t-esc="line.text"/>
+                    </t>
+                </div>
+            </div>
+        </div>
+
+        <!-- SO lines -->
+        <div class="mt-3">
+            <div class="d-flex align-items-baseline gap-2 mb-2">
+                <div class="edi-section-label">Sales-order lines</div>
+                <span t-if="detail.so.label" class="small text-muted" t-esc="detail.so.label"/>
+                <a t-if="detail.so.id" href="#" class="ms-auto small" t-on-click.prevent="() => this._openRecord('sale.order', detail.so.id)">Open <t t-esc="detail.so.name"/> →</a>
+                <a t-if="!state.detailLoading and openFullDetail" href="#" class="small" t-on-click.prevent="openFullDetail">Open full detail →</a>
+            </div>
+            <t t-if="detail.so_lines.length">
+                <div class="edi-rq-lines">
+                    <div class="edi-rq-lines-head">
+                        <span>#</span><span>Product · matched by</span>
+                        <span class="text-end">Ordered</span><span class="text-end">EDI</span>
+                        <span class="text-end">System</span><span class="text-end">Line</span>
+                    </div>
+                    <t t-foreach="detail.so_lines" t-as="ln" t-key="ln_index">
+                        <div class="edi-rq-lines-row">
+                            <span class="edi-mono text-muted" t-esc="ln.no"/>
+                            <div class="min-width-0">
+                                <div class="edi-rq-line-product" t-esc="ln.product"/>
+                                <span t-attf-class="edi-chip #{ln.match_cls} edi-rq-match" t-esc="ln.match_by"/>
+                            </div>
+                            <span class="text-end edi-mono" t-esc="ln.qty"/>
+                            <span class="text-end edi-mono" t-esc="ln.edi_price"/>
+                            <span class="text-end edi-mono text-muted" t-esc="ln.sys_price"/>
+                            <span class="text-end"><span t-attf-class="edi-pill #{ln.status_cls}" t-esc="ln.status"/></span>
+                        </div>
+                    </t>
+                </div>
+                <div class="edi-rq-line-note text-muted" t-esc="detail.line_note"/>
+            </t>
+            <t t-else="">
+                <div class="edi-rq-issue text-muted small">No sales order created yet for this review.</div>
+            </t>
+        </div>
+    </div>
+</t>
+
+</templates>

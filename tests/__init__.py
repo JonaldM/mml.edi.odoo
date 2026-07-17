@@ -20,6 +20,7 @@ try:
         test_price_discrepancy,
         test_processor,
         test_review_workflow,
+        test_edi_review_queue,
     )
 except (ImportError, ModuleNotFoundError):
     # conftest stubs not yet in place — pytest will collect these directly.

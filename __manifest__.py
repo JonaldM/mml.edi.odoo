@@ -34,6 +34,8 @@
         "views/edi_dashboard_action.xml",
         # Menus (after all view actions are defined)
         "views/menuitems.xml",
+        # Review-queue OWL client actions + nav menu (parent defined in menuitems)
+        "views/edi_review_queue_action.xml",
         # Seed data (noupdate=1 inside)
         "data/edi_trading_partner_briscoes.xml",
         # Templates
@@ -52,6 +54,14 @@
             "mml_edi/static/src/scss/edi_dashboard.scss",
             "mml_edi/static/src/js/edi_dashboard.js",
             "mml_edi/static/src/xml/edi_dashboard.xml",
+            # EDI review-queue screens (client actions `edi_review_queue`,
+            # `edi_review_detail`) — master-detail triage + single-review page.
+            "mml_edi/static/src/utils/review_format.js",
+            "mml_edi/static/src/scss/edi_review_queue.scss",
+            "mml_edi/static/src/js/edi_review_queue.js",
+            "mml_edi/static/src/js/edi_review_detail.js",
+            "mml_edi/static/src/xml/edi_review_queue.xml",
+            "mml_edi/static/src/xml/edi_review_detail.xml",
         ],
         # Dark-mode token overrides — same bundle key web_enterprise uses for
         # its own *.dark.scss companions, so Odoo loads it only under the dark
