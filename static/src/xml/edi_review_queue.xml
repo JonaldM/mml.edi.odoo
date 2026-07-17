@@ -248,7 +248,7 @@
             <div class="min-width-0">
                 <div class="d-flex align-items-baseline gap-2 mb-2">
                     <div class="edi-section-label" t-esc="detail.mono_label"/>
-                    <a t-if="detail.so and detail.so.id" href="#" class="ms-auto small" t-on-click.prevent="() => this._openRecord('edi.order.review', detail.id)">view record →</a>
+                    <a t-if="detail.id" href="#" class="ms-auto small" t-on-click.prevent="() => this._openRecord('edi.order.review', detail.id)">view full record →</a>
                 </div>
                 <div class="edi-mono-block edi-rq-mono">
                     <t t-foreach="detail.mono" t-as="line" t-key="line_index">

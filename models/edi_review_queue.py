@@ -556,7 +556,14 @@ class EdiReviewQueue(models.AbstractModel):
                 "has_price": has_price,
                 "edi_price": ("%.2f" % iss.edi_price) if has_price else "",
                 "sys_price": ("%.2f" % iss.system_price) if has_price else "",
-                "diff": ("%+.1f%%" % iss.price_difference_pct) if has_price else "",
+                # SIGNED for display: edi.order.issue.price_difference_pct is
+                # abs(), so it would render an EDI price BELOW system as "+9.9%"
+                # — a false "priced above" signal in a price-decision UI. Recompute
+                # the sign from the raw prices (has_price already guarantees
+                # system_price is non-zero).
+                "diff": ("%+.1f%%" % (
+                    (iss.edi_price - iss.system_price) / iss.system_price * 100.0
+                )) if has_price else "",
                 "show_actions": (not resolved) and bool(actions),
                 "actions": actions,
             })

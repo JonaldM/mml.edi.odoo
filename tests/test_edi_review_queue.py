@@ -398,3 +398,59 @@ class TestEdiReviewQueue(TransactionCase, EDITestSetup):
         q = self.svc.get_queue(partner_code="TESTPARTNER")
         all_ids = [it["id"] for g in q["groups"] for it in g["items"]]
         self.assertNotIn(r.id, all_ids)
+
+    # ---- UI-wired state mutations (per-action TransactionCase pins) ----------
+    #
+    # The OWL header/issue buttons call these REAL methods by id. Pin each
+    # state transition the screens can trigger that is not already covered in
+    # test_review_workflow.py (action_reset_to_review lives there). Every one
+    # writes real review/issue state — action_correct additionally moves money
+    # on the SO line — so a regression here is a silent data defect.
+
+    def test_action_approve_corrected_confirms_so(self):
+        """'Approve with corrections' header button: pending_review -> approved
+        and the draft SO is confirmed at its current (corrected) line values."""
+        so = self._sale_order()
+        r = self._review(po="POAPPCORR", so=so)
+        self.assertEqual(r.state, "pending_review")
+        self.assertEqual(so.state, "draft")
+
+        r.action_approve_corrected()
+
+        self.assertEqual(r.state, "approved")
+        self.assertEqual(so.state, "sale")
+
+    def test_action_correct_writes_system_price_to_so_line(self):
+        """'Correct to system' issue button: resolution -> 'corrected' AND the
+        SO line's price_unit is written to the system price (moves money)."""
+        so = self._sale_order(price=8.90)
+        line = so.order_line[0]
+        r = self._review(po="POCORRECT", so=so)
+        iss = self._issue(r, "price_discrepancy", "blocking", so_line=line,
+                          edi_price=8.90, system_price=8.10)
+
+        iss.action_correct()
+
+        self.assertEqual(iss.resolution, "corrected")
+        self.assertEqual(line.price_unit, 8.10)
+        # get_review_detail reflects the resolution chip + retires the actions.
+        row = self.svc.get_review_detail(r.id)["issues"][0]
+        self.assertTrue(row["resolved"])
+        self.assertEqual(row["res_label"], "Corrected")
+        self.assertFalse(row["show_actions"])
+
+    def test_action_reject_issue_sets_rejected_resolution_chip(self):
+        """'Reject line' issue button: resolution -> 'rejected' and the
+        rejected resolution chip surfaces in get_review_detail."""
+        r = self._review(po="POREJISS")
+        iss = self._issue(r, "price_discrepancy", "warning",
+                          edi_price=8.90, system_price=8.10)
+
+        iss.action_reject_issue()
+
+        self.assertEqual(iss.resolution, "rejected")
+        row = self.svc.get_review_detail(r.id)["issues"][0]
+        self.assertTrue(row["resolved"])
+        self.assertEqual(row["res_label"], "Rejected")
+        self.assertEqual(row["res_cls"], "edi-chip-red")
+        self.assertFalse(row["show_actions"])
