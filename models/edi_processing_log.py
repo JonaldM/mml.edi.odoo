@@ -99,7 +99,9 @@ class EdiProcessingLog(models.AbstractModel):
         if q:
             domain += ["|", ("filename", "ilike", q), ("message", "ilike", q)]
 
-        logs = self.env["edi.log"].search(domain, order="timestamp desc", limit=limit)
+        # id desc tiebreak: same-second rows must still list newest-logged first
+        logs = self.env["edi.log"].search(
+            domain, order="timestamp desc, id desc", limit=limit)
         rows = [self._row(now, log) for log in logs]
         first_selectable = next((r["id"] for r in rows if r["selectable"]), None)
         return {"rows": rows, "count": len(rows), "first_selectable": first_selectable}

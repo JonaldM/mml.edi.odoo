@@ -44,11 +44,18 @@ class TestEdiTradingPartnerSettings(TransactionCase, EDITestSetup):
 
     def test_store_partner_ids_relates_to_customer_children(self):
         customer = self.trading_partner.partner_id
+        # Full ship-to address: with the 3PL modules installed (as on prod and
+        # its clones) a delivery child missing country/street/city/zip trips
+        # the dispatchability ValidationError.
         store = self.env["res.partner"].create({
             "name": "Test Store 1042",
             "ref": "1042",
             "parent_id": customer.id,
             "type": "delivery",
+            "street": "1 Test Street",
+            "city": "Auckland",
+            "zip": "1010",
+            "country_id": self.env.ref("base.nz").id,
         })
         self.trading_partner.invalidate_recordset(["store_partner_ids"])
         self.assertIn(store, self.trading_partner.store_partner_ids)
