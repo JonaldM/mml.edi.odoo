@@ -15,6 +15,7 @@ try:
         test_briscoes_integration,
         test_cascade_lookup,
         test_deduplication,
+        test_edi_dashboard,
         test_po_change_workflow,
         test_price_discrepancy,
         test_processor,

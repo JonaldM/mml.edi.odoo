@@ -1,0 +1,31 @@
+// mml_edi/static/src/scss/edi_shared.dark.scss
+//
+// Dark-mode companion to edi_shared.scss. Registered ONLY in the
+// `web.assets_web_dark` bundle — the same idiom web_enterprise uses for its
+// own `*.dark.scss` files (e.g. primary_variables.dark.scss): a companion
+// file, same selector, that overrides the `--edi-*` custom properties declared
+// (light) in edi_shared.scss with their dark values. Odoo assembles the light
+// OR dark bundle at boot from the active NATIVE colour scheme — there is no
+// runtime toggle logic here.
+//
+// Values are the dark side of the design-handoff "Shared theme" table
+// (README.md). COPY-ADAPTATION: the barcode/forecast tasks copy this file too
+// and rename `.o_edi_screen` + the `--edi-*` prefix to match their light
+// companion — the hex values are identical across all three modules.
+.o_edi_screen {
+    --edi-bg: #111417;
+    --edi-surface: #1c2126;
+    --edi-line: #33393f;
+    --edi-line-soft: #272c31;
+    --edi-text: #e3e5e8;
+    --edi-muted: #9aa0a6;
+    --edi-faint: #6a7076;
+    --edi-chip-bg: #272c31;
+    --edi-hover: #22272c;
+    --edi-btn-border: #4a5157;
+    --edi-field: #171b1f;
+    --edi-accent: #c79ab8;
+    --edi-accent-bg: rgba(199, 154, 184, .12);
+    --edi-mono-bg: #171b1f;
+    --edi-shadow: rgba(0, 0, 0, .5);
+}

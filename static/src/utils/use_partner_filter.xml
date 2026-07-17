@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+
+<!-- Segmented partner filter — the README sub-header "primary filter" pill
+     control (All partners / Briscoes / Animates). Renders the shared
+     .edi-seg / .edi-seg-pill vocabulary from edi_shared.scss. -->
+<t t-name="mml_edi.EdiPartnerFilter" owl="1">
+    <div class="edi-seg">
+        <t t-foreach="props.partners" t-as="p" t-key="p.code">
+            <span t-att-class="pillClass(p.code)" t-on-click="() => this.setPartner(p.code)"
+                  t-esc="p.name"/>
+        </t>
+    </div>
+</t>
+
+</templates>

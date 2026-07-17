@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/views/edi_dashboard_action.xml
+     Client action for the EDI operations dashboard (OWL, tag `edi_dashboard`). -->
+<odoo>
+    <record id="action_edi_dashboard" model="ir.actions.client">
+        <field name="name">EDI Dashboard</field>
+        <field name="tag">edi_dashboard</field>
+    </record>
+</odoo>

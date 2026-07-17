@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/static/src/xml/edi_dashboard.xml
+     EDI operations dashboard (landing). Recreates design_handoff "EDI
+     Dashboard.dc.html" + the four "System States.dc.html" states (Loading /
+     Empty / Error / All-clear) as one OWL client action. -->
+<templates xml:space="preserve">
+
+<t t-name="mml_edi.EdiDashboard" owl="1">
+    <div class="edi-dashboard o_action o_edi_screen">
+
+        <!-- ============ Loading (skeleton) ============ -->
+        <t t-if="state.loading">
+            <div class="edi-screen-body p-4">
+                <div class="d-flex align-items-center gap-2 mb-4">
+                    <div class="edi-spinner"/>
+                    <span class="text-muted" style="font-size:13px">Loading EDI operations…</span>
+                </div>
+                <div class="edi-skel-kpis mb-3">
+                    <div class="edi-skel" style="animation-delay:0s"/>
+                    <div class="edi-skel" style="animation-delay:.2s"/>
+                    <div class="edi-skel" style="animation-delay:.4s"/>
+                    <div class="edi-skel" style="animation-delay:.6s"/>
+                </div>
+                <div class="edi-skel edi-skel-line" style="width:40%"/>
+                <div class="edi-skel edi-skel-line" style="width:88%;animation-delay:.15s"/>
+                <div class="edi-skel edi-skel-line" style="width:72%;animation-delay:.3s"/>
+                <div class="edi-skel edi-skel-line" style="width:80%;animation-delay:.45s"/>
+            </div>
+        </t>
+
+        <!-- ============ Error (RPC failure) ============ -->
+        <t t-elif="state.error">
+            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                <div class="edi-state-icon edi-state-icon--error"><i class="fa fa-exclamation-triangle"/></div>
+                <div class="fw-medium" style="font-size:15px">Couldn't load the dashboard</div>
+                <div class="text-muted mt-1" style="font-size:12.5px;max-width:360px;line-height:1.5">
+                    The server request failed. Your data is safe — this is a display error, not a
+                    processing one. Polling and ACKs keep running on their crons.
+                </div>
+                <div class="edi-mono edi-state-code my-3">RPC_ERROR · edi.dashboard.get_dashboard_summary</div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-primary" t-on-click="onRetry">
+                        <i class="fa fa-refresh me-1"/>Retry
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openAllEvents">Open logs</button>
+                </div>
+            </div>
+        </t>
+
+        <!-- ============ Empty (fresh install) ============ -->
+        <t t-elif="state.summary and !state.summary.data_available">
+            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                <div class="edi-state-icon edi-state-icon--empty"><i class="fa fa-inbox"/></div>
+                <div class="fw-medium" style="font-size:15px">No EDI activity yet</div>
+                <div class="text-muted mt-1" style="font-size:12.5px;max-width:340px;line-height:1.5">
+                    No trading partner has been polled. Configure a partner's transport and parser,
+                    then run a poll against its test mailbox to see orders flow in.
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button type="button" class="btn btn-sm btn-primary" t-on-click="openPartnerHealth">Configure a partner</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openAllEvents">Open logs</button>
+                </div>
+            </div>
+        </t>
+
+        <!-- ============ Loaded board ============ -->
+        <t t-elif="state.summary">
+            <t t-set="s" t-value="state.summary"/>
+
+            <!-- == control bar (sub-header) == -->
+            <div class="edi-controlbar d-flex align-items-center gap-3 px-3 py-2 border-bottom">
+                <h4 class="mb-0 edi-title">EDI operations</h4>
+
+                <EdiPartnerFilter partners="partners" partnerFilter="partnerFilter"
+                                  onChange="() => this.onPartnerChange()"/>
+
+                <div class="edi-search">
+                    <div class="edi-search-box">
+                        <i class="fa fa-search text-muted"/>
+                        <input type="text" t-ref="searchInput" t-att-value="state.query"
+                               t-on-input="onSearch"
+                               placeholder="Find an order — PO, store, SO or partner ref"/>
+                    </div>
+                    <t t-if="state.query.trim()">
+                        <div class="edi-search-results">
+                            <t t-foreach="state.results" t-as="r" t-key="r.key">
+                                <div class="edi-search-row" t-on-click="() => this.openResult(r)">
+                                    <div class="min-width-0 flex-fill">
+                                        <div class="edi-search-ref">
+                                            <t t-esc="r.ref"/>
+                                            <span t-if="r.customer" class="text-muted fw-normal"> · <t t-esc="r.customer"/></span>
+                                        </div>
+                                        <div class="edi-search-sub text-muted" t-esc="r.sub"/>
+                                    </div>
+                                    <span t-attf-class="edi-chip #{r.chipCls}" t-esc="r.status"/>
+                                </div>
+                            </t>
+                            <t t-if="state.noResults">
+                                <div class="edi-search-empty text-muted">No match — try a PO number, store code or SO reference</div>
+                            </t>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="ms-auto d-flex align-items-center gap-3">
+                    <span class="small text-muted" title="Newest inbound poll from the EDIS VAN">
+                        <i t-attf-class="fa fa-circle me-1" t-att-style="feedDotStyle()"/>
+                        <t t-esc="feedText()"/>
+                    </span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="onRunPoll">
+                        <i class="fa fa-refresh me-1"/>Run poll now
+                    </button>
+                </div>
+            </div>
+
+            <!-- == body grid == -->
+            <div class="edi-body-grid p-3 o_content edi-screen-body">
+
+                <!-- left column -->
+                <div class="d-flex flex-column gap-3 min-width-0">
+
+                    <!-- Needs attention / All clear -->
+                    <t t-if="!allClear">
+                        <div class="edi-card">
+                            <div class="edi-card-head d-flex align-items-center gap-2">
+                                <span class="fw-medium edi-card-title">Needs attention</span>
+                                <span t-if="redCount" class="edi-count-badge edi-count-badge--red" t-esc="redCount"/>
+                                <span t-if="amberCount" class="edi-count-badge edi-count-badge--amber" t-esc="amberCount"/>
+                                <a href="#" class="ms-auto small" t-on-click.prevent="openReviewQueue">Open review queue →</a>
+                            </div>
+                            <t t-foreach="triageRows()" t-as="row" t-key="row.id">
+                                <div class="edi-triage-row">
+                                    <span class="edi-dot" t-att-style="row.dotStyle"/>
+                                    <div class="min-width-0 flex-fill">
+                                        <div class="edi-triage-title">
+                                            <t t-esc="row.title"/>
+                                            <span t-if="row.partnerTag" class="edi-tag ms-1" t-esc="row.partnerTag"/>
+                                        </div>
+                                        <div class="edi-triage-sub text-muted" t-esc="row.sub"/>
+                                    </div>
+                                    <span t-att-class="row.ageClass" t-esc="row.age"/>
+                                    <t t-foreach="row.actions" t-as="act" t-key="act.key">
+                                        <button type="button" t-att-class="act.btnClass"
+                                                t-on-click="() => this.onTriageAction(row, act)" t-esc="act.label"/>
+                                    </t>
+                                </div>
+                            </t>
+                            <div class="edi-footer-strip">
+                                <i class="fa fa-check-circle me-1" style="color:#198754"/><t t-esc="autoLine"/>
+                            </div>
+                        </div>
+                    </t>
+                    <t t-else="">
+                        <div class="edi-card edi-allclear d-flex align-items-center gap-3">
+                            <i class="fa fa-check-circle" style="color:#198754;font-size:22px"/>
+                            <div>
+                                <div class="fw-medium edi-card-title">All clear — every PO parsed, reviewed and acknowledged</div>
+                                <div class="small text-muted" t-esc="autoLine"/>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- Inbound pipeline -->
+                    <div class="edi-card p-3">
+                        <div class="d-flex align-items-baseline gap-3 flex-wrap mb-3">
+                            <span class="fw-medium edi-card-title">Inbound pipeline</span>
+                            <span class="small text-muted">Today
+                                <strong class="text-body" t-esc="todayTotals.files"/> files ·
+                                <strong class="text-body" t-esc="todayTotals.pos"/> POs ·
+                                <strong class="text-body" t-esc="todayTotals.store_orders"/> store-orders ·
+                                <strong class="text-body" t-esc="todayTotals.acks"/> ORDRSP sent
+                            </span>
+                            <span class="ms-auto small text-muted">
+                                <strong t-attf-style="color:#{pendingReview > 0 ? '#664d03' : 'var(--edi-text)'}" t-esc="pendingReview"/> awaiting review
+                            </span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <t t-foreach="pipelineStages()" t-as="stage" t-key="stage.key">
+                                <div t-attf-class="edi-stage #{stage.dashed ? 'edi-stage--terminal' : ''}"
+                                     t-att-style="stage.style">
+                                    <div class="edi-stage-val" t-esc="stage.value"/>
+                                    <div class="edi-stage-lbl" t-esc="stage.label"/>
+                                    <div class="edi-stage-note" t-esc="stage.note"/>
+                                </div>
+                                <i t-if="!stage_last" class="fa fa-arrow-right" style="color:var(--edi-faint)"/>
+                            </t>
+                        </div>
+                        <div class="mt-2 small text-muted fst-italic">
+                            Clean orders auto-approve and are acknowledged in the same poll; only exceptions
+                            rest in review. One ORDRSP covers all stores of a PO, deferred until every
+                            store-order is resolved.
+                        </div>
+                    </div>
+
+                    <!-- KPI cards -->
+                    <div class="edi-kpi-grid">
+                        <t t-foreach="kpiCards()" t-as="card" t-key="card.key">
+                            <div t-attf-class="edi-card edi-kpi-card #{card.ragClass}"
+                                 style="cursor:pointer" t-on-click="openReviewQueue">
+                                <div class="edi-kpi-label text-muted">
+                                    <t t-esc="card.label"/> <span class="edi-kpi-window">· <t t-esc="card.window"/></span>
+                                </div>
+                                <div class="d-flex align-items-end justify-content-between gap-2">
+                                    <span class="edi-kpi-val" t-esc="card.value"/>
+                                    <svg width="72" height="24" viewBox="0 0 72 24" style="flex:none">
+                                        <polyline t-att-points="card.spark.points" fill="none"
+                                                  t-att-stroke="card.spark.stroke" stroke-width="1.5"/>
+                                    </svg>
+                                </div>
+                                <div class="edi-kpi-sub text-muted" t-esc="card.sub"/>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- right rail -->
+                <div class="d-flex flex-column gap-3">
+
+                    <!-- Live feed -->
+                    <div class="edi-card">
+                        <div class="edi-card-head d-flex align-items-center gap-2">
+                            <i class="fa fa-circle" t-att-style="feedDotStyle()" style="font-size:7px"/>
+                            <span class="fw-medium edi-card-title">Live feed</span>
+                            <span class="ms-auto small text-muted">EDIS VAN</span>
+                        </div>
+                        <div class="edi-feed-body">
+                            <t t-set="feed" t-value="liveFeed()"/>
+                            <t t-if="feed.length">
+                                <t t-foreach="feed" t-as="ev" t-key="ev.key">
+                                    <div t-attf-class="edi-feed-row #{ev.model ? 'edi-clickable' : ''}"
+                                         t-on-click="() => this.openFeedRow(ev)">
+                                        <span class="edi-feed-time edi-mono" t-esc="ev.time"/>
+                                        <span class="edi-feed-text">
+                                            <span class="edi-feed-tag" t-att-style="ev.tagStyle" t-esc="ev.tag"/>
+                                            <t t-esc="ev.text"/>
+                                        </span>
+                                    </div>
+                                </t>
+                            </t>
+                            <t t-else="">
+                                <div class="edi-feed-row text-muted small">No exchange events yet.</div>
+                            </t>
+                            <div class="pt-2"><a href="#" class="small" t-on-click.prevent="openAllEvents">All events →</a></div>
+                        </div>
+                    </div>
+
+                    <!-- Trading-partner health -->
+                    <div class="edi-card">
+                        <div class="edi-card-head d-flex align-items-center">
+                            <span class="fw-medium edi-card-title">Trading partners</span>
+                            <a href="#" class="ms-auto small" t-on-click.prevent="openPartnerHealth">Health →</a>
+                        </div>
+                        <t t-foreach="partnerRows()" t-as="p" t-key="p.id">
+                            <div class="edi-partner-row">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="edi-dot" t-att-style="p.dotStyle"/>
+                                    <span class="fw-medium" style="font-size:13px" t-esc="p.name"/>
+                                    <span t-if="p.fmt" class="edi-tag" t-esc="p.fmt"/>
+                                    <span class="ms-auto small fw-medium" t-att-style="p.healthStyle" t-esc="p.health"/>
+                                </div>
+                                <div class="edi-partner-detail text-muted" t-esc="p.detail"/>
+                            </div>
+                        </t>
+                        <a t-if="pendingBanner" href="#" class="edi-partner-banner"
+                           t-on-click.prevent="openReviewQueue">
+                            <i class="fa fa-clipboard me-1"/><t t-esc="pendingBanner"/>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </div>
+</t>
+
+</templates>

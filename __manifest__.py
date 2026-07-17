@@ -30,6 +30,8 @@
         "views/edi_log_views.xml",
         "views/sale_order_views.xml",
         "views/stock_location_views.xml",
+        # Client-action screens (OWL) — actions defined before the menus below
+        "views/edi_dashboard_action.xml",
         # Menus (after all view actions are defined)
         "views/menuitems.xml",
         # Seed data (noupdate=1 inside)
@@ -37,6 +39,31 @@
         # Templates
         "data/mail_template.xml",
     ],
+    "assets": {
+        "web.assets_backend": [
+            # Shared theme token layer (this task owns it for the UI-refresh
+            # program) + shape vocabulary — listed first so per-screen SCSS
+            # composes it.
+            "mml_edi/static/src/scss/edi_shared.scss",
+            "mml_edi/static/src/utils/edi_format.js",
+            "mml_edi/static/src/utils/use_partner_filter.js",
+            "mml_edi/static/src/utils/use_partner_filter.xml",
+            # EDI operations dashboard (client action `edi_dashboard`).
+            "mml_edi/static/src/scss/edi_dashboard.scss",
+            "mml_edi/static/src/js/edi_dashboard.js",
+            "mml_edi/static/src/xml/edi_dashboard.xml",
+        ],
+        # Dark-mode token overrides — same bundle key web_enterprise uses for
+        # its own *.dark.scss companions, so Odoo loads it only under the dark
+        # colour scheme (no custom toggle).
+        "web.assets_web_dark": [
+            "mml_edi/static/src/scss/edi_shared.dark.scss",
+        ],
+        # Hoot unit tests for the pure formatting helpers.
+        "web.assets_unit_tests": [
+            "mml_edi/static/tests/**/*",
+        ],
+    },
     "installable": True,
     "application": True,
     "auto_install": False,

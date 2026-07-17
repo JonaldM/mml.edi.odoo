@@ -9,11 +9,11 @@
                   sequence="46"/>
 
 
-        <!-- DASHBOARD -->
+        <!-- DASHBOARD (OWL client action — EDI operations landing) -->
         <menuitem id="menu_edi_dashboard"
                   name="Dashboard"
                   parent="menu_edi_root"
-                  action="mml_edi.action_edi_order_review"
+                  action="mml_edi.action_edi_dashboard"
                   sequence="10"/>
 
 
