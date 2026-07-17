@@ -32,6 +32,7 @@
         "views/stock_location_views.xml",
         # Client-action screens (OWL) — actions defined before the menus below
         "views/edi_dashboard_action.xml",
+        "views/edi_partner_screens_action.xml",
         # Menus (after all view actions are defined)
         "views/menuitems.xml",
         # Seed data (noupdate=1 inside)
@@ -52,6 +53,14 @@
             "mml_edi/static/src/scss/edi_dashboard.scss",
             "mml_edi/static/src/js/edi_dashboard.js",
             "mml_edi/static/src/xml/edi_dashboard.xml",
+            # Trading-partner health (client action `edi_partner_health`).
+            "mml_edi/static/src/scss/edi_partner_health.scss",
+            "mml_edi/static/src/js/edi_partner_health.js",
+            "mml_edi/static/src/xml/edi_partner_health.xml",
+            # Processing-log browser (client action `edi_processing_log`).
+            "mml_edi/static/src/scss/edi_processing_log.scss",
+            "mml_edi/static/src/js/edi_processing_log.js",
+            "mml_edi/static/src/xml/edi_processing_log.xml",
         ],
         # Dark-mode token overrides — same bundle key web_enterprise uses for
         # its own *.dark.scss companions, so Odoo loads it only under the dark

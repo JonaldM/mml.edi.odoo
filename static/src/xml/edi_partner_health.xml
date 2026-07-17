@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/static/src/xml/edi_partner_health.xml
+     Trading-partner health screen. Recreates design_handoff "Trading Partner
+     Health.dc.html" as one OWL client action, sharing the edi_shared.scss token
+     layer + scroll contract. -->
+<templates xml:space="preserve">
+
+<t t-name="mml_edi.EdiPartnerHealth" owl="1">
+    <div class="edi-partner-health o_action o_edi_screen">
+
+        <!-- ============ Loading ============ -->
+        <t t-if="state.loading">
+            <div class="edi-screen-body p-4">
+                <div class="d-flex align-items-center gap-2 mb-4">
+                    <div class="edi-spinner"/>
+                    <span class="text-muted" style="font-size:13px">Loading trading-partner health…</span>
+                </div>
+                <div class="edi-skel edi-skel-line" style="width:60%"/>
+                <div class="edi-skel edi-skel-line" style="width:90%;animation-delay:.15s"/>
+                <div class="edi-skel edi-skel-line" style="width:78%;animation-delay:.3s"/>
+                <div class="edi-skel edi-skel-line" style="width:84%;animation-delay:.45s"/>
+            </div>
+        </t>
+
+        <!-- ============ Error ============ -->
+        <t t-elif="state.error">
+            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                <div class="edi-state-icon edi-state-icon--error"><i class="fa fa-exclamation-triangle"/></div>
+                <div class="fw-medium" style="font-size:15px">Couldn't load trading-partner health</div>
+                <div class="text-muted mt-1" style="font-size:12.5px;max-width:360px;line-height:1.5">
+                    The server request failed. Your data is safe — this is a display error, not a
+                    processing one. Polling and ACKs keep running on their crons.
+                </div>
+                <div class="edi-mono edi-state-code my-3">RPC_ERROR · edi.partner.health.get_health_summary</div>
+                <button type="button" class="btn btn-sm btn-primary" t-on-click="onRetry">
+                    <i class="fa fa-refresh me-1"/>Retry
+                </button>
+            </div>
+        </t>
+
+        <!-- ============ Loaded ============ -->
+        <t t-elif="state.summary">
+            <t t-set="s" t-value="state.summary"/>
+
+            <!-- == control bar == -->
+            <div class="edi-controlbar d-flex align-items-center gap-3 px-3 py-2 border-bottom">
+                <a href="#" class="text-muted" style="font-size:12.5px"
+                   t-on-click.prevent="openDashboard">← Dashboard</a>
+                <h4 class="mb-0 edi-title">Trading partners</h4>
+                <span class="text-muted" style="font-size:12.5px" t-esc="s.subtitle"/>
+                <div class="ms-auto">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openSettings">
+                        <i class="fa fa-cog me-1"/>Open settings
+                    </button>
+                </div>
+            </div>
+
+            <!-- == scrollable body == -->
+            <div class="edi-screen-body p-3">
+
+                <!-- exchange queue strip -->
+                <div class="edi-card p-3 mb-3">
+                    <div class="edi-section-label mb-2">Exchange queue — last 24h</div>
+                    <div class="d-flex align-items-center" style="gap:6px">
+                        <t t-foreach="queue" t-as="q" t-key="q.label">
+                            <div class="edi-queue-lane" t-att-style="'background:' + q.bg + ';color:' + q.fg">
+                                <div class="edi-queue-n" t-esc="q.n"/>
+                                <div class="edi-queue-lbl" t-esc="q.label"/>
+                            </div>
+                            <i t-if="q.arrow" class="fa fa-arrow-right" style="color:var(--edi-faint);font-size:11px"/>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- master-detail -->
+                <div class="edi-health-grid">
+
+                    <!-- left rail -->
+                    <div class="edi-card" style="overflow:hidden">
+                        <t t-foreach="partners" t-as="p" t-key="p.code">
+                            <div class="edi-partner-rail-row" t-att-style="partnerRowStyle(p.code)"
+                                 t-on-click="() => this.selectPartner(p.code)">
+                                <div class="d-flex align-items-center" style="gap:9px">
+                                    <span class="edi-rail-dot" t-att-style="'background:' + p.dot"/>
+                                    <span style="font-size:13.5px;font-weight:500" t-esc="p.name"/>
+                                    <span class="edi-tag ms-auto" t-esc="p.fmt"/>
+                                </div>
+                                <div style="font-size:12px;margin-top:6px;font-weight:500"
+                                     t-att-style="'color:' + p.health_color" t-esc="p.health"/>
+                                <div class="text-muted" style="font-size:11.5px;margin-top:2px" t-esc="p.sub"/>
+                            </div>
+                        </t>
+                    </div>
+
+                    <!-- detail column -->
+                    <t t-if="selected">
+                        <t t-set="d" t-value="selected"/>
+                        <div class="d-flex flex-column" style="gap:16px;min-width:0">
+
+                            <!-- header card -->
+                            <div class="edi-card p-3" style="padding:18px 20px !important">
+                                <div class="d-flex align-items-start flex-wrap" style="gap:12px">
+                                    <div>
+                                        <div class="d-flex align-items-center" style="gap:10px">
+                                            <span style="font-size:19px;font-weight:500" t-esc="d.name"/>
+                                            <span class="edi-health-chip"
+                                                  t-att-style="'background:' + d.health_chip_bg + ';color:' + d.health_chip_fg"
+                                                  t-esc="d.health_label"/>
+                                            <span class="edi-tag" t-esc="d.env_label"/>
+                                        </div>
+                                        <div class="text-muted" style="font-size:12.5px;margin-top:3px" t-esc="d.subtitle"/>
+                                    </div>
+                                    <div class="ms-auto d-flex" style="gap:8px">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" t-on-click="onRunPoll">
+                                            <i class="fa fa-refresh me-1"/>Run poll now
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openSettings">
+                                            Open settings
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- diagnosis hint -->
+                                <div class="edi-hint" t-att-style="'background:' + d.hint_bg + ';color:' + d.hint_fg">
+                                    <i class="fa fa-lightbulb-o" style="margin-top:2px"/>
+                                    <span t-esc="d.hint"/>
+                                </div>
+
+                                <!-- 4 stats -->
+                                <div class="edi-stat-grid">
+                                    <t t-foreach="d.stats" t-as="kv" t-key="kv.k">
+                                        <div class="edi-stat-cell">
+                                            <div class="edi-stat-k" t-esc="kv.k"/>
+                                            <div class="edi-stat-v" t-att-style="'color:' + kv.color" t-esc="kv.v"/>
+                                        </div>
+                                    </t>
+                                </div>
+                            </div>
+
+                            <!-- circuit + transport -->
+                            <div class="edi-two-col">
+                                <div class="edi-card p-3" style="padding:16px 18px !important">
+                                    <div class="edi-section-label mb-3">Circuit breaker</div>
+                                    <div class="d-flex align-items-center mb-3" style="gap:10px">
+                                        <span class="edi-circuit-chip"
+                                              t-att-style="'background:' + d.circuit.chip_bg + ';color:' + d.circuit.chip_fg"
+                                              t-esc="d.circuit.label"/>
+                                        <span class="text-muted" style="font-size:12.5px" t-esc="d.circuit.text"/>
+                                    </div>
+                                    <div class="d-flex align-items-center mb-2" style="gap:5px">
+                                        <t t-foreach="d.circuit.dots" t-as="c" t-key="c_index">
+                                            <span class="edi-circuit-dot" t-att-style="'background:' + c"/>
+                                        </t>
+                                    </div>
+                                    <div class="text-muted" style="font-size:11.5px" t-esc="d.circuit.detail"/>
+                                </div>
+
+                                <div class="edi-card p-3" style="padding:16px 18px !important">
+                                    <div class="edi-section-label mb-3">Transport</div>
+                                    <div class="d-flex flex-column" style="gap:8px">
+                                        <t t-foreach="d.transport" t-as="t" t-key="t.k">
+                                            <div class="d-flex align-items-baseline" style="gap:8px;font-size:12.5px">
+                                                <span class="text-muted" style="width:96px;flex:none" t-esc="t.k"/>
+                                                <span class="edi-mono edi-transport-v" t-esc="t.v"/>
+                                                <t t-set="badge" t-value="transportBadge(t.badge)"/>
+                                                <span t-if="badge" class="edi-transport-badge"
+                                                      t-att-style="badge.style" t-esc="badge.text"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- throughput + recent exchanges -->
+                            <div class="edi-two-col edi-two-col--wide">
+                                <div class="edi-card p-3" style="padding:16px 18px !important">
+                                    <div class="d-flex align-items-baseline mb-3">
+                                        <span class="edi-section-label">7-day throughput</span>
+                                        <span class="text-muted ms-auto" style="font-size:11.5px">files · orders</span>
+                                    </div>
+                                    <div class="edi-bars">
+                                        <t t-foreach="throughputBars()" t-as="b" t-key="b_index">
+                                            <div class="edi-bar-col">
+                                                <div class="edi-bar-stack">
+                                                    <div class="edi-bar-orders" t-att-style="'height:' + b.ordersH"/>
+                                                    <div class="edi-bar-files" t-att-style="'height:' + b.filesH"/>
+                                                </div>
+                                                <span class="edi-bar-day" t-esc="b.day"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </div>
+
+                                <div class="edi-card" style="overflow:hidden">
+                                    <div class="edi-section-label" style="padding:12px 16px 6px">Recent exchanges</div>
+                                    <div style="padding:0 16px 12px">
+                                        <t t-if="d.exchanges.length">
+                                            <t t-foreach="d.exchanges" t-as="ex" t-key="ex_index">
+                                                <div class="edi-exch-row">
+                                                    <span class="edi-mono edi-exch-t" t-esc="ex.t"/>
+                                                    <span class="edi-exch-text">
+                                                        <span class="edi-exch-tag" t-att-style="'color:' + ex.color" t-esc="ex.tag"/>
+                                                        <span t-esc="ex.text"/>
+                                                    </span>
+                                                </div>
+                                            </t>
+                                        </t>
+                                        <t t-else="">
+                                            <div class="text-muted" style="font-size:12px;padding:10px 0">
+                                                No exchanges recorded yet for this partner.
+                                            </div>
+                                        </t>
+                                        <div style="padding-top:8px">
+                                            <a href="#" style="font-size:12px" t-on-click.prevent="openFullLog">Full log →</a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </t>
+
+                    <!-- no partners at all -->
+                    <t t-else="">
+                        <div class="edi-card d-flex flex-column align-items-center justify-content-center text-center p-5">
+                            <div class="edi-state-icon edi-state-icon--empty"><i class="fa fa-plug"/></div>
+                            <div class="fw-medium" style="font-size:15px">No trading partners configured</div>
+                            <div class="text-muted mt-1" style="font-size:12.5px;max-width:340px;line-height:1.5">
+                                Add a trading partner in Configuration to begin receiving EDI orders.
+                            </div>
+                            <button type="button" class="btn btn-sm btn-primary mt-3" t-on-click="openSettings">
+                                Open settings
+                            </button>
+                        </div>
+                    </t>
+
+                </div>
+            </div>
+        </t>
+    </div>
+</t>
+
+</templates>

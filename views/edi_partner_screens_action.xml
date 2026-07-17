@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/views/edi_partner_screens_action.xml
+     Client actions for the Trading-Partner-Health (tag `edi_partner_health`)
+     and Processing-Log (tag `edi_processing_log`) OWL screens. -->
+<odoo>
+    <record id="action_edi_partner_health" model="ir.actions.client">
+        <field name="name">Trading Partners</field>
+        <field name="tag">edi_partner_health</field>
+    </record>
+
+    <record id="action_edi_processing_log" model="ir.actions.client">
+        <field name="name">Processing Log</field>
+        <field name="tag">edi_processing_log</field>
+    </record>
+</odoo>

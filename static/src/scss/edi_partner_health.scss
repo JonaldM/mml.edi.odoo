@@ -1,0 +1,177 @@
+// mml_edi/static/src/scss/edi_partner_health.scss
+//
+// Trading-partner health screen (client action `edi_partner_health`). All rules
+// scoped under the shared `.o_edi_screen` root (edi_shared.scss); every colour
+// resolves from the `--edi-*` custom properties so light/dark follow Odoo's
+// native colour scheme with no per-rule theme handling. The `.edi-screen-body`
+// scroll contract is inherited from the shared layer.
+.o_edi_screen.edi-partner-health {
+    background: var(--edi-bg);
+
+    // ---- control bar (pinned sub-header) ----
+    .edi-controlbar {
+        background: var(--edi-surface);
+        border-bottom: 1px solid var(--edi-line);
+        flex: none;
+    }
+    .edi-title { font-size: 19px; font-weight: 500; }
+
+    // ---- exchange-queue strip ----
+    .edi-queue-lane {
+        flex: 1;
+        text-align: center;
+        padding: 8px 6px;
+        border-radius: 6px;
+        min-width: 0;
+    }
+    .edi-queue-n { font-size: 18px; font-weight: 500; }
+    .edi-queue-lbl { font-size: 11px; }
+
+    // ---- master-detail grid ----
+    .edi-health-grid {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+    }
+    @media (max-width: 1100px) {
+        .edi-health-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    // ---- left partner rail ----
+    .edi-partner-rail-row {
+        padding: 12px 16px;
+        cursor: pointer;
+        border-bottom: 1px solid var(--edi-line-soft);
+        border-left: 3px solid transparent;
+        &:hover { background: var(--edi-hover); }
+    }
+    .edi-rail-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+    // ---- detail: header chips ----
+    .edi-health-chip {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .05em;
+        padding: 3px 8px;
+        border-radius: 99px;
+        white-space: nowrap;
+    }
+
+    // ---- diagnosis hint ----
+    .edi-hint {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-top: 14px;
+        padding: 10px 14px;
+        border-radius: 6px;
+        font-size: 12.5px;
+        line-height: 1.45;
+    }
+
+    // ---- 4-stat grid ----
+    .edi-stat-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-top: 16px;
+        border: 1px solid var(--edi-line-soft);
+        border-radius: 6px;
+        overflow: hidden;
+    }
+    @media (max-width: 720px) {
+        .edi-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .edi-stat-cell {
+        padding: 10px 14px;
+        background: var(--edi-hover);
+        border-right: 1px solid var(--edi-line-soft);
+        &:last-child { border-right: none; }
+    }
+    .edi-stat-k {
+        font-size: 10.5px;
+        color: var(--edi-muted);
+        text-transform: uppercase;
+        letter-spacing: .06em;
+    }
+    .edi-stat-v { font-size: 15px; font-weight: 500; margin-top: 3px; }
+
+    // ---- two-column layout for the lower cards ----
+    .edi-two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+    .edi-two-col--wide { grid-template-columns: 1.15fr 1fr; }
+    @media (max-width: 900px) {
+        .edi-two-col, .edi-two-col--wide { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    // ---- circuit breaker ----
+    .edi-circuit-chip {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .05em;
+        padding: 3px 9px;
+        border-radius: 99px;
+        white-space: nowrap;
+    }
+    .edi-circuit-dot { flex: 1; height: 8px; border-radius: 3px; }
+
+    // ---- transport ----
+    .edi-transport-v {
+        font-size: 11.5px;
+        min-width: 0;
+        word-break: break-all;
+    }
+    .edi-transport-badge {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 0 6px;
+        border-radius: 99px;
+    }
+
+    // ---- 7-day throughput bars ----
+    .edi-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        height: 96px;
+    }
+    .edi-bar-col {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        height: 100%;
+        justify-content: flex-end;
+    }
+    .edi-bar-stack {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        height: 100%;
+        gap: 2px;
+    }
+    .edi-bar-orders { background: #378ADD; border-radius: 2px 2px 0 0; }
+    .edi-bar-files { background: #85B7EB; border-radius: 0 0 2px 2px; }
+    .edi-bar-day { font-size: 10px; color: var(--edi-muted); }
+
+    // ---- recent exchanges ----
+    .edi-exch-row {
+        display: flex;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-exch-t { font-size: 11px; color: var(--edi-faint); width: 40px; flex: none; }
+    .edi-exch-text { font-size: 12px; color: var(--edi-muted); min-width: 0; }
+    .edi-exch-tag {
+        font-weight: 700;
+        font-size: 10px;
+        letter-spacing: .04em;
+        margin-right: 4px;
+    }
+}
