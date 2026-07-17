@@ -499,8 +499,17 @@ class BriscoesIDOCParser(BaseEDIParser):
                 conf_cartons = ordered_cartons * (confirmed_each / ordered_each)
             else:
                 conf_cartons = ordered_cartons
-            netwr = round(confirmed_each * vprei, 2)
-            new_order_total += netwr
+            # <NETWR> extended net line amount. A supplied/short line carries its
+            # DELIVERABLE value (confirmed x price). A REJECTED line's deliverable
+            # value is 0 — which EDIStech's SAP validation rejects ("XML tag
+            # NETWR: Value specified is zero", live failure on PO 7010281017). A
+            # rejected line therefore carries the ORDERED extended amount
+            # (ordered_each x VPREI, non-zero), consistent with MENGE/BMNG2/WMENG
+            # which all echo the ordered qty on a rejection; the rejection itself
+            # is conveyed by ACTION=003 + ABGRU=11. It still contributes 0 to the
+            # deliverable order total (SUMME) — a rejected line ships nothing.
+            netwr = round((ordered_each if rejected else confirmed_each) * vprei, 2)
+            new_order_total += round(confirmed_each * vprei, 2)
             if rejected or short:
                 any_shortfall = True
 
