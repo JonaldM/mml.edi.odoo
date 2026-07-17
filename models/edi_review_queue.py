@@ -40,6 +40,18 @@ _logger = logging.getLogger(__name__)
 # feed tags. Kept server-side so the OWL templates stay declarative.
 _SEV_DOT = {"blocking": "#dc3545", "warning": "#ffc107", "info": "#0d6efd"}
 
+# queue group_key -> master-row dot colour. Pinned to the Review Queue.dc.html
+# sample data per group so the daily triage list encodes each group honestly:
+# blocking=red, warning=amber, change=informational blue, auto=clean/audit green.
+# Mapped straight off the group (NOT routed through the red/amber/green age tone,
+# which collapses change+warning to amber and would mis-colour change/auto).
+_GROUP_DOT = {
+    "blocking": "#dc3545",
+    "warning": "#ffc107",
+    "change": "#0d6efd",
+    "auto": "#198754",
+}
+
 _STATE_CHIP = {
     "pending_review": ("Pending review", "edi-chip-amber"),
     "auto_approved": ("Auto-approved", "edi-chip-green"),
@@ -258,7 +270,7 @@ class EdiReviewQueue(models.AbstractModel):
         return {
             "id": rec.id,
             "group": group_key,
-            "sev": _SEV_DOT.get("blocking" if tone == "red" else ("info" if tone == "green" else "warning"), "#ffc107"),
+            "sev": _GROUP_DOT.get(group_key, "#ffc107"),
             "ref": ref,
             "customer": rec.trading_partner_id.name or "",
             "short": self._queue_short(rec, group_key),
@@ -313,6 +325,13 @@ class EdiReviewQueue(models.AbstractModel):
         sends in 24h), else None. One batched search over ``edi.log``, grouped in
         Python (the scope is one or a few partners) — search-based to match the
         module's style and stay clear of read_group's shifting semantics.
+
+        The copy is derived from real data only — the count of failed ORDRSP
+        (``ack_sent``) log rows in scope, plus the first line of the most recent
+        failure's own message. It never asserts a transport ("SFTP"), a route
+        ("EDIS VAN") or a shared error signature the backend has not inspected:
+        those would be a fabricated diagnosis (a Briscoes/Animates upload can be
+        plain FTP, not SFTP). See the module bar at the top of this file.
         """
         from datetime import timedelta
         window = now - timedelta(hours=24)
@@ -320,23 +339,40 @@ class EdiReviewQueue(models.AbstractModel):
             self._partner_domain(partner_code) + [
                 ("event_type", "=", "ack_sent"), ("status", "=", "error"),
                 ("timestamp", ">=", window),
-            ])
+            ], order="timestamp desc")
         counts = {}
+        latest = {}
         for log in logs:
             partner = log.trading_partner_id
             if partner:
                 counts[partner] = counts.get(partner, 0) + 1
+                # search is newest-first, so the first row seen per partner is
+                # its most recent failure.
+                latest.setdefault(partner, log)
         # Deterministic: the worst-offending partner first, then by name.
         for partner, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].name or "")):
             if count >= 2:
-                return {
-                    "partner_id": partner.id,
-                    "text": ("%s ORDRSP upload looks degraded — %d SFTP timeouts to "
-                             "the EDIS VAN in the last 24h share the same signature. "
-                             "Resolve reviews, but check the partner before forcing "
-                             "ACK retries." % (partner.name, count)),
-                }
+                text = ("%s ORDRSP upload looks degraded — %d failed sends in the "
+                        "last 24h. Resolve reviews, but check the partner before "
+                        "forcing ACK retries." % (partner.name, count))
+                first_line = self._first_line(latest.get(partner))
+                if first_line:
+                    text += " Latest error: %s" % first_line
+                return {"partner_id": partner.id, "text": text}
         return None
+
+    @api.model
+    def _first_line(self, log):
+        """First non-empty line of a log's message, truncated — or '' if none.
+        Real data only; used to colour the degraded banner with the actual
+        failure rather than an assumed cause."""
+        if not log or not log.message:
+            return ""
+        for line in log.message.splitlines():
+            line = line.strip()
+            if line:
+                return line[:160]
+        return ""
 
     # =====================================================================
     #  DETAIL — single review pane / page

@@ -129,6 +129,11 @@ class EdiReviewQueue extends Component {
             this.partnerFilter.reconcilePartners(queue.partners);
             this.state.queue = queue;
             this._selectFirst();
+        } catch (e) {
+            // Route a failed partner-switch RPC to the screen's own error state
+            // (as _load does) instead of letting it escape as an unhandled OWL
+            // crash dialog.
+            this.state.error = "Couldn't load the review queue";
         } finally {
             this.state.refreshing = false;
         }
@@ -154,6 +159,14 @@ class EdiReviewQueue extends Component {
         if (key === this.state.group) return;
         this.state.group = key;
         writeGroup(key);
+        // Selection is an index into the FILTERED list, so it must follow the
+        // filter: if the currently-selected review is no longer visible under
+        // the new group pill, reselect the first visible row (README master-
+        // detail rule). Otherwise the detail pane would keep showing a review
+        // with no highlighted row on the left.
+        if (!this._visibleItems().some((it) => it.id === this.state.selId)) {
+            this._selectFirst();
+        }
     }
 
     get visibleGroups() {
