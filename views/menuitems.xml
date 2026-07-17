@@ -5,7 +5,7 @@
         <!-- TOP-LEVEL MENU -->
         <menuitem id="menu_edi_root"
                   name="MML EDI"
-                  web_icon="mml_edi,static/description/icon.png"
+                  web_icon="mml_edi,static/description/icon.svg"
                   sequence="46"/>
 
 
