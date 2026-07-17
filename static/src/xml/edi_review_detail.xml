@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/static/src/xml/edi_review_detail.xml
+     EDI Order Review Detail (single record page). Recreates design_handoff
+     "Order Review Detail.dc.html": ORDRSP per-PO deferral panel, issues,
+     SO-lines, lifecycle timeline and message log for one edi.order.review. -->
+<templates xml:space="preserve">
+
+<t t-name="mml_edi.EdiReviewDetail" owl="1">
+    <div class="edi-review-detail o_action o_edi_screen">
+
+        <!-- ============ Loading ============ -->
+        <t t-if="state.loading">
+            <div class="edi-screen-body p-4">
+                <div class="d-flex align-items-center gap-2 mb-4">
+                    <div class="edi-spinner"/>
+                    <span class="text-muted" style="font-size:13px">Loading review…</span>
+                </div>
+                <div class="edi-skel" style="height:120px;border-radius:8px"/>
+                <div class="edi-skel mt-3" style="height:200px;border-radius:8px;animation-delay:.2s"/>
+            </div>
+        </t>
+
+        <!-- ============ Error ============ -->
+        <t t-elif="state.error">
+            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                <div class="edi-state-icon edi-state-icon--error"><i class="fa fa-exclamation-triangle"/></div>
+                <div class="fw-medium" style="font-size:15px">Couldn't load the review</div>
+                <div class="edi-mono edi-state-code my-3">RPC_ERROR · edi.review.queue.get_review_detail</div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="backToQueue">Back to the queue</button>
+            </div>
+        </t>
+
+        <!-- ============ No / missing record ============ -->
+        <t t-elif="!detail">
+            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                <div class="edi-state-icon edi-state-icon--empty"><i class="fa fa-file-text-o"/></div>
+                <div class="fw-medium" style="font-size:15px">No review selected</div>
+                <div class="text-muted mt-1" style="font-size:12.5px;max-width:320px;line-height:1.5">
+                    This page opens a single order review. Pick one from the review queue.
+                </div>
+                <button type="button" class="btn btn-sm btn-primary mt-3" t-on-click="backToQueue">Open the review queue</button>
+            </div>
+        </t>
+
+        <!-- ============ Loaded ============ -->
+        <t t-else="">
+            <!-- control bar -->
+            <div class="edi-controlbar d-flex align-items-center gap-2 px-3 py-2 border-bottom flex-wrap">
+                <a href="#" class="small text-muted" t-on-click.prevent="backToQueue">← Review queue</a>
+                <h4 class="mb-0 edi-title" t-esc="detail.ref"/>
+                <span t-attf-class="edi-chip #{detail.state_cls}" t-esc="detail.state_label"/>
+                <span class="edi-tag" t-esc="detail.partner_tag"/>
+                <span t-attf-class="edi-chip #{detail.doc_is_change ? 'edi-chip-blue' : 'edi-chip-grey'}" t-esc="detail.doc_label"/>
+                <span class="small text-muted"><t t-esc="detail.name"/> · received <t t-esc="detail.received"/></span>
+                <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+                    <t t-foreach="detail.actions" t-as="act" t-key="act.key">
+                        <button type="button" t-att-class="headerBtnClass(act.kind)"
+                                t-att-disabled="state.acting"
+                                t-on-click="() => this.onHeaderAction(act)" t-esc="act.label"/>
+                    </t>
+                </div>
+            </div>
+
+            <!-- body -->
+            <div class="edi-screen-body o_content p-3">
+                <div class="edi-rd-grid">
+
+                    <!-- ===== left column ===== -->
+                    <div class="d-flex flex-column gap-3 min-width-0">
+
+                        <!-- ORDRSP deferral panel -->
+                        <div class="edi-card p-3">
+                            <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                                <span class="fw-medium" style="font-size:13.5px">ORDRSP (order response)</span>
+                                <span t-attf-class="edi-chip #{detail.ack.status == 'sent' ? 'edi-chip-green' : (detail.ack.status == 'failed' ? 'edi-chip-red' : 'edi-chip-grey')}" t-esc="detail.ack.label"/>
+                                <span class="ms-auto edi-mono small text-muted" t-esc="detail.ordrsp.filename"/>
+                            </div>
+                            <div class="small text-muted mb-2">
+                                One response covers all <strong class="text-body" t-esc="detail.ordrsp.total_stores"/>
+                                store-order(s) of this PO · sent once every store leaves review
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="edi-rd-progress">
+                                    <span t-att-style="ordrspBarStyle()"/>
+                                </div>
+                                <span class="small text-muted text-nowrap">
+                                    <strong class="text-body"><t t-esc="detail.ordrsp.resolved_stores"/> of <t t-esc="detail.ordrsp.total_stores"/></strong> stores resolved
+                                </span>
+                            </div>
+                            <div class="d-flex gap-2 mt-2 flex-wrap">
+                                <t t-foreach="detail.ordrsp.stores" t-as="st" t-key="st_index">
+                                    <span t-attf-class="edi-chip #{st.cls} edi-rd-store" t-esc="st.label"/>
+                                </t>
+                            </div>
+                        </div>
+
+                        <!-- Issues -->
+                        <div class="edi-card p-3">
+                            <div class="d-flex align-items-baseline gap-2 mb-2">
+                                <span class="fw-medium" style="font-size:13.5px">Issues (<t t-esc="detail.issue_count"/>)</span>
+                                <span t-if="detail.issue_summary" class="small text-muted" t-esc="detail.issue_summary"/>
+                            </div>
+                            <t t-if="detail.no_issues">
+                                <div class="edi-rq-issue d-flex align-items-center gap-2 text-muted small">
+                                    <i class="fa fa-check-circle" style="color:#198754"/>No issues — order parsed clean and matched on every line.
+                                </div>
+                            </t>
+                            <t t-else="">
+                                <t t-foreach="detail.issues" t-as="iss" t-key="iss.id">
+                                    <div class="edi-rq-issue">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span t-attf-class="edi-chip #{iss.badge_cls}" t-esc="iss.badge"/>
+                                            <span class="fw-medium" style="font-size:12.5px" t-esc="iss.type_label"/>
+                                            <span t-if="iss.resolved and iss.res_label" t-attf-class="edi-pill #{iss.res_cls} ms-auto" t-esc="iss.res_label"/>
+                                        </div>
+                                        <div class="edi-rq-issue-desc text-muted" t-esc="iss.desc"/>
+                                        <div t-if="iss.has_price" class="edi-rq-price">
+                                            <span>EDI <strong class="edi-mono" t-esc="iss.edi_price"/></span>
+                                            <span class="text-muted">System <strong class="edi-mono text-body" t-esc="iss.sys_price"/></span>
+                                            <span class="ms-auto fw-medium" style="color:#dc3545" t-esc="iss.diff"/>
+                                        </div>
+                                        <div t-if="iss.show_actions" class="d-flex gap-2 mt-2 flex-wrap">
+                                            <t t-foreach="iss.actions" t-as="ra" t-key="ra.key">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary edi-rq-issue-btn"
+                                                        t-att-disabled="state.acting"
+                                                        t-on-click="() => this.onIssueAction(iss, ra)" t-esc="ra.label"/>
+                                            </t>
+                                        </div>
+                                    </div>
+                                </t>
+                            </t>
+                        </div>
+
+                        <!-- SO lines -->
+                        <div class="edi-card p-3">
+                            <div class="d-flex align-items-baseline gap-2 mb-2">
+                                <span class="fw-medium" style="font-size:13.5px">Sales-order lines</span>
+                                <span t-if="detail.so.label" class="small text-muted" t-esc="detail.so.label"/>
+                                <a t-if="detail.so.id" href="#" class="ms-auto small" t-on-click.prevent="openSO">Open <t t-esc="detail.so.name"/> →</a>
+                            </div>
+                            <t t-if="detail.so_lines.length">
+                                <div class="edi-rq-lines">
+                                    <div class="edi-rq-lines-head">
+                                        <span>#</span><span>Product · matched by</span>
+                                        <span class="text-end">Ordered</span><span class="text-end">EDI</span>
+                                        <span class="text-end">System</span><span class="text-end">Line</span>
+                                    </div>
+                                    <t t-foreach="detail.so_lines" t-as="ln" t-key="ln_index">
+                                        <div class="edi-rq-lines-row">
+                                            <span class="edi-mono text-muted" t-esc="ln.no"/>
+                                            <div class="min-width-0">
+                                                <div class="edi-rq-line-product" t-esc="ln.product"/>
+                                                <span t-attf-class="edi-chip #{ln.match_cls} edi-rq-match" t-esc="ln.match_by"/>
+                                            </div>
+                                            <span class="text-end edi-mono" t-esc="ln.qty"/>
+                                            <span class="text-end edi-mono" t-esc="ln.edi_price"/>
+                                            <span class="text-end edi-mono text-muted" t-esc="ln.sys_price"/>
+                                            <span class="text-end"><span t-attf-class="edi-pill #{ln.status_cls}" t-esc="ln.status"/></span>
+                                        </div>
+                                    </t>
+                                </div>
+                                <div class="edi-rq-line-note text-muted" t-esc="detail.line_note"/>
+                            </t>
+                            <t t-else="">
+                                <div class="edi-rq-issue text-muted small">No sales order created yet for this review.</div>
+                            </t>
+                        </div>
+                    </div>
+
+                    <!-- ===== right column ===== -->
+                    <div class="d-flex flex-column gap-3">
+
+                        <!-- Lifecycle timeline -->
+                        <div class="edi-card p-3">
+                            <div class="fw-medium mb-3" style="font-size:13.5px">Lifecycle</div>
+                            <t t-if="detail.timeline.length">
+                                <t t-foreach="detail.timeline" t-as="ev" t-key="ev_index">
+                                    <div class="edi-rd-tl-row">
+                                        <div class="edi-rd-tl-rail">
+                                            <span class="edi-rd-tl-dot" t-attf-style="background:#{ev.color}"/>
+                                            <span t-if="!ev_last" class="edi-rd-tl-line"/>
+                                        </div>
+                                        <div class="min-width-0">
+                                            <div class="edi-rd-tl-title">
+                                                <t t-esc="ev.title"/>
+                                                <span class="edi-mono edi-rd-tl-time" t-esc="ev.t"/>
+                                            </div>
+                                            <div class="edi-rd-tl-sub text-muted" t-esc="ev.sub"/>
+                                        </div>
+                                    </div>
+                                </t>
+                            </t>
+                            <t t-else="">
+                                <div class="text-muted small">No lifecycle events logged yet.</div>
+                            </t>
+                        </div>
+
+                        <!-- Message log (chatter) -->
+                        <div class="edi-card">
+                            <div class="edi-card-head d-flex align-items-center">
+                                <span class="fw-medium" style="font-size:13.5px">Message log</span>
+                                <span class="ms-auto small text-muted">chatter</span>
+                            </div>
+                            <div class="px-3 pb-2">
+                                <t t-if="detail.chatter.length">
+                                    <t t-foreach="detail.chatter" t-as="m" t-key="m_index">
+                                        <div class="edi-rd-msg">
+                                            <div class="edi-rd-avatar" t-attf-style="background:#{m.av_bg};color:#{m.av_color}" t-esc="m.who"/>
+                                            <div class="min-width-0">
+                                                <div class="edi-rd-msg-body" t-esc="m.body"/>
+                                                <div class="edi-mono edi-rd-msg-time text-muted" t-esc="m.t"/>
+                                            </div>
+                                        </div>
+                                    </t>
+                                </t>
+                                <t t-else="">
+                                    <div class="text-muted small py-2">No messages on this review yet.</div>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </t>
+    </div>
+</t>
+
+</templates>

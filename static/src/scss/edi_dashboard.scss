@@ -1,0 +1,248 @@
+// mml_edi/static/src/scss/edi_dashboard.scss
+//
+// EDI operations dashboard (client action `edi_dashboard`). Layout + component
+// styles for the landing board and its four system states. All rules are
+// scoped under the `.o_edi_screen` root (shared token layer, edi_shared.scss);
+// colours resolve from the `--edi-*` custom properties so light/dark follow
+// Odoo's native colour scheme with no per-rule theme handling.
+.o_edi_screen.edi-dashboard {
+    background: var(--edi-bg);
+
+    // ---- control bar (pinned sub-header) ----
+    .edi-controlbar {
+        background: var(--edi-surface);
+        border-bottom: 1px solid var(--edi-line);
+        flex: none;
+    }
+    .edi-title { font-size: 19px; font-weight: 500; }
+
+    // ---- order search ----
+    .edi-search { position: relative; width: 320px; }
+    .edi-search-box {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--edi-btn-border);
+        border-radius: 6px;
+        padding: 0 10px;
+        background: var(--edi-surface);
+
+        input {
+            border: none;
+            padding: 7px 0;
+            font-size: 12.5px;
+            width: 100%;
+            background: transparent;
+            color: var(--edi-text);
+            &:focus { outline: none; }
+        }
+        i { font-size: 12px; }
+    }
+    .edi-search-results {
+        position: absolute;
+        top: 38px;
+        left: 0;
+        right: 0;
+        background: var(--edi-surface);
+        border: 1px solid var(--edi-line);
+        border-radius: 8px;
+        box-shadow: 0 8px 24px var(--edi-shadow);
+        z-index: 50;
+        overflow: hidden;
+    }
+    .edi-search-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--edi-line-soft);
+        cursor: pointer;
+        &:hover { background: var(--edi-hover); }
+    }
+    .edi-search-ref { font-size: 12.5px; font-weight: 500; }
+    .edi-search-sub { font-size: 11.5px; }
+    .edi-search-empty { padding: 12px; font-size: 12.5px; }
+
+    // ---- body grid (1fr / right rail) ----
+    .edi-body-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 322px;
+        gap: 16px;
+        transition: opacity .12s ease;
+    }
+    // In-place filter refresh: dim + lock the board body (not the control bar)
+    // while the scoped payload loads. The full skeleton is initial-mount only.
+    .edi-body-grid.edi-refreshing {
+        opacity: .55;
+        pointer-events: none;
+    }
+    @media (max-width: 1100px) {
+        .edi-body-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    // ---- card head / titles ----
+    .edi-card-head {
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-card-title { font-size: 13.5px; }
+
+    // ---- count badges on the "Needs attention" header ----
+    .edi-count-badge {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 99px;
+        line-height: 1;
+    }
+    .edi-count-badge--red { background: #dc3545; color: #fff; }
+    .edi-count-badge--amber { background: #fff3cd; color: #664d03; }
+
+    // ---- triage rows ----
+    .edi-triage-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--edi-line-soft);
+        &:hover { background: var(--edi-hover); }
+    }
+    .edi-triage-title { font-weight: 500; font-size: 13px; }
+    .edi-triage-sub { font-size: 12px; }
+    .edi-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+    .edi-footer-strip {
+        padding: 8px 16px;
+        background: var(--edi-hover);
+        font-size: 12px;
+        color: var(--edi-muted);
+    }
+    .edi-allclear { padding: 18px 20px; }
+
+    // ---- age pills (fixed light-bg/dark-text pairs, both schemes) ----
+    .edi-pill-red { background: #f8d7da; color: #dc3545; }
+    .edi-pill-amber { background: #fff3cd; color: #664d03; }
+
+    // ---- state chips (search results) ----
+    .edi-chip-red { background: #f8d7da; color: #58151c; }
+    .edi-chip-amber { background: #fff3cd; color: #664d03; }
+    .edi-chip-green { background: #d1e7dd; color: #0a3622; }
+    .edi-chip-blue { background: #cfe2ff; color: #052c65; }
+    .edi-chip-grey { background: #e2e3e5; color: #41464b; }
+
+    // ---- inbound pipeline ramp ----
+    .edi-stage {
+        flex: 1;
+        border-radius: 8px;
+        padding: 10px 8px;
+        text-align: center;
+        min-width: 0;
+    }
+    .edi-stage--terminal { border: 1px dashed var(--edi-faint); }
+    .edi-stage-val { font-size: 20px; font-weight: 500; }
+    .edi-stage-lbl { font-size: 12px; }
+    .edi-stage-note { font-size: 10px; opacity: .7; }
+
+    // ---- KPI cards (RAG left border) ----
+    .edi-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+    }
+    @media (max-width: 900px) {
+        .edi-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .edi-kpi-card {
+        padding: 12px 16px;
+        border-left: 3px solid var(--edi-faint);
+        &:hover { box-shadow: 0 2px 8px var(--edi-shadow); }
+    }
+    .edi-kpi-green { border-left-color: #198754; }
+    .edi-kpi-amber { border-left-color: #ffc107; }
+    .edi-kpi-red { border-left-color: #dc3545; }
+    .edi-kpi-none { border-left-color: var(--edi-faint); }
+    .edi-kpi-label { font-size: 12px; margin-bottom: 2px; }
+    .edi-kpi-window { color: var(--edi-faint); }
+    .edi-kpi-val { font-size: 24px; font-weight: 500; }
+    .edi-kpi-sub { font-size: 11px; margin-top: 4px; }
+
+    // ---- live feed ----
+    .edi-feed-body { padding: 4px 16px 10px; }
+    .edi-feed-row {
+        display: flex;
+        gap: 10px;
+        padding: 7px 0;
+        border-bottom: 1px solid var(--edi-line-soft);
+        &.edi-clickable { cursor: pointer; }
+        &.edi-clickable:hover { background: var(--edi-hover); }
+    }
+    .edi-feed-time { font-size: 11px; color: var(--edi-faint); min-width: 42px; flex: none; white-space: nowrap; }
+    .edi-feed-text { font-size: 12px; color: var(--edi-muted); min-width: 0; }
+    .edi-feed-tag { font-weight: 700; font-size: 10px; letter-spacing: .04em; margin-right: 4px; }
+
+    // ---- partner-health rail ----
+    .edi-partner-row {
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-partner-detail { font-size: 11.5px; margin-top: 5px; padding-left: 16px; }
+    .edi-partner-banner {
+        display: block;
+        font-size: 12px;
+        color: #664d03;
+        background: #fff3cd;
+        padding: 8px 16px;
+        &:hover { text-decoration: none; }
+    }
+
+    // ======================================================================
+    //  System states — Loading skeleton, Empty, Error, All-clear
+    // ======================================================================
+    @keyframes edi-shim { 0% { opacity: .55 } 50% { opacity: 1 } 100% { opacity: .55 } }
+    @keyframes edi-spin { to { transform: rotate(360deg) } }
+
+    .edi-spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid var(--edi-line);
+        border-top-color: var(--edi-accent);
+        border-radius: 50%;
+        animation: edi-spin .8s linear infinite;
+    }
+    .edi-skel {
+        background: var(--edi-line-soft);
+        border-radius: 8px;
+        animation: edi-shim 1.4s ease-in-out infinite;
+    }
+    .edi-skel-kpis {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        .edi-skel { height: 64px; }
+    }
+    .edi-skel-line {
+        height: 12px;
+        border-radius: 5px;
+        margin-bottom: 8px;
+    }
+
+    .edi-state-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+        margin-bottom: 14px;
+    }
+    .edi-state-icon--empty { background: var(--edi-accent-bg); color: var(--edi-accent); }
+    .edi-state-icon--error { background: #f8d7da; color: #dc3545; }
+    .edi-state-code {
+        font-size: 11px;
+        color: #dc3545;
+        background: var(--edi-hover);
+        border-radius: 5px;
+        padding: 5px 10px;
+    }
+}

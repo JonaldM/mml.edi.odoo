@@ -1,0 +1,156 @@
+// mml_edi/static/src/scss/edi_mobile.scss
+//
+// EDI MOBILE TRIAGE (client action `edi_mobile_triage`) — the approver's pocket
+// view. Recreates design_handoff "Mobile Triage.dc.html" as a responsive
+// one-tap triage. Scoped under the shared `.o_edi_screen` root (edi_shared.scss)
+// so colours resolve from the `--edi-*` token bridge and light/dark follow
+// Odoo's native colour scheme with no per-rule theme handling. Scroll is
+// delegated to `.edi-screen-body` (the shared `.o_action` clipping contract).
+//
+// Touch-first: every tappable control is >=46px tall (the README hit-target
+// rule); cards centre in a narrow reading column that also works on a desktop
+// action pane.
+.o_edi_screen.edi-mobile {
+    background: var(--edi-bg);
+
+    .edi-m-body {
+        padding: 14px 16px 40px;
+        // A phone-width reading column, centred so the same action renders well
+        // on a desktop pane too.
+        max-width: 520px;
+        margin: 0 auto;
+        width: 100%;
+        transition: opacity .12s ease;
+    }
+    .edi-m-refreshing { opacity: .55; pointer-events: none; }
+
+    // ---- partner filter ------------------------------------------------------
+    .edi-m-filter {
+        margin-bottom: 14px;
+        .edi-seg { width: 100%; }
+        .edi-seg-pill { flex: 1; text-align: center; padding: 10px 8px; }
+    }
+
+    // ---- header counts -------------------------------------------------------
+    .edi-m-counts {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 2px 2px 14px;
+        flex-wrap: wrap;
+    }
+    .edi-m-pending { font-size: 14px; color: var(--edi-muted); }
+    .edi-m-count {
+        font-size: 12.5px;
+        font-weight: 700;
+        padding: 2px 9px;
+        border-radius: 99px;
+    }
+    .edi-m-count--red { color: #fff; background: #dc3545; }
+    .edi-m-count--amber { color: #664d03; background: #fff3cd; }
+
+    // ---- triage cards --------------------------------------------------------
+    .edi-m-card {
+        background: var(--edi-surface);
+        border: 1px solid var(--edi-line);
+        border-radius: 16px;
+        padding: 14px 16px;
+        margin-bottom: 14px;
+        box-shadow: 0 1px 3px var(--edi-shadow);
+    }
+    .edi-m-card-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+    .edi-m-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+    .edi-m-title { font-size: 16px; font-weight: 600; color: var(--edi-text); min-width: 0; }
+    .edi-m-age {
+        margin-left: auto;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+    }
+    .edi-m-age--red { color: #dc3545; background: #f8d7da; }
+    .edi-m-age--amber { color: #664d03; background: #fff3cd; }
+    .edi-m-tagline:not(:empty) { margin-bottom: 8px; }
+    .edi-m-summary {
+        font-size: 14px;
+        color: var(--edi-muted);
+        line-height: 1.45;
+        margin-bottom: 13px;
+    }
+
+    // ---- one-tap actions (>=46px hit targets) --------------------------------
+    .edi-m-actions { display: flex; gap: 10px; }
+    .edi-m-btn {
+        flex: 1;
+        min-height: 46px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        font-size: 15px;
+        font-weight: 600;
+        text-align: center;
+        cursor: pointer;
+        border: 1.5px solid transparent;
+        transition: filter .1s ease;
+        &:hover { filter: brightness(.97); }
+        &:disabled { opacity: .5; cursor: default; }
+    }
+    .edi-m-btn--accent { background: var(--edi-accent); color: #fff; }
+    .edi-m-btn--approve { background: #198754; color: #fff; }
+    .edi-m-btn--danger { background: var(--edi-surface); border-color: #dc3545; color: #dc3545; }
+    .edi-m-btn--neutral { background: var(--edi-surface); border-color: var(--edi-btn-border); color: var(--edi-text); }
+
+    // ---- states --------------------------------------------------------------
+    .edi-m-loading {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .edi-m-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 8px;
+        padding: 40px 20px;
+    }
+    .edi-m-state-title { font-size: 15px; font-weight: 500; color: var(--edi-text); }
+    .edi-m-state-sub { font-size: 12.5px; color: var(--edi-muted); }
+
+    // ---- local spinner / skeleton / state-icon (edi-dashboard scopes its own) --
+    @keyframes edi-m-shim { 0% { opacity: .55 } 50% { opacity: 1 } 100% { opacity: .55 } }
+    @keyframes edi-m-spin { to { transform: rotate(360deg) } }
+    .edi-spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid var(--edi-line);
+        border-top-color: var(--edi-accent);
+        border-radius: 50%;
+        animation: edi-m-spin .8s linear infinite;
+        flex: none;
+    }
+    .edi-skel {
+        background: var(--edi-line-soft);
+        border: none;
+        box-shadow: none;
+        animation: edi-m-shim 1.4s ease-in-out infinite;
+    }
+    .edi-state-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+        margin-bottom: 6px;
+    }
+    .edi-state-icon--empty { background: var(--edi-accent-bg); color: var(--edi-accent); }
+    .edi-state-icon--error { background: #f8d7da; color: #dc3545; }
+}

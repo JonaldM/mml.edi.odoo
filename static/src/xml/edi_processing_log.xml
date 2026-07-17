@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/static/src/xml/edi_processing_log.xml
+     Processing-log browser. Recreates design_handoff "Processing Log.dc.html" as
+     one OWL client action, sharing the edi_shared.scss token layer + scroll
+     contract. -->
+<templates xml:space="preserve">
+
+<t t-name="mml_edi.EdiProcessingLog" owl="1">
+    <div class="edi-processing-log o_action o_edi_screen">
+
+        <!-- ============ Loading ============ -->
+        <t t-if="state.loading">
+            <div class="edi-screen-body p-4">
+                <div class="d-flex align-items-center gap-2 mb-4">
+                    <div class="edi-spinner"/>
+                    <span class="text-muted" style="font-size:13px">Loading the processing log…</span>
+                </div>
+                <div class="edi-skel edi-skel-line" style="width:70%"/>
+                <div class="edi-skel edi-skel-line" style="width:90%;animation-delay:.15s"/>
+                <div class="edi-skel edi-skel-line" style="width:82%;animation-delay:.3s"/>
+                <div class="edi-skel edi-skel-line" style="width:88%;animation-delay:.45s"/>
+            </div>
+        </t>
+
+        <!-- ============ Error ============ -->
+        <t t-elif="state.error">
+            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                <div class="edi-state-icon edi-state-icon--error"><i class="fa fa-exclamation-triangle"/></div>
+                <div class="fw-medium" style="font-size:15px">Couldn't load the processing log</div>
+                <div class="text-muted mt-1" style="font-size:12.5px;max-width:360px;line-height:1.5">
+                    The server request failed. Your data is safe — the append-only log itself is
+                    untouched; this is only a display error.
+                </div>
+                <div class="edi-mono edi-state-code my-3">RPC_ERROR · edi.processing.log.get_log_page</div>
+                <button type="button" class="btn btn-sm btn-primary" t-on-click="onRetry">
+                    <i class="fa fa-refresh me-1"/>Retry
+                </button>
+            </div>
+        </t>
+
+        <!-- ============ Loaded ============ -->
+        <t t-elif="state.page">
+
+            <!-- == control bar == -->
+            <div class="edi-controlbar d-flex align-items-center gap-3 px-3 py-2 border-bottom flex-wrap">
+                <a href="#" class="text-muted" style="font-size:12.5px"
+                   t-on-click.prevent="openDashboard">← Dashboard</a>
+                <h4 class="mb-0 edi-title">Processing log</h4>
+                <span class="text-muted" style="font-size:12.5px">
+                    append-only · <t t-esc="visibleCount"/> shown
+                </span>
+
+                <!-- direction segmented filter -->
+                <div class="edi-seg">
+                    <t t-foreach="dirPillDefs" t-as="pill" t-key="pill[0]">
+                        <span t-att-class="dirPillClass(pill[0])"
+                              t-on-click="() => this.setDir(pill[0])" t-esc="pill[1]"/>
+                    </t>
+                </div>
+
+                <!-- status segmented filter -->
+                <div class="edi-seg">
+                    <t t-foreach="statusPillDefs" t-as="pill" t-key="pill[0]">
+                        <span t-att-class="statusPillClass(pill[0])"
+                              t-on-click="() => this.setStatus(pill[0])" t-esc="pill[1]"/>
+                    </t>
+                </div>
+
+                <div class="edi-log-search ms-auto">
+                    <div class="edi-search-box">
+                        <i class="fa fa-search text-muted"/>
+                        <input type="text" t-ref="searchInput" t-att-value="state.query"
+                               t-on-input="onSearch" placeholder="Filename, PO, message"/>
+                    </div>
+                </div>
+            </div>
+
+            <!-- == scrollable body == -->
+            <div class="edi-screen-body p-3">
+                <div class="edi-log-grid">
+
+                    <!-- row list -->
+                    <div class="edi-card" style="overflow:hidden">
+                        <div class="edi-log-head">
+                            <span>Time</span><span>Event</span><span>Message</span>
+                            <span style="text-align:right">Status</span>
+                        </div>
+
+                        <t t-foreach="displayRows()" t-as="item" t-key="item.key">
+                            <t t-if="item.isDay">
+                                <div class="edi-log-day" t-esc="item.day"/>
+                            </t>
+                            <t t-else="">
+                                <t t-set="r" t-value="item.row"/>
+                                <div t-att-class="rowClass(r)" t-on-click="() => this.selectRow(r)">
+                                    <span class="edi-mono edi-log-time" t-esc="r.t"/>
+                                    <span>
+                                        <span class="edi-log-tag"
+                                              t-att-style="'background:' + r.tag_color" t-esc="r.tag"/>
+                                    </span>
+                                    <div style="min-width:0">
+                                        <div class="edi-log-msg" t-esc="r.message"/>
+                                        <div t-if="r.has_file" class="edi-mono edi-log-file">
+                                            <t t-esc="r.filename"/>
+                                            <t t-if="r.partner_tag"> · <t t-esc="r.partner_tag"/></t>
+                                        </div>
+                                    </div>
+                                    <span style="text-align:right">
+                                        <span class="edi-log-status"
+                                              t-att-style="'background:' + r.status_bg + ';color:' + r.status_fg"
+                                              t-esc="r.status"/>
+                                    </span>
+                                </div>
+                            </t>
+                        </t>
+
+                        <t t-if="!visibleCount">
+                            <div class="text-muted text-center" style="padding:28px 16px;font-size:12.5px">
+                                No log entries match these filters.
+                            </div>
+                        </t>
+
+                        <div class="edi-log-footer">
+                            Log is append-only (no create/write user overhead). Technical detail on
+                            error rows is manager-only.
+                        </div>
+                    </div>
+
+                    <!-- exchange rail -->
+                    <div class="edi-card edi-log-rail">
+                        <t t-if="state.exchange">
+                            <t t-set="ex" t-value="state.exchange"/>
+                            <div class="edi-section-label mb-1">File exchange</div>
+                            <div class="edi-mono" style="font-size:12.5px;font-weight:500;word-break:break-all"
+                                 t-esc="ex.filename"/>
+                            <div class="d-flex align-items-center flex-wrap mt-2" style="gap:8px">
+                                <span class="edi-tag" t-esc="ex.partner"/>
+                                <span class="edi-log-dedup"
+                                      t-att-style="ex.dedup.ok ? 'background:#d1e7dd;color:#0a3622' : 'background:#fff3cd;color:#664d03'"
+                                      t-esc="ex.dedup.label"/>
+                            </div>
+                            <div class="edi-log-hash">
+                                <span class="edi-section-label">SHA-256</span>
+                                <span class="edi-mono" style="font-size:11px;color:var(--edi-muted);word-break:break-all"
+                                      t-esc="ex.hash"/>
+                            </div>
+
+                            <div class="edi-section-label" style="margin:16px 0 12px">Chain</div>
+                            <t t-foreach="ex.chain" t-as="c" t-key="c_index">
+                                <div class="edi-chain-node">
+                                    <div class="edi-chain-rail">
+                                        <span class="edi-chain-dot" t-att-style="'background:' + c.color"/>
+                                        <span t-if="c.line" class="edi-chain-line"/>
+                                    </div>
+                                    <div style="min-width:0">
+                                        <div style="font-size:12.5px;font-weight:500">
+                                            <t t-esc="c.title"/>
+                                            <span class="edi-mono edi-chain-t" t-esc="c.t"/>
+                                        </div>
+                                        <div class="text-muted" style="font-size:12px;margin-top:1px" t-esc="c.sub"/>
+                                    </div>
+                                </div>
+                            </t>
+
+                            <t t-if="ex.has_detail">
+                                <div class="mt-1">
+                                    <div class="edi-section-label mb-2">
+                                        Technical detail
+                                        <span style="font-weight:400;text-transform:none;letter-spacing:0"> · manager-only</span>
+                                    </div>
+                                    <div class="edi-chain-detail" t-esc="ex.detail"/>
+                                </div>
+                            </t>
+                        </t>
+                        <t t-else="">
+                            <div class="text-muted" style="font-size:12.5px;line-height:1.5">
+                                Select a file-bearing row (POLL / PARSE / ACK / DUP) to trace its full
+                                exchange chain — download → parse → orders → acknowledgement — with its
+                                SHA-256 and dedup status.
+                            </div>
+                        </t>
+                    </div>
+
+                </div>
+            </div>
+        </t>
+    </div>
+</t>
+
+</templates>

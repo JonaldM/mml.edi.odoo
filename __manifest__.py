@@ -1,6 +1,6 @@
 {
     "name": "MML EDI",
-    "version": "19.0.1.2.0",
+    "version": "19.0.1.2.1",
     "summary": "Electronic Data Interchange for retail partners (Briscoes Group and others)",
     "description": """
         Customer-agnostic EDI module for Odoo 19.
@@ -30,8 +30,16 @@
         "views/edi_log_views.xml",
         "views/sale_order_views.xml",
         "views/stock_location_views.xml",
+        # Client-action screens (OWL) — actions defined before the menus below
+        "views/edi_dashboard_action.xml",
+        "views/edi_partner_screens_action.xml",
         # Menus (after all view actions are defined)
         "views/menuitems.xml",
+        # Review-queue OWL client actions + nav menu (parent defined in menuitems)
+        "views/edi_review_queue_action.xml",
+        # Wall Display + Mobile Triage client actions + menus (after the EDI root
+        # menu is defined in menuitems.xml).
+        "views/edi_wall_mobile_actions.xml",
         # Seed data (noupdate=1 inside)
         "data/edi_trading_partner_briscoes.xml",
         # Templates
@@ -39,6 +47,56 @@
         # Reports
         "report/sscc_label_report.xml",
     ],
+    "assets": {
+        "web.assets_backend": [
+            # Shared theme token layer (this task owns it for the UI-refresh
+            # program) + shape vocabulary — listed first so per-screen SCSS
+            # composes it.
+            "mml_edi/static/src/scss/edi_shared.scss",
+            "mml_edi/static/src/utils/edi_format.js",
+            "mml_edi/static/src/utils/use_partner_filter.js",
+            "mml_edi/static/src/utils/use_partner_filter.xml",
+            # EDI operations dashboard (client action `edi_dashboard`).
+            "mml_edi/static/src/scss/edi_dashboard.scss",
+            "mml_edi/static/src/js/edi_dashboard.js",
+            "mml_edi/static/src/xml/edi_dashboard.xml",
+            # EDI review-queue screens (client actions `edi_review_queue`,
+            # `edi_review_detail`) — master-detail triage + single-review page.
+            "mml_edi/static/src/utils/review_format.js",
+            "mml_edi/static/src/scss/edi_review_queue.scss",
+            "mml_edi/static/src/js/edi_review_queue.js",
+            "mml_edi/static/src/js/edi_review_detail.js",
+            "mml_edi/static/src/xml/edi_review_queue.xml",
+            "mml_edi/static/src/xml/edi_review_detail.xml",
+            # Trading-partner health (client action `edi_partner_health`).
+            "mml_edi/static/src/scss/edi_partner_health.scss",
+            "mml_edi/static/src/js/edi_partner_health.js",
+            "mml_edi/static/src/xml/edi_partner_health.xml",
+            # Processing-log browser (client action `edi_processing_log`).
+            "mml_edi/static/src/scss/edi_processing_log.scss",
+            "mml_edi/static/src/js/edi_processing_log.js",
+            "mml_edi/static/src/xml/edi_processing_log.xml",
+            # Wall Display radiator (client action `edi_wall`) — fixed dark
+            # palette, both colour schemes.
+            "mml_edi/static/src/scss/edi_wall.scss",
+            "mml_edi/static/src/js/edi_wall.js",
+            "mml_edi/static/src/xml/edi_wall.xml",
+            # Mobile Triage pocket view (client action `edi_mobile_triage`).
+            "mml_edi/static/src/scss/edi_mobile.scss",
+            "mml_edi/static/src/js/edi_mobile_triage.js",
+            "mml_edi/static/src/xml/edi_mobile_triage.xml",
+        ],
+        # Dark-mode token overrides — same bundle key web_enterprise uses for
+        # its own *.dark.scss companions, so Odoo loads it only under the dark
+        # colour scheme (no custom toggle).
+        "web.assets_web_dark": [
+            "mml_edi/static/src/scss/edi_shared.dark.scss",
+        ],
+        # Hoot unit tests for the pure formatting helpers.
+        "web.assets_unit_tests": [
+            "mml_edi/static/tests/**/*",
+        ],
+    },
     "installable": True,
     "application": True,
     "auto_install": False,

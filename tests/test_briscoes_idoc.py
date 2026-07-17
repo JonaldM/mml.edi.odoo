@@ -282,7 +282,10 @@ class TestGenerateAck:
         assert float(line10.find("BMNG2").text) == 6.0, "BMNG2 echoes ORDERED"
         assert float(line10.find("E1EDP20/WMENG").text) == 2.0, \
             "Rejected line: WMENG echoes the original ordered qty (order unit)"
-        assert float(line10.find("NETWR").text) == 0.0
+        # Rejected line NETWR carries the ORDERED extended amount, never 0.00 —
+        # EDIStech's SAP validation rejects a zero NETWR (live failure on
+        # PO 7010281017); the rejection is conveyed by ACTION=003 + ABGRU=11.
+        assert float(line10.find("NETWR").text) > 0.0
         # the untouched line stays a clean 001 with no ABGRU
         line20 = root.findall("IDOC/E1EDP01")[1]
         assert line20.find("ACTION").text == "001"
@@ -293,9 +296,10 @@ class TestGenerateAck:
         for l in root.findall("IDOC/E1EDP01"):
             assert l.find("ACTION").text == "003"
             assert l.find("ABGRU").text == "11"
-            # ordered quantities are still echoed, not zeroed
+            # ordered quantities are still echoed, not zeroed; NETWR carries
+            # the ordered extended amount (zero NETWR is rejected by EDIStech)
             assert float(l.find("BMNG2").text) > 0.0
-            assert float(l.find("NETWR").text) == 0.0
+            assert float(l.find("NETWR").text) > 0.0
 
     def test_summe_recalculated_when_short_echoed_when_full(self):
         """IG v1.7 E1EDS01: 'if lines have been rejected [or] cannot be

@@ -1,0 +1,173 @@
+// mml_edi/static/src/scss/edi_shared.scss
+//
+// SHARED THEME TOKEN LAYER for the MML module UI-refresh program
+// (EDI · Barcodes · Forecasting). This file OWNS the design-handoff "Shared
+// theme" table (docs/Refreshing MML EDI module/design_handoff_mml_modules/
+// README.md) mapped onto CSS custom properties + a small shape vocabulary
+// (chip / pill / row / section-label) and the mandatory scroll contract.
+//
+// -------------------------------------------------------------------------
+// COPY-ADAPTATION for the barcode + forecast tasks
+// -------------------------------------------------------------------------
+// The three modules live in SEPARATE repos, so this cannot be imported across
+// module boundaries — the barcode/forecast tasks COPY this file into their own
+// module and rename two things:
+//   1. the root class  `.o_edi_screen`  ->  `.o_barcode_screen` / `.o_forecast_screen`
+//   2. the token/utility prefix  `--edi-*` / `.edi-*`  ->  `--bc-*`/`.bc-*` etc.
+// The token VALUES (the light/dark hexes below) are identical across all three
+// modules — they are the one shared palette — so only the selectors/prefixes
+// change on copy. The dark values live in the sibling `edi_shared.dark.scss`,
+// registered in the `web.assets_web_dark` bundle (the idiom web_enterprise
+// uses for its own `*.dark.scss` companions) so Odoo's NATIVE colour scheme
+// drives light/dark — there is no custom toggle.
+//
+// WHY custom props and not bare `--bs-*`: Odoo 19's webclient bundle does not
+// emit `--bs-tertiary-bg`, `--bs-border-color-translucent`, or (outside
+// `.card` scope) `--bs-card-bg` as runtime CSS custom properties, so a
+// `var(--bs-tertiary-bg, <light-hex>)` silently uses its LIGHT fallback in
+// BOTH themes (the same trap the 3PL redesign hit — see stock_3pl_core's
+// threepl_shared.scss). These `--edi-*` props are our own theme bridge:
+// declared light here, overridden dark in the companion file.
+.o_edi_screen {
+    // ---- design-token bridge (README "Shared theme" table, light side) ----
+    --edi-bg: #f9f9f9;          // webclient background
+    --edi-surface: #fff;        // card / panel background (parity --bs-card-bg)
+    --edi-line: #dee2e6;        // hairline border (--bs-border-color)
+    --edi-line-soft: #f1f3f5;   // subtle divider
+    --edi-text: #212529;        // body text (--bs-body-color)
+    --edi-muted: #6c757d;       // muted text (.text-muted)
+    --edi-faint: #adb5bd;       // placeholder / tertiary text
+    --edi-chip-bg: #f1f3f5;     // segmented-control track / neutral chip
+    --edi-hover: #f8f9fa;       // row hover background
+    --edi-btn-border: #ced4da;  // outline-button border
+    --edi-field: #fcfcfd;       // form input background
+    --edi-accent: #714b67;      // Odoo primary
+    --edi-accent-bg: rgba(113, 75, 103, .08);
+    --edi-mono-bg: #f8f9fa;     // code / payload block background
+    --edi-shadow: rgba(0, 0, 0, .12);
+
+    // ---- scroll contract (the OWL client-action clipping bug) --------------
+    // Every client-action root carries `o_action o_edi_screen` on ONE element,
+    // and web core (webclient_layout.scss) locks `.o_action` to
+    // overflow:hidden AND hides its scrollbar on lg+ — so an `overflow-y:auto`
+    // guard on the root itself is inert and the page clips. Scroll is delegated
+    // to the single `.edi-screen-body` wrapper each screen places below its
+    // pinned control bar (it also carries core's `.o_content` class, the
+    // element core expects to scroll). `flex:1 1 auto` + `min-height:0` are
+    // BOTH required: the root is a flex column, and without min-height:0 the
+    // flex item refuses to shrink below its content so nothing scrolls.
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+
+    .edi-screen-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    // ---- chip: small rounded-rect status/type label ------------------------
+    .edi-chip {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 4px;
+        white-space: nowrap;
+        display: inline-block;
+    }
+
+    // ---- pill: fully-rounded age / count badge -----------------------------
+    .edi-pill {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 99px;
+        white-space: nowrap;
+        display: inline-block;
+    }
+
+    // ---- tag: micro-label uppercase (partner tag, feed tag) ----------------
+    .edi-tag {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--edi-muted);
+        background: var(--edi-chip-bg);
+        padding: 1px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+    }
+
+    // ---- row: clickable / hoverable list row -------------------------------
+    .edi-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--edi-line-soft);
+        border-left: 3px solid transparent;
+
+        &:hover { background: var(--edi-hover); }
+        &.edi-row--selected {
+            border-left-color: var(--edi-accent);
+            background: var(--edi-accent-bg);
+        }
+    }
+
+    // ---- section label: small-caps group heading ---------------------------
+    .edi-section-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--edi-muted);
+    }
+
+    // ---- card: surface panel with hairline border --------------------------
+    .edi-card {
+        background: var(--edi-surface);
+        border: 1px solid var(--edi-line);
+        border-radius: 8px;
+    }
+
+    // ---- mono block: fixed-width payload / ref block -----------------------
+    .edi-mono {
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .edi-mono-block {
+        background: var(--edi-mono-bg);
+        border: 1px solid var(--edi-line-soft);
+        border-radius: 6px;
+        padding: 12px 14px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11.5px;
+        line-height: 1.6;
+        overflow-x: auto;
+        white-space: pre;
+    }
+
+    // ---- segmented control (partner / brand / scenario filter) -------------
+    // The shared "pill" segmented control from the README sub-header. Consumers
+    // (this program's per-module filter hooks) render the same markup.
+    .edi-seg {
+        display: flex;
+        background: var(--edi-chip-bg);
+        border-radius: 6px;
+        padding: 2px;
+        font-size: 12.5px;
+    }
+    .edi-seg-pill {
+        padding: 4px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+        color: var(--edi-muted);
+        white-space: nowrap;
+        user-select: none;
+
+        &.active {
+            background: var(--edi-surface);
+            box-shadow: 0 1px 2px var(--edi-shadow);
+            font-weight: 500;
+            color: var(--edi-text);
+        }
+    }
+}

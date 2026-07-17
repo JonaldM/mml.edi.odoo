@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mml_edi/static/src/xml/edi_wall.xml
+     EDI operations WALL DISPLAY (OWL client action `edi_wall`). Recreates
+     design_handoff "Wall Display.dc.html" — a 1920x1080 dark ops radiator for a
+     TV browser session. Read-only, auto-refreshing. The FIXED dark palette is
+     applied in both Odoo colour schemes (styles live in edi_wall.scss). The
+     root owns its scroll via the `.o_content .edi-wall-scroll` wrapper (the
+     `.o_action` clipping contract). -->
+<templates xml:space="preserve">
+
+<t t-name="mml_edi.EdiWall" owl="1">
+    <div class="o_action o_edi_wall">
+        <div class="o_content edi-wall-scroll">
+            <div class="edi-wall-canvas">
+
+                <!-- ============ Header ============ -->
+                <div class="edi-wall-header">
+                    <img src="/mml_edi/static/description/icon.png" alt="" class="edi-wall-logo"/>
+                    <div>
+                        <div class="edi-wall-title">MML EDI</div>
+                        <div class="edi-wall-subtitle">Order exchange · operations</div>
+                    </div>
+                    <div class="edi-wall-headright">
+                        <div class="edi-wall-live">
+                            <span class="edi-wall-live-dot" t-att-class="{ 'edi-wall-live-dot--stale': !pollFresh }"/>
+                            <span>Live · EDIS VAN + SPS</span>
+                        </div>
+                        <div class="edi-wall-clock" t-esc="state.clock"/>
+                    </div>
+                </div>
+
+                <!-- ============ Loading ============ -->
+                <t t-if="state.loading">
+                    <div class="edi-wall-state">
+                        <div class="edi-wall-spinner"/>
+                        <span>Loading EDI operations…</span>
+                    </div>
+                </t>
+
+                <!-- ============ Error ============ -->
+                <t t-elif="state.error">
+                    <div class="edi-wall-state">
+                        <i class="fa fa-exclamation-triangle edi-wall-state-icon"/>
+                        <span t-esc="state.error"/>
+                    </div>
+                </t>
+
+                <!-- ============ Empty (no poll yet) ============ -->
+                <t t-elif="!dataAvailable">
+                    <div class="edi-wall-state">
+                        <i class="fa fa-feed edi-wall-state-icon"/>
+                        <span>Waiting for the first inbound poll — no exchange activity yet.</span>
+                    </div>
+                </t>
+
+                <!-- ============ Board ============ -->
+                <t t-else="">
+
+                    <!-- Alarm tiles -->
+                    <div class="edi-wall-alarms">
+                        <t t-foreach="alarmTiles()" t-as="a" t-key="a.key">
+                            <div class="edi-wall-alarm" t-att-style="a.tileStyle">
+                                <div class="edi-wall-alarm-label" t-esc="a.label"/>
+                                <div class="edi-wall-alarm-row">
+                                    <span class="edi-wall-alarm-value" t-att-style="a.valueStyle" t-esc="a.value"/>
+                                    <span class="edi-wall-alarm-sub" t-esc="a.sub"/>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+
+                    <!-- Inbound pipeline -->
+                    <div class="edi-wall-panel edi-wall-pipeline">
+                        <div class="edi-wall-panel-head">
+                            <span class="edi-wall-panel-title">Inbound pipeline · today</span>
+                            <span class="edi-wall-panel-sub" t-esc="todayLine"/>
+                        </div>
+                        <div class="edi-wall-ramp">
+                            <t t-foreach="pipelineStages()" t-as="s" t-key="s.key">
+                                <div class="edi-wall-stage" t-att-style="s.style">
+                                    <div class="edi-wall-stage-val" t-esc="s.value"/>
+                                    <div class="edi-wall-stage-lbl" t-esc="s.label"/>
+                                    <div class="edi-wall-stage-note" t-esc="s.note"/>
+                                </div>
+                                <i t-if="s.arrow" class="fa fa-angle-right edi-wall-ramp-arrow"/>
+                            </t>
+                        </div>
+                    </div>
+
+                    <!-- Lower grid: service levels | live feed -->
+                    <div class="edi-wall-lower">
+
+                        <div class="edi-wall-panel edi-wall-levels">
+                            <div class="edi-wall-panel-title">Service levels · 30 days</div>
+                            <div class="edi-wall-bars">
+                                <t t-foreach="serviceBars()" t-as="b" t-key="b.key">
+                                    <div class="edi-wall-bar">
+                                        <div class="edi-wall-bar-head">
+                                            <span class="edi-wall-bar-label" t-esc="b.label"/>
+                                            <span class="edi-wall-bar-value" t-att-style="b.valueStyle" t-esc="b.value"/>
+                                            <span class="edi-wall-bar-target" t-esc="b.target"/>
+                                        </div>
+                                        <div class="edi-wall-bar-track">
+                                            <span class="edi-wall-bar-fill" t-att-style="b.fillStyle"/>
+                                            <span class="edi-wall-bar-mark" t-att-style="b.markStyle"/>
+                                        </div>
+                                    </div>
+                                </t>
+                            </div>
+                            <div class="edi-wall-partners">
+                                <t t-foreach="partnerStrip()" t-as="p" t-key="p.id">
+                                    <div class="edi-wall-partner">
+                                        <span class="edi-wall-partner-dot" t-att-style="p.dotStyle"/>
+                                        <span class="edi-wall-partner-name" t-esc="p.name"/>
+                                        <span class="edi-wall-partner-sub" t-esc="p.sub"/>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+
+                        <div class="edi-wall-panel edi-wall-feed">
+                            <div class="edi-wall-feed-head">
+                                <span class="edi-wall-live-dot" t-att-class="{ 'edi-wall-live-dot--stale': !pollFresh }"/>
+                                <span class="edi-wall-panel-title">Live exchange feed</span>
+                            </div>
+                            <div class="edi-wall-feed-body">
+                                <t t-foreach="feedRows()" t-as="f" t-key="f.key">
+                                    <div class="edi-wall-feed-row">
+                                        <span class="edi-wall-feed-time" t-esc="f.time"/>
+                                        <span class="edi-wall-feed-tag" t-att-style="f.tagStyle" t-esc="f.tag"/>
+                                        <span class="edi-wall-feed-text" t-esc="f.text"/>
+                                    </div>
+                                </t>
+                                <t t-if="!feedRows().length">
+                                    <div class="edi-wall-feed-empty">No exchange events yet.</div>
+                                </t>
+                            </div>
+                        </div>
+
+                    </div>
+                </t>
+
+            </div>
+        </div>
+    </div>
+</t>
+
+</templates>

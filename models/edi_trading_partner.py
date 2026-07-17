@@ -285,6 +285,43 @@ class EDITradingPartner(models.Model):
         help="Minutes to wait before retrying after the circuit trips.",
     )
 
+    # ── EDI Interchange Identity ──────────────────────────────────────────
+    # Used to build the EDIFACT UNB interchange envelope for VAN partners
+    # (e.g. Animates via SPS Commerce). iDOC partners (Briscoes) route by GLN
+    # in the iDOC header rather than a UNB envelope, so these may be blank for
+    # them. Stored config consumed when the EDIFACT sender path is enabled.
+
+    edi_sender_id = fields.Char(
+        string="EDI Sender ID",
+        help="Interchange sender identification (typically the supplier GLN) "
+             "placed in the EDIFACT UNB segment.",
+    )
+    edi_sender_qualifier = fields.Char(
+        string="Sender Qualifier",
+        default="14",
+        help="UNB sender qualifier (14 = GLN / GS1 Global Location Number).",
+    )
+    supplier_gln = fields.Char(
+        string="Supplier GLN",
+        help="MML's GS1 Global Location Number for this trading relationship.",
+    )
+    vendor_code = fields.Char(
+        string="Vendor Code",
+        help="The supplier/vendor account code this partner identifies MML by "
+             "in their system (echoed on acknowledgements where required).",
+    )
+
+    # ── Store map (read-only view of the customer's delivery children) ────
+    # The per-store split routes each store-order to its mapped delivery
+    # contact — the child partners of the Odoo customer. Exposed read-only here
+    # so the Stores tab can show the map; the Seed Store Partners wizard is the
+    # write path.
+    store_partner_ids = fields.One2many(
+        related="partner_id.child_ids",
+        string="Store / Delivery Contacts",
+        readonly=True,
+    )
+
     # ── Dashboard / health (computed, non-stored) ─────────────────────────
 
     last_poll_date = fields.Datetime(

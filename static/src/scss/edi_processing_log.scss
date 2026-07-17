@@ -1,0 +1,192 @@
+// mml_edi/static/src/scss/edi_processing_log.scss
+//
+// Processing-log browser (client action `edi_processing_log`). Scoped under the
+// shared `.o_edi_screen` root (edi_shared.scss); colours resolve from the
+// `--edi-*` custom properties so light/dark follow Odoo's native colour scheme.
+// The `.edi-screen-body` scroll contract is inherited from the shared layer; the
+// segmented filters reuse the shared `.edi-seg` / `.edi-seg-pill` vocabulary.
+.o_edi_screen.edi-processing-log {
+    background: var(--edi-bg);
+
+    // ---- control bar ----
+    .edi-controlbar {
+        background: var(--edi-surface);
+        border-bottom: 1px solid var(--edi-line);
+        flex: none;
+    }
+    .edi-title { font-size: 19px; font-weight: 500; }
+
+    // ---- search box ----
+    .edi-log-search { position: relative; width: 240px; }
+    .edi-search-box {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--edi-btn-border);
+        border-radius: 6px;
+        padding: 0 10px;
+        background: var(--edi-surface);
+
+        input {
+            border: none;
+            padding: 7px 0;
+            font-size: 12.5px;
+            width: 100%;
+            background: transparent;
+            color: var(--edi-text);
+            &:focus { outline: none; }
+        }
+        i { font-size: 12px; }
+    }
+
+    // ---- master-detail grid ----
+    .edi-log-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 372px;
+        gap: 16px;
+        align-items: start;
+    }
+    @media (max-width: 1100px) {
+        .edi-log-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    // ---- row list ----
+    .edi-log-head, .edi-log-row {
+        display: grid;
+        grid-template-columns: 64px 108px minmax(0, 1fr) 88px;
+        gap: 8px;
+        align-items: center;
+        padding: 9px 14px;
+    }
+    .edi-log-head {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: .05em;
+        color: var(--edi-muted);
+        text-transform: uppercase;
+        background: var(--edi-hover);
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-log-day {
+        padding: 6px 14px;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: .06em;
+        color: var(--edi-muted);
+        text-transform: uppercase;
+        background: var(--edi-hover);
+        border-bottom: 1px solid var(--edi-line-soft);
+    }
+    .edi-log-row {
+        border-bottom: 1px solid var(--edi-line-soft);
+        border-left: 3px solid transparent;
+        cursor: default;
+
+        &--selectable {
+            cursor: pointer;
+            &:hover { background: var(--edi-hover); }
+        }
+        &--selected {
+            border-left-color: var(--edi-accent);
+            background: var(--edi-accent-bg);
+        }
+    }
+    .edi-log-time { font-size: 11.5px; color: var(--edi-faint); }
+    .edi-log-tag {
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: .04em;
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: #fff;
+        white-space: nowrap;
+    }
+    .edi-log-msg {
+        font-size: 12.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .edi-log-file { font-size: 11px; color: var(--edi-muted); }
+    .edi-log-status {
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 99px;
+        white-space: nowrap;
+    }
+    .edi-log-footer {
+        padding: 10px 14px;
+        font-size: 11.5px;
+        color: var(--edi-muted);
+        border-top: 1px solid var(--edi-line-soft);
+    }
+
+    // ---- exchange rail ----
+    .edi-log-rail {
+        padding: 16px 18px;
+        position: sticky;
+        top: 0;
+    }
+    .edi-log-dedup {
+        font-size: 10.5px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 99px;
+    }
+    .edi-log-hash {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-top: 10px;
+        padding: 8px 10px;
+        background: var(--edi-mono-bg);
+        border: 1px solid var(--edi-line-soft);
+        border-radius: 6px;
+    }
+
+    // ---- exchange chain ----
+    .edi-chain-node {
+        display: flex;
+        gap: 11px;
+        padding: 0 0 13px;
+        position: relative;
+    }
+    .edi-chain-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: none;
+        width: 9px;
+    }
+    .edi-chain-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex: none;
+        margin-top: 3px;
+    }
+    .edi-chain-line {
+        width: 1px;
+        flex: 1;
+        background: var(--edi-line);
+        margin-top: 3px;
+    }
+    .edi-chain-t {
+        font-weight: 400;
+        color: var(--edi-faint);
+        font-size: 11px;
+        margin-left: 4px;
+    }
+    .edi-chain-detail {
+        background: var(--edi-mono-bg);
+        border: 1px solid var(--edi-line-soft);
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px;
+        line-height: 1.6;
+        color: #dc3545;
+        white-space: pre-wrap;
+    }
+}
