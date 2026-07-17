@@ -124,22 +124,30 @@
             <field name="arch" type="xml">
                 <form string="EDI Trading Partner">
 
-                    <!-- Header buttons -->
+                    <!-- Header: Test / Poll / Seed + environment statusbar
+                         (the design's Test/Production segmented toggle maps to
+                         Odoo's native clickable statusbar). Dirty Save/Discard is
+                         provided by the form itself. -->
                     <header>
                         <button name="action_test_ftp_connection"
-                                string="Test FTP Connection"
+                                string="Test connection"
                                 type="object"
-                                class="btn-secondary"/>
+                                class="btn-secondary"
+                                icon="fa-plug"/>
                         <button name="action_run_poll_now"
-                                string="Poll Now"
+                                string="Run poll now"
                                 type="object"
-                                class="btn-secondary"/>
+                                class="btn-secondary"
+                                icon="fa-refresh"/>
                         <button name="%(mml_edi.action_edi_seed_stores_wizard)d"
                                 string="Seed Store Partners"
                                 type="action"
                                 invisible="order_split_mode != 'per_store'"
                                 groups="mml_edi.group_edi_manager"
-                                help="Create missing Briscoes store contacts as child delivery addresses. Safe to run multiple times — skips existing records."/>
+                                help="Create missing store contacts as child delivery addresses. Safe to run multiple times — skips existing records."/>
+                        <field name="environment"
+                               widget="statusbar"
+                               options="{'clickable': '1'}"/>
                     </header>
 
                     <sheet>
@@ -226,136 +234,218 @@
                                    string="Active"/>
                         </div>
 
-                        <!-- Two-column summary group -->
+                        <!-- Identity summary (partner code + Odoo customer) -->
                         <group>
-                            <group string="Identity">
-                                <field name="partner_id" string="Odoo Customer"/>
-                                <field name="code" string="Short Code" required="1"/>
-                                <field name="edi_format"
-                                       widget="badge"
-                                       string="EDI Format"/>
+                            <group>
+                                <field name="code" string="Partner code" required="1"/>
                             </group>
-                            <group string="Operation">
-                                <field name="environment"
-                                       widget="badge"
-                                       string="Environment"
-                                       decoration-warning="environment == 'test'"/>
-                                <field name="pricelist_id" string="Price List"
-                                       help="EDI price comparison uses this pricelist — not the product's sale price. Required if price checking is enabled."/>
-                                <field name="auto_confirm_clean"
-                                       widget="boolean_toggle"
-                                       string="Auto-Confirm Clean Orders"/>
-                                <field name="warehouse_id" string="Fulfilment Warehouse"
-                                       help="Warehouse that new orders for this partner are created on (overrides the EDI user default). Blank = company default. Phase 1 will derive the destination island DC from each store delivery address."/>
+                            <group>
+                                <field name="partner_id" string="Odoo customer"/>
                             </group>
                         </group>
 
-                        <!-- Tabs -->
+                        <!-- Tabs — Connection / Parsing &amp; Matching /
+                             EDI Identity / Stores (design-handoff tab spec). -->
                         <notebook>
 
-                            <!-- FTP Configuration tab -->
-                            <page string="FTP Configuration" name="ftp_config">
+                            <!-- ===== Connection ===== -->
+                            <page string="Connection" name="connection">
 
-                                <div class="text-muted mb-2">
-                                    Credential fields (username, password, SFTP host key)
-                                    are visible to <strong>Settings-level administrators
-                                    only</strong> — if you cannot see them below, ask an
-                                    administrator to enter them. Passwords are encrypted
-                                    at rest. Use <em>Test FTP Connection</em> in the header
-                                    after any change.
-                                </div>
-
-                                <group string="Connection">
-                                    <field name="ftp_protocol" string="Protocol"/>
-                                    <field name="ftp_host" string="Host"/>
-                                    <field name="ftp_port" string="Port"/>
-                                    <field name="ftp_user" string="Username"/>
-                                    <field name="ftp_password"
-                                           string="Password"
-                                           password="True"/>
-                                    <field name="sftp_host_key"
-                                           string="SFTP Host Key (base64)"
-                                           invisible="ftp_protocol != 'sftp'"
-                                           help="Pinned host key — SFTP connections to an unknown or changed key are REJECTED. Get it from: ssh-keyscan -t ed25519 &lt;host&gt;"/>
+                                <group>
+                                    <group string="Transport">
+                                        <field name="ftp_protocol"
+                                               string="Transport"
+                                               widget="radio"
+                                               options="{'horizontal': true}"/>
+                                        <field name="ftp_host" string="Host"/>
+                                        <field name="ftp_port" string="Port"/>
+                                    </group>
+                                    <group string="Credentials">
+                                        <field name="ftp_user" string="Username"/>
+                                        <label for="ftp_password" string="Password"/>
+                                        <div class="d-flex align-items-center">
+                                            <field name="ftp_password"
+                                                   password="True"
+                                                   nolabel="1"
+                                                   class="me-2"/>
+                                            <i class="fa fa-lock text-success"
+                                               title="Fernet-encrypted at rest"
+                                               role="img" aria-label="Fernet-encrypted"/>
+                                        </div>
+                                    </group>
                                 </group>
 
-                                <group string="Connection Health">
+                                <div class="text-muted mb-2" style="font-size:12px">
+                                    Credential fields (username, password, SFTP host key)
+                                    are visible to <strong>Settings-level administrators
+                                    only</strong>. Passwords are Fernet-encrypted at rest.
+                                    Use <em>Test connection</em> in the header after any change.
+                                </div>
+
+                                <group>
+                                    <group string="Production paths">
+                                        <field name="ftp_inbox_path"
+                                               string="Inbox path"
+                                               placeholder="/FromEDIS"/>
+                                        <field name="ftp_outbox_path"
+                                               string="Outbox path"
+                                               placeholder="/ToEDIS"/>
+                                    </group>
+                                    <group string="Test paths">
+                                        <field name="ftp_test_inbox_path"
+                                               string="Test inbox"
+                                               placeholder="/Test/FromEDIS"/>
+                                        <field name="ftp_test_outbox_path"
+                                               string="Test outbox"
+                                               placeholder="/Test/ToEDIS"/>
+                                    </group>
+                                </group>
+
+                                <group string="SFTP host key"
+                                       invisible="ftp_protocol != 'sftp'">
+                                    <field name="sftp_host_key"
+                                           string="Host key (base64)"
+                                           nolabel="1"
+                                           placeholder="AAAAB3NzaC1yc2E… (RSA server public key)"
+                                           help="Pinned host key — SFTP connections to an unknown or changed key are REJECTED. Obtain with: ssh-keyscan -t rsa &lt;host&gt;. Blank rejects all SFTP connections (fail-safe)."/>
+                                </group>
+
+                                <group string="Circuit breaker">
                                     <field name="circuit_open_since"
-                                           string="Circuit Breaker Tripped Since"
+                                           string="Tripped since"
                                            readonly="1"
                                            help="Set when repeated poll failures trip the circuit breaker; cleared automatically on the next successful poll."/>
                                 </group>
 
-                                <group string="Production Paths">
-                                    <field name="ftp_inbox_path"
-                                           string="Production Inbox Path"
-                                           placeholder="/FromEDIS"/>
-                                    <field name="ftp_outbox_path"
-                                           string="Production Outbox Path"
-                                           placeholder="/ToEDIS"/>
-                                </group>
-
-                                <group string="Test Paths">
-                                    <field name="ftp_test_inbox_path"
-                                           string="Test Inbox Path"
-                                           placeholder="/Test/FromEDIS"/>
-                                    <field name="ftp_test_outbox_path"
-                                           string="Test Outbox Path"
-                                           placeholder="/Test/ToEDIS"/>
-                                </group>
-
                             </page>
 
-                            <!-- Processing Rules tab -->
-                            <page string="Processing Rules" name="processing_rules">
+                            <!-- ===== Parsing &amp; Matching ===== -->
+                            <page string="Parsing &amp; Matching" name="parsing">
 
                                 <group>
-                                    <group string="Order Handling">
-                                        <field name="order_split_mode"
-                                               string="Order Split Mode"/>
-                                        <field name="product_match_field"
-                                               string="Product Match Field"/>
-                                        <field name="client_ref_template"
-                                               string="Client Reference Template"
-                                               placeholder="{po_number}_{store_code}"/>
-                                        <field name="poll_interval_minutes"
-                                               string="Poll Interval (minutes)"
-                                               help="Currently informational only — polling runs on the global 'EDI: Poll Trading Partners' scheduled action (15 min); a per-partner interval is not yet enforced."/>
-                                    </group>
-                                    <group string="Order Processing &amp; Pricing">
-                                        <field name="price_tolerance_pct"
-                                               string="Price Tolerance (%)"
-                                               widget="percentage"
-                                               help="Auto-accept orders where the EDI price is within this % of the pricelist price. Set 0.0 to require exact match (recommended for retail compliance)."/>
-                                        <field name="auto_confirm_clean"
-                                               widget="boolean_toggle"
-                                               string="Auto-Confirm Clean Orders"
-                                               help="Automatically confirm and queue ACK for orders with no blocking issues. Disable for high-value partners where human review is always required."/>
+                                    <group string="Format &amp; parser">
+                                        <field name="edi_format" string="EDI format"/>
                                         <field name="parser_class"
-                                               string="Parser Class"
-                                               placeholder="mml_edi.parsers.briscoes.BriscoesOrderParser"/>
+                                               string="Parser class"
+                                               placeholder="mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser"/>
+                                        <field name="pricelist_id" string="Pricelist"
+                                               help="EDI price comparison uses this pricelist — not the product's sale price."/>
+                                        <field name="price_tolerance_pct"
+                                               string="Price tolerance (%)"
+                                               widget="percentage"
+                                               help="Auto-accept orders where the EDI price is within this % of the pricelist price. 0.0 = require exact match."/>
+                                    </group>
+                                    <group string="Order handling">
+                                        <field name="product_match_field"
+                                               string="Product match"/>
+                                        <field name="order_split_mode"
+                                               string="Order split"/>
+                                        <field name="warehouse_id"
+                                               string="Fulfilment warehouse"
+                                               help="Warehouse new orders for this partner are created on (overrides the EDI user default). Blank = company default."/>
+                                        <field name="poll_interval_minutes"
+                                               string="Poll interval (min)"
+                                               help="Informational — polling runs on the global 'EDI: Poll Trading Partners' scheduled action (15 min); a per-partner interval is not yet enforced."/>
+                                        <field name="client_ref_template"
+                                               string="Client ref template"
+                                               placeholder="{po_number}_{store_code}"/>
                                     </group>
                                 </group>
 
-                            </page>
+                                <group string="Circuit breaker">
+                                    <field name="circuit_failure_threshold"
+                                           string="Failure threshold"
+                                           help="Consecutive poll failures before the breaker opens and polling pauses."/>
+                                    <field name="circuit_cooldown_minutes"
+                                           string="Cooldown (min)"/>
+                                </group>
 
-                            <!-- Notifications tab -->
-                            <page string="Notifications" name="notifications">
-
-                                <group>
+                                <group string="Automation">
+                                    <field name="auto_confirm_clean"
+                                           widget="boolean_toggle"
+                                           string="Auto-confirm clean orders"
+                                           help="Confirm and queue ACK for orders with no blocking issues automatically. Disable for partners where human review is always required."/>
                                     <field name="alert_on_issues"
                                            widget="boolean_toggle"
-                                           string="Send Alerts on Issues"/>
-                                </group>
-                                <group string="Alert Recipients"
-                                       invisible="not alert_on_issues">
+                                           string="Alert on review required"
+                                           help="Email EDI ops when an order is routed to manual review."/>
                                     <field name="alert_email_ids"
                                            widget="many2many_tags"
-                                           string="Alert Recipients"
-                                           nolabel="1"
+                                           string="Alert recipients"
+                                           invisible="not alert_on_issues"
                                            domain="[('email', '!=', False)]"
                                            options="{'no_create_edit': True}"/>
                                 </group>
+
+                                <div class="alert alert-light text-muted mt-2" role="alert"
+                                     style="font-size:11.5px">
+                                    <i class="fa fa-info-circle me-1" role="img" aria-label="Info"/>
+                                    Only allow-listed parser classes can be loaded. The Briscoes
+                                    EDIFACT parser is intentionally de-listed until the carton→each
+                                    conversion is ported — Briscoes currently sends SAP iDOC XML.
+                                    Out-of-stock lines accept in full and backorder the short quantity.
+                                </div>
+
+                            </page>
+
+                            <!-- ===== EDI Identity ===== -->
+                            <page string="EDI Identity" name="edi_identity">
+
+                                <group>
+                                    <group string="Interchange sender">
+                                        <field name="edi_sender_id" string="EDI sender ID"/>
+                                        <field name="edi_sender_qualifier"
+                                               string="Sender qualifier"/>
+                                    </group>
+                                    <group string="Location &amp; vendor">
+                                        <field name="supplier_gln" string="Supplier GLN"/>
+                                        <field name="vendor_code" string="Vendor code"/>
+                                    </group>
+                                </group>
+
+                                <div class="alert alert-light text-muted mt-2" role="alert"
+                                     style="font-size:11.5px">
+                                    <i class="fa fa-info-circle me-1" role="img" aria-label="Info"/>
+                                    Interchange identity builds the UNB envelope for EDIFACT partners
+                                    (e.g. Animates via SPS Commerce). iDOC partners like Briscoes route
+                                    by GLN in the iDOC header rather than a UNB envelope, so these may
+                                    be left blank for them.
+                                </div>
+
+                            </page>
+
+                            <!-- ===== Stores ===== -->
+                            <page string="Stores" name="stores">
+
+                                <div class="d-flex align-items-center mb-2">
+                                    <span class="text-muted" style="font-size:12.5px">
+                                        Store map — per-store split routes each store-order to its
+                                        mapped delivery contact (a child of the Odoo customer).
+                                    </span>
+                                    <button name="%(mml_edi.action_edi_seed_stores_wizard)d"
+                                            string="Seed stores"
+                                            type="action"
+                                            class="btn btn-sm btn-secondary ms-auto"
+                                            icon="fa-magic"
+                                            invisible="order_split_mode != 'per_store'"
+                                            groups="mml_edi.group_edi_manager"/>
+                                </div>
+
+                                <field name="store_partner_ids" nolabel="1" readonly="1">
+                                    <list string="Store / delivery contacts" create="false" edit="false">
+                                        <field name="ref" string="Store code"/>
+                                        <field name="name" string="Store name"/>
+                                        <field name="city" string="City"/>
+                                    </list>
+                                </field>
+
+                                <div class="alert alert-warning mt-2" role="alert"
+                                     style="font-size:11.5px"
+                                     invisible="order_split_mode != 'per_store'">
+                                    <i class="fa fa-exclamation-triangle me-1" role="img" aria-label="Warning"/>
+                                    An inbound store code with no mapping raises a blocking review rather
+                                    than delivering to head office.
+                                </div>
 
                             </page>
 
