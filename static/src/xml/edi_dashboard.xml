@@ -229,9 +229,12 @@
                             <span class="ms-auto small text-muted">EDIS VAN</span>
                         </div>
                         <div class="edi-feed-body">
-                            <t t-set="feed" t-value="liveFeed()"/>
-                            <t t-if="feed.length">
-                                <t t-foreach="feed" t-as="ev" t-key="ev.key">
+                            <!-- feedRows, not "feed": the component defines a
+                                 getter named feed, and a t-set on a getter-only
+                                 context property throws at render (Owl). -->
+                            <t t-set="feedRows" t-value="liveFeed()"/>
+                            <t t-if="feedRows.length">
+                                <t t-foreach="feedRows" t-as="ev" t-key="ev.key">
                                     <div t-attf-class="edi-feed-row #{ev.model ? 'edi-clickable' : ''}"
                                          t-on-click="() => this.openFeedRow(ev)">
                                         <span class="edi-feed-time edi-mono" t-esc="ev.time"/>
