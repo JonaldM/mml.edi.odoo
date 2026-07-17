@@ -1,6 +1,6 @@
 {
     "name": "MML EDI",
-    "version": "19.0.1.2.0",
+    "version": "19.0.1.2.1",
     "summary": "Electronic Data Interchange for retail partners (Briscoes Group and others)",
     "description": """
         Customer-agnostic EDI module for Odoo 19.
