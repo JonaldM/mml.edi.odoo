@@ -202,7 +202,7 @@ class EdiDashboard(models.AbstractModel):
         return {
             "data_available": self._data_available(partner_code),
             "partners": self._partner_options(),
-            "attention_items": self._attention_items(now, partner_code),
+            "attention_items": self._attention_items(now, window_start, partner_code),
             "pipeline": self._pipeline(today_start, partner_code),
             "today": self._today_totals(today_start, partner_code),
             "pending_review": self._pending_review_count(partner_code),
@@ -274,7 +274,9 @@ class EdiDashboard(models.AbstractModel):
         orders_created = _count("order_created")
         in_review = self._pending_review_count(partner_code)
         acknowledged = _count("ack_sent", status="success")
-        parse_errors = _count("error")
+        # All error events today (parse / ftp / ack) — not scoped to parsing, so
+        # the note reads "error(s) today", never the false "parse error(s)".
+        errors_today = _count("error")
         return {
             "received": received,
             "parsed": parsed,
@@ -283,7 +285,7 @@ class EdiDashboard(models.AbstractModel):
             "acknowledged": acknowledged,
             "notes": {
                 "received": "files polled today",
-                "parsed": "0 parse errors" if not parse_errors else "%d parse error(s)" % parse_errors,
+                "parsed": "no errors today" if not errors_today else "%d error(s) today" % errors_today,
                 "orders_created": "SOs created today",
                 "in_review": "awaiting a decision",
                 "acknowledged": "ORDRSP + CONTRL",
@@ -411,7 +413,7 @@ class EdiDashboard(models.AbstractModel):
     # ---- needs-attention triage ---------------------------------------------
 
     @api.model
-    def _attention_items(self, now, partner_code=None):
+    def _attention_items(self, now, window_start, partner_code=None):
         """Actionable triage rows, red-before-amber, oldest first within a tier.
 
         Four honest sources, all from the EDI models:
@@ -420,21 +422,51 @@ class EdiDashboard(models.AbstractModel):
           * unknown store (amber) — pending_review carrying an unknown_store issue
           * stock shortfall / warnings (amber) — pending_review with only warnings
         A review is only ever emitted once, at its highest-severity source.
+
+        The failed-ORDRSP source is bounded to the same rolling 30d window the
+        KPIs use and resolves ACK status in ONE batched ``edi.log`` pass — the
+        deterministic per-PO ACK filenames of the whole candidate set, searched
+        once with ``filename in ...`` and grouped in Python — instead of touching
+        the per-record ``ack_status`` compute (which fires one ``edi.log`` search
+        per review and, unbounded, grows without limit as ORDRSP history piles
+        up, re-run on every 5-min refresh and partner-pill click).
         """
         Review = self.env["edi.order.review"]
+        Log = self.env["edi.log"]
         pdom = self._partner_domain(partner_code)
         seen = set()
         items = []
 
-        # 1. Failed ORDRSP (red) — resolved reviews whose ACK is failing.
-        failed = Review.search(
-            pdom + [("state", "in", ("approved", "rejected"))],
+        # 1. Failed ORDRSP (red) — resolved reviews (last 30d) whose per-PO ACK
+        #    upload only ever errored (a log exists for its ACK filename, none
+        #    succeeded — mirrors edi.order.review._compute_ack_status).
+        resolved = Review.search(
+            pdom + [("state", "in", ("approved", "rejected")),
+                    ("reviewed_date", ">=", window_start)],
             order="reviewed_date desc")
-        for rec in failed:
-            if rec.ack_status != "failed":
-                continue
-            items.append(self._item_ack_failed(now, rec))
-            seen.add(rec.id)
+        if resolved:
+            fname_of = {
+                rec.id: "ACK_%s_%s_%s.edi" % (
+                    rec.trading_partner_id.code, rec.customer_po_number,
+                    (rec.edi_file_hash or str(rec.id))[:8])
+                for rec in resolved
+            }
+            ack_logs = Log.search([
+                ("event_type", "=", "ack_sent"),
+                ("filename", "in", list(set(fname_of.values()))),
+            ])
+            # filename -> {"any": at least one ACK log, "success": one succeeded}
+            by_file = {}
+            for log in ack_logs:
+                slot = by_file.setdefault(log.filename, {"any": False, "success": False})
+                slot["any"] = True
+                if log.status == "success":
+                    slot["success"] = True
+            for rec in resolved:
+                slot = by_file.get(fname_of[rec.id])
+                if slot and slot["any"] and not slot["success"]:
+                    items.append(self._item_ack_failed(now, rec))
+                    seen.add(rec.id)
 
         # 2. Blocking reviews (red).
         blocking = Review.search(

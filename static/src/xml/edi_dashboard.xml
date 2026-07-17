@@ -47,23 +47,7 @@
             </div>
         </t>
 
-        <!-- ============ Empty (fresh install) ============ -->
-        <t t-elif="state.summary and !state.summary.data_available">
-            <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
-                <div class="edi-state-icon edi-state-icon--empty"><i class="fa fa-inbox"/></div>
-                <div class="fw-medium" style="font-size:15px">No EDI activity yet</div>
-                <div class="text-muted mt-1" style="font-size:12.5px;max-width:340px;line-height:1.5">
-                    No trading partner has been polled. Configure a partner's transport and parser,
-                    then run a poll against its test mailbox to see orders flow in.
-                </div>
-                <div class="d-flex gap-2 mt-3">
-                    <button type="button" class="btn btn-sm btn-primary" t-on-click="openPartnerHealth">Configure a partner</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openAllEvents">Open logs</button>
-                </div>
-            </div>
-        </t>
-
-        <!-- ============ Loaded board ============ -->
+        <!-- ============ Loaded (summary present) ============ -->
         <t t-elif="state.summary">
             <t t-set="s" t-value="state.summary"/>
 
@@ -113,7 +97,26 @@
                 </div>
             </div>
 
+            <!-- == Empty: this scope has no EDI activity (control bar stays
+                 above, so a never-polled partner never traps the operator with
+                 no path back to All partners) == -->
+            <t t-if="!s.data_available">
+                <div class="edi-screen-body d-flex flex-column align-items-center justify-content-center text-center p-5">
+                    <div class="edi-state-icon edi-state-icon--empty"><i class="fa fa-inbox"/></div>
+                    <div class="fw-medium" style="font-size:15px">No EDI activity yet</div>
+                    <div class="text-muted mt-1" style="font-size:12.5px;max-width:340px;line-height:1.5">
+                        No trading partner has been polled. Configure a partner's transport and parser,
+                        then run a poll against its test mailbox to see orders flow in.
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="btn btn-sm btn-primary" t-on-click="openPartnerHealth">Configure a partner</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="openAllEvents">Open logs</button>
+                    </div>
+                </div>
+            </t>
+
             <!-- == body grid == -->
+            <t t-else="">
             <div class="edi-body-grid p-3 o_content edi-screen-body">
 
                 <!-- left column -->
@@ -268,6 +271,7 @@
                     </div>
                 </div>
             </div>
+            </t>
         </t>
     </div>
 </t>

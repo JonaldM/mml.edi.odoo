@@ -139,10 +139,11 @@ class EdiDashboard extends Component {
             const reviews = await this.orm.searchRead(
                 "edi.order.review",
                 partnerDomain.concat([
-                    "|", "|",
+                    "|", "|", "|",
                     ["customer_po_number", "ilike", q],
                     ["store_code", "ilike", q],
                     ["name", "ilike", q],
+                    ["sale_order_id.name", "ilike", q],
                 ]),
                 ["name", "customer_po_number", "store_code", "state", "trading_partner_id"],
                 { limit: 5 });

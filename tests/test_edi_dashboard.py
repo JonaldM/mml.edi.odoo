@@ -79,12 +79,15 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
     # ---- fresh-install guard ----
 
     def test_data_available_false_before_any_inbound(self):
-        summary = self.dash.get_dashboard_summary()
+        # Scoped to the fresh fixture partner: deterministic on a prod clone
+        # (data_available is partner-scoped, TESTPARTNER has no inbound logs).
+        summary = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")
         self.assertFalse(summary["data_available"])
 
     def test_data_available_true_after_inbound_log(self):
         self._log(event_type="file_download", direction="inbound")
-        self.assertTrue(self.dash.get_dashboard_summary()["data_available"])
+        self.assertTrue(self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["data_available"])
 
     # ---- partner options for the segmented filter ----
 
@@ -101,7 +104,8 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         r = self._review(po="POBLOCK")
         self._issue(r, "product_not_found", "blocking", "GTIN not in Odoo")
         r._compute_issue_counts()
-        items = self.dash.get_dashboard_summary()["attention_items"]
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
         blocking = [i for i in items if i["kind"] == "blocking"]
         self.assertEqual(len(blocking), 1)
         self.assertEqual(blocking[0]["severity"], "red")
@@ -113,7 +117,8 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         r = self._review(po="POSTORE", store="1099")
         self._issue(r, "unknown_store", "warning", "store not mapped")
         r._compute_issue_counts()
-        items = self.dash.get_dashboard_summary()["attention_items"]
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
         warn = [i for i in items if i["kind"] == "warning"]
         self.assertEqual(len(warn), 1)
         self.assertEqual(warn[0]["severity"], "amber")
@@ -127,7 +132,8 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         rw = self._review(po="POWARN")
         self._issue(rw, "qty_shortfall", "warning")
         rw._compute_issue_counts()
-        items = self.dash.get_dashboard_summary()["attention_items"]
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
         severities = [i["severity"] for i in items]
         # every red precedes every amber
         self.assertEqual(severities, sorted(severities, key=lambda s: 0 if s == "red" else 1))
@@ -135,13 +141,17 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
     def test_attention_ack_failed_row(self):
         # An approved review whose per-PO ACK upload only ever errored reads
         # ack_status='failed' and surfaces as a red triage row.
-        r = self._review(po="POACK", state="approved", file_hash="abcdef1234")
+        # reviewed_date within the 30d window the failed-ORDRSP source scans
+        # (a real approved review always carries one).
+        r = self._review(po="POACK", state="approved", file_hash="abcdef1234",
+                         reviewed=fields.Datetime.now())
         exchange_key = "abcdef1234"[:8]
         filename = "ACK_%s_%s_%s.edi" % (self.trading_partner.code, "POACK", exchange_key)
         self._log(direction="outbound", event_type="ack_sent", status="error",
                   message="SFTP timeout", filename=filename)
         self.assertEqual(r.ack_status, "failed")
-        items = self.dash.get_dashboard_summary()["attention_items"]
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
         ack = [i for i in items if i["kind"] == "ack_failed"]
         self.assertEqual(len(ack), 1)
         self.assertEqual(ack[0]["severity"], "red")
@@ -149,7 +159,8 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
 
     def test_all_clear_when_no_attention(self):
         self._log(event_type="file_download")  # data available, nothing pending
-        items = self.dash.get_dashboard_summary()["attention_items"]
+        items = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
         self.assertEqual(items, [])
 
     # ---- partner scoping ----
@@ -162,12 +173,17 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         self._issue(rb, "product_not_found", "blocking")
         rb._compute_issue_counts()
 
-        all_items = self.dash.get_dashboard_summary()["attention_items"]
-        self.assertEqual(len(all_items), 2)
+        # Each fresh fixture partner sees only its own row — clone-safe (an
+        # unscoped payload would be polluted by real pending reviews).
+        scoped_a = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["attention_items"]
+        self.assertEqual(len(scoped_a), 1)
+        self.assertIn("POA", scoped_a[0]["title"])
 
-        scoped = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["attention_items"]
-        self.assertEqual(len(scoped), 1)
-        self.assertIn("POA", scoped[0]["title"])
+        scoped_b = self.dash.get_dashboard_summary(
+            partner_code="PARTNERB")["attention_items"]
+        self.assertEqual(len(scoped_b), 1)
+        self.assertIn("POB", scoped_b[0]["title"])
 
     def test_unknown_partner_code_scopes_to_nothing(self):
         r = self._review(po="POX")
@@ -185,7 +201,7 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         self._log(event_type="ack_sent", status="success",
                   direction="outbound", filename="ACK_x.edi")
         self._review(po="PENDING1")  # standing in-review depth
-        pipe = self.dash.get_dashboard_summary()["pipeline"]
+        pipe = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["pipeline"]
         self.assertEqual(pipe["received"], 1)
         self.assertEqual(pipe["parsed"], 1)
         self.assertEqual(pipe["orders_created"], 1)
@@ -196,7 +212,7 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         self._review(po="PO100", store="1")
         self._review(po="PO100", store="2")  # same PO, two stores
         self._review(po="PO200", store="1")
-        today = self.dash.get_dashboard_summary()["today"]
+        today = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["today"]
         self.assertEqual(today["pos"], 2)          # two distinct POs
         self.assertEqual(today["store_orders"], 3)  # three store-orders
 
@@ -209,7 +225,7 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
             self._review(po="AUTO%d" % i, state="auto_approved")
         self._review(po="MANUAL", state="approved",
                      reviewed=now, received=now - timedelta(hours=2))
-        kpis = self.dash.get_dashboard_summary()["kpis"]
+        kpis = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["kpis"]
         self.assertEqual(kpis["auto_approval"]["value"], 75.0)
         self.assertEqual(kpis["exception_rate"]["value"], 25.0)
         # 75% auto-approval meets the default target -> green
@@ -222,7 +238,7 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
                       filename="ACK_ok_%d.edi" % i)
         self._log(direction="outbound", event_type="ack_sent", status="error",
                   filename="ACK_bad.edi")
-        kpis = self.dash.get_dashboard_summary()["kpis"]
+        kpis = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["kpis"]
         self.assertEqual(kpis["ordrsp_on_time"]["value"], 75.0)
 
     def test_review_turnaround_median(self):
@@ -231,13 +247,13 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
                      received=now - timedelta(hours=2), reviewed=now)
         self._review(po="T2", state="approved",
                      received=now - timedelta(hours=6), reviewed=now)
-        kpis = self.dash.get_dashboard_summary()["kpis"]
+        kpis = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["kpis"]
         # median of [2h, 6h] = 4h
         self.assertEqual(kpis["review_turnaround"]["value"], 4.0)
         self.assertEqual(kpis["review_turnaround"].get("unit"), "h")
 
     def test_kpi_values_none_when_no_data(self):
-        kpis = self.dash.get_dashboard_summary()["kpis"]
+        kpis = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["kpis"]
         # No resolved reviews / acks -> honest None, not a false 0.
         self.assertIsNone(kpis["auto_approval"]["value"])
         self.assertIsNone(kpis["ordrsp_on_time"]["value"])
@@ -250,21 +266,22 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         self._log(event_type="file_parse")
         self._log(event_type="order_created")
         self._log(event_type="duplicate_skipped")
-        feed = self.dash.get_dashboard_summary()["live_feed"]
+        feed = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["live_feed"]
         tags = {row["tag"] for row in feed}
         self.assertEqual(tags, {"POLL", "PARSE", "ORDER", "DUP"})
 
     def test_live_feed_errored_ack_reads_exception(self):
         self._log(direction="outbound", event_type="ack_sent", status="error",
                   message="upload failed")
-        feed = self.dash.get_dashboard_summary()["live_feed"]
+        feed = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["live_feed"]
         self.assertEqual(feed[0]["tag"], "EXCEPTION")
 
     # ---- partner-health rail ----
 
     def test_partner_health_rows(self):
         self._review(po="PH1")  # pending -> partner health = review
-        rows = self.dash.get_dashboard_summary()["partner_health"]
+        rows = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["partner_health"]
         by_code = {r["code"]: r for r in rows}
         self.assertIn("TESTPARTNER", by_code)
         self.assertEqual(by_code["TESTPARTNER"]["health"], "Awaiting review")
@@ -273,16 +290,18 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
     # ---- honesty-footer copy ----
 
     def test_pending_banner_present_and_empty(self):
-        self.assertEqual(self.dash.get_dashboard_summary()["pending_banner"], "")
+        self.assertEqual(self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["pending_banner"], "")
         self._review(po="PB1")
-        banner = self.dash.get_dashboard_summary()["pending_banner"]
+        banner = self.dash.get_dashboard_summary(
+            partner_code="TESTPARTNER")["pending_banner"]
         self.assertIn("pending review", banner)
         self.assertIn("open the queue", banner)
 
     def test_auto_line_counts_todays_auto_approved(self):
         self._review(po="A1", state="auto_approved")
         self._review(po="A2", state="auto_approved")
-        line = self.dash.get_dashboard_summary()["auto_line"]
+        line = self.dash.get_dashboard_summary(partner_code="TESTPARTNER")["auto_line"]
         self.assertIn("2 orders auto-approved", line)
 
     # ---- payload shape ----
