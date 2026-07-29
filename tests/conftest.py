@@ -214,50 +214,62 @@ _ensure_odoo_test_stubs()
 
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
+#
+# Skipped entirely when the mml_edi package tree has already been imported for
+# real. Under a combined monorepo-root run (mml.composer), the repo-root
+# conftest installs odoo stubs before this file loads, so importing this
+# conftest as ``mml_edi.tests.conftest`` first imports the REAL ``mml_edi``
+# package — and ``tests/__init__.py`` then imports every test module. If we
+# re-registered fresh module instances here, those already-imported test
+# modules would keep references to the old instances while production code
+# resolves the new ones out of sys.modules: ``monkeypatch.setattr()`` on one
+# instance is invisible to the other (observed as the poll-ordering tests
+# failing only in combined runs). ``mml_edi.models.edi_ftp`` is the probe: it
+# can only be present when a working mml_edi import path already exists.
+if "mml_edi.models.edi_ftp" not in sys.modules:
+    # 1. Top-level mml_edi package (bare — __init__.py has Odoo relative imports)
+    mml_edi = _register_package("mml_edi", _ROOT)
 
-# 1. Top-level mml_edi package (bare — __init__.py has Odoo relative imports)
-mml_edi = _register_package("mml_edi", _ROOT)
+    # 2. mml_edi.parsers — no Odoo dependency, __init__.py is safe to execute
+    parsers_dir = os.path.join(_ROOT, "parsers")
+    mml_edi_parsers = _register_package("mml_edi.parsers", parsers_dir, parent=mml_edi)
 
-# 2. mml_edi.parsers — no Odoo dependency, __init__.py is safe to execute
-parsers_dir = os.path.join(_ROOT, "parsers")
-mml_edi_parsers = _register_package("mml_edi.parsers", parsers_dir, parent=mml_edi)
+    # 3. mml_edi.models — bare namespace (full __init__.py imports Odoo models)
+    models_dir = os.path.join(_ROOT, "models")
+    mml_edi_models = _register_package("mml_edi.models", models_dir, parent=mml_edi)
 
-# 3. mml_edi.models — bare namespace (full __init__.py imports Odoo models)
-models_dir = os.path.join(_ROOT, "models")
-mml_edi_models = _register_package("mml_edi.models", models_dir, parent=mml_edi)
+    # 4. mml_edi.models.edi_ftp — the module under test
+    _register_module(
+        "mml_edi.models.edi_ftp",
+        os.path.join(models_dir, "edi_ftp.py"),
+        mml_edi_models,
+    )
 
-# 4. mml_edi.models.edi_ftp — the module under test
-_register_module(
-    "mml_edi.models.edi_ftp",
-    os.path.join(models_dir, "edi_ftp.py"),
-    mml_edi_models,
-)
+    # 5. mml_edi.services — no Odoo dependency, safe to execute __init__.py
+    services_dir = os.path.join(_ROOT, "services")
+    mml_edi_services = _register_package("mml_edi.services", services_dir, parent=mml_edi)
 
-# 5. mml_edi.services — no Odoo dependency, safe to execute __init__.py
-services_dir = os.path.join(_ROOT, "services")
-mml_edi_services = _register_package("mml_edi.services", services_dir, parent=mml_edi)
+    # 6. mml_edi.services.edi_service — the service class under test
+    _register_module(
+        "mml_edi.services.edi_service",
+        os.path.join(services_dir, "edi_service.py"),
+        mml_edi_services,
+    )
 
-# 6. mml_edi.services.edi_service — the service class under test
-_register_module(
-    "mml_edi.services.edi_service",
-    os.path.join(services_dir, "edi_service.py"),
-    mml_edi_services,
-)
+    # 7. mml_edi.models.edi_trading_partner — exports circuit_is_open (pure function)
+    _register_module(
+        "mml_edi.models.edi_trading_partner",
+        os.path.join(models_dir, "edi_trading_partner.py"),
+        mml_edi_models,
+    )
 
-# 7. mml_edi.models.edi_trading_partner — exports circuit_is_open (pure function)
-_register_module(
-    "mml_edi.models.edi_trading_partner",
-    os.path.join(models_dir, "edi_trading_partner.py"),
-    mml_edi_models,
-)
+    # 8. mml_edi.wizards — bare namespace (edi_seed_stores.py imports Odoo models)
+    wizards_dir = os.path.join(_ROOT, "wizards")
+    mml_edi_wizards = _register_package("mml_edi.wizards", wizards_dir, parent=mml_edi)
 
-# 8. mml_edi.wizards — bare namespace (edi_seed_stores.py imports Odoo models)
-wizards_dir = os.path.join(_ROOT, "wizards")
-mml_edi_wizards = _register_package("mml_edi.wizards", wizards_dir, parent=mml_edi)
-
-# 9. mml_edi.wizards.animates_store_master_data — no Odoo dependency, pure data
-_register_module(
-    "mml_edi.wizards.animates_store_master_data",
-    os.path.join(wizards_dir, "animates_store_master_data.py"),
-    mml_edi_wizards,
-)
+    # 9. mml_edi.wizards.animates_store_master_data — no Odoo dependency, pure data
+    _register_module(
+        "mml_edi.wizards.animates_store_master_data",
+        os.path.join(wizards_dir, "animates_store_master_data.py"),
+        mml_edi_wizards,
+    )
