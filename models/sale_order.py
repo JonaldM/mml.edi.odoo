@@ -4,6 +4,20 @@ from odoo import api, fields, models
 from .edi_processor import SO_EDI_CLIENT_REF_INDEX
 
 
+def _expected_revenue_date(is_indent, commitment_date, date_order):
+    """Pure helper: pick the date this order's revenue should be recognised in.
+
+    Indent orders are forward commitments invoiced on delivery, so their
+    revenue lands in the committed delivery month (commitment_date), not the
+    month the order was placed. Every other order recognises revenue in the
+    order month (date_order). Both inputs are Odoo datetimes (or False);
+    the return value is always a plain date (or False when undetermined).
+    """
+    if is_indent and commitment_date:
+        return commitment_date.date()
+    return date_order.date() if date_order else False
+
+
 class SaleOrder(models.Model):
     _inherit = "sale.order"
 
@@ -63,10 +77,29 @@ class SaleOrder(models.Model):
              "window before the committed date.",
     )
 
+    x_expected_revenue_date = fields.Date(
+        string="Expected Revenue Date",
+        compute="_compute_x_expected_revenue_date",
+        store=True,
+        index=True,
+        help="Date this order's revenue is expected to be recognised. "
+             "For indent orders this is the committed delivery date "
+             "(invoiced on delivery); otherwise the order date. Used by "
+             "revenue reporting and the forecasting suite to bucket revenue "
+             "into the correct month.",
+    )
+
     @api.depends("edi_trading_partner_id")
     def _compute_is_edi_order(self):
         for order in self:
             order.is_edi_order = bool(order.edi_trading_partner_id)
+
+    @api.depends("x_is_indent", "commitment_date", "date_order")
+    def _compute_x_expected_revenue_date(self):
+        for order in self:
+            order.x_expected_revenue_date = _expected_revenue_date(
+                order.x_is_indent, order.commitment_date, order.date_order
+            )
 
     def action_view_edi_review(self):
         self.ensure_one()
