@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="stock.view_location_form"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='name']" position="after">
-                <field name="edi_store_gln" placeholder="e.g. 9369999012345"/>
+                <field name="edi_store_gln" placeholder="e.g. 0200000123451"/>
             </xpath>
         </field>
     </record>

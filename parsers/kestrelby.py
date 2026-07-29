@@ -358,7 +358,11 @@ def _generate_ordrsp(review) -> bytes:
         if partner and partner.partner_id else "BUYER"
     )
     buyer_name = partner.partner_id.name if partner and partner.partner_id else ""
-    vendor_name = "MML Consumer Products"
+    # Config-driven, not a literal: this goes into the live outbound ORDRSP
+    # NAD+SU segment for every installing customer, so it must be the
+    # deploying company's own name (res.company), never a hardcoded vendor
+    # brand. See rename_map.yaml config_extract:ordrsp_vendor_name.
+    vendor_name = review.env.company.name
 
     if review.state == "rejected":
         purpose = _ORDRSP_CANCELLED
