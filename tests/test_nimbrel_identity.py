@@ -24,11 +24,21 @@ from mml_edi.parsers.nimbrel_edifact import (
 
 class _FakePartner:
     def __init__(self, edi_sender_id=None, edi_sender_qualifier="ZZZ",
-                 supplier_gln=None, environment="production"):
+                 supplier_gln=None, environment="production",
+                 unb_recipient_id="NIMBREL",
+                 unb_recipient_test_id="TST1NIMBREL",
+                 unb_recipient_qualifier=None):
         self.edi_sender_id = edi_sender_id
         self.edi_sender_qualifier = edi_sender_qualifier
         self.supplier_gln = supplier_gln
         self.environment = environment
+        # Per-partner counterparty mailbox overrides. Set to fictional values
+        # here on purpose: the module DEFAULTS are the real VAN-provisioned
+        # mailbox ids (wire routing data), so fixtures configure their own
+        # rather than asserting on the shipped constants.
+        self.unb_recipient_id = unb_recipient_id
+        self.unb_recipient_test_id = unb_recipient_test_id
+        self.unb_recipient_qualifier = unb_recipient_qualifier
         self.name = "Nimbrel NZ"
 
     def ensure_one(self):
@@ -76,13 +86,36 @@ def test_get_unb_recipient_test_uses_tst1nimbrel():
     assert p.get_unb_recipient() == ("TST1NIMBREL", "ZZZ")
 
 
+def test_get_unb_recipient_falls_back_to_module_defaults_when_unset():
+    """A partner row with blank mailbox fields (the state of every existing
+    row after upgrade) must fall back to the shipped VAN mailbox ids, NOT to
+    a blank/placeholder — a wrong value here is a total inbound EDI outage
+    plus an outbound misroute."""
+    from mml_edi.parsers.nimbrel_edifact import (
+        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER,
+        DEFAULT_RECIPIENT_TEST_ID,
+    )
+    prod = _FakePartner(environment="production", unb_recipient_id=None,
+                        unb_recipient_test_id=None)
+    assert prod.get_unb_recipient() == (
+        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER)
+
+    test = _FakePartner(environment="test", unb_recipient_id=None,
+                        unb_recipient_test_id=None)
+    assert test.get_unb_recipient() == (
+        DEFAULT_RECIPIENT_TEST_ID, DEFAULT_RECIPIENT_QUALIFIER)
+
+
 # --- build_unb(): backward-compatible defaults still work -------------------
 
 def test_build_unb_default_qualifiers_unchanged():
     """Existing DESADV/INVOIC/CONTRL positional call sites must be unaffected."""
+    from mml_edi.parsers.nimbrel_edifact import (
+        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER,
+    )
     unb = build_unb("0200000000011", 12341, "200916", "1030")
     assert unb.elements[1] == ["0200000000011", "14"]
-    assert unb.elements[2] == ["NIMBREL", "ZZZ"]
+    assert unb.elements[2] == [DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER]
 
 
 def test_build_unb_explicit_qualifiers_override_defaults():

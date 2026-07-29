@@ -92,7 +92,11 @@ def _fixture_payload():
 
 
 def test_invoic_matches_golden_fixture():
-    result = build_invoic(_fixture_payload(), ctrl_ref=12341, msg_ref=1)
+    # `recipient` is passed explicitly: the builder default is the REAL
+    # VAN-provisioned counterparty mailbox (wire routing data), while the
+    # golden fixture is fictional.
+    result = build_invoic(_fixture_payload(), ctrl_ref=12341, msg_ref=1,
+                          recipient="NIMBREL")
     fixture_text = _load("nimbrel_invoic_expected.edi")
     assert assert_equivalent(result.decode("latin-1"), fixture_text) is True
 
@@ -118,7 +122,8 @@ def test_invoic_cnt_matches_line_count():
 
 
 def test_invoic_envelope_qualifiers():
-    result = build_invoic(_fixture_payload(), ctrl_ref=12341, msg_ref=1)
+    result = build_invoic(_fixture_payload(), ctrl_ref=12341, msg_ref=1,
+                          recipient="NIMBREL")
     _, segs = tokenize(result.decode("latin-1"))
     unb = [s for s in segs if s.tag == "UNB"][0]
     assert {unb.comp(1, 1), unb.comp(2, 1)} == {"14", "ZZZ"}

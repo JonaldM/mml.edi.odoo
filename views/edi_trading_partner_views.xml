@@ -405,6 +405,17 @@
                                         <field name="supplier_gln" string="Supplier GLN"/>
                                         <field name="vendor_code" string="Vendor code"/>
                                     </group>
+                                    <group string="Counterparty mailbox (UNB recipient)">
+                                        <field name="unb_recipient_id"
+                                               string="Production mailbox"
+                                               placeholder="module default"/>
+                                        <field name="unb_recipient_test_id"
+                                               string="Test mailbox"
+                                               placeholder="module default"/>
+                                        <field name="unb_recipient_qualifier"
+                                               string="Mailbox qualifier"
+                                               placeholder="ZZZ"/>
+                                    </group>
                                 </group>
 
                                 <div class="alert alert-light text-muted mt-2" role="alert"
@@ -414,6 +425,12 @@
                                     (e.g. Nimbrel via SPS Commerce). iDOC partners like Kestrelby route
                                     by GLN in the iDOC header rather than a UNB envelope, so these may
                                     be left blank for them.
+                                    The counterparty mailbox is the VAN-provisioned recipient identity:
+                                    outbound interchanges are addressed to it, and inbound ones are
+                                    rejected fail-closed if their UNB sender does not match. Leave the
+                                    three mailbox fields blank to use the module defaults; the test
+                                    mailbox is a DISTINCT identity, selected automatically whenever
+                                    Environment is Test.
                                 </div>
 
                             </page>

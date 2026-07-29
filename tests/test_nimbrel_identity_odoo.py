@@ -31,6 +31,11 @@ class TestNimbrelIdentityFields(TransactionCase):
             "partner_id": self.customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.nimbrel.NimbrelParser",
+            # Fictional counterparty VAN mailbox. The module defaults are
+            # the REAL provisioned mailbox ids (wire routing data), so
+            # fixtures configure their own rather than asserting on them.
+            "unb_recipient_id": "NIMBREL",
+            "unb_recipient_test_id": "TST1NIMBREL",
             "ftp_protocol": "sftp",
             "ftp_host": "sftp.test.local",
             "ftp_port": 22,

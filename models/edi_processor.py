@@ -1712,7 +1712,7 @@ class EDIProcessor(models.AbstractModel):
         """Find an existing EDI SO by client reference, scoped to the trading
         partner and company (IDEM major 3). An unrelated SO that happens to
         carry the same client_order_ref (e.g. a manually-entered ref colliding
-        with Nimbrel' bare '{po_number}' template) must never suppress a real
+        with Nimbrel's bare '{po_number}' template) must never suppress a real
         order as duplicate_skipped. Returns record or None."""
         return self.env["sale.order"].search([
             ("client_order_ref", "=", client_ref),

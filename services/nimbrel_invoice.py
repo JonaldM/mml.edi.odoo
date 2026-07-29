@@ -218,7 +218,7 @@ def _product_isc(product):
 
 def _isc_map_from_orders(sale_order, partner):
     """Best-effort {sale.order.line: ISC} by re-parsing the ORDERS that created
-    the SO — the authoritative source of Nimbrel' item number (PIA+5:IN),
+    the SO — the authoritative source of Nimbrel's item number (PIA+5:IN),
     which is NOT persisted on the SO line (mirrors the DESADV path's
     _nimbrel_item_identity_map). Returns {} on any failure (no review, no raw
     data, parse error, or a non-Odoo move in pure tests)."""
@@ -326,7 +326,7 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
             ref_source = ship_ref
 
         line_no = sol.edi_line_number or idx
-        # Buyer item code (PIA+5:IN) MUST be Nimbrel' ISC — never the LIN line
+        # Buyer item code (PIA+5:IN) MUST be Nimbrel's ISC — never the LIN line
         # number and never MML's own code. Prefer the ISC from the re-parsed
         # ORDERS (isc_by_line), else the ISC persisted on the product
         # (x_articleno, where MML stores Nimbrel ISCs). Fail CLOSED rather than
@@ -450,7 +450,7 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
 
 
 def _buyer_nzbn(env, buyer_partner) -> str:
-    """Nimbrel' NZBN for RFF+AMT under NAD+BY. Config-first (per-tenant
+    """Nimbrel's NZBN for RFF+AMT under NAD+BY. Config-first (per-tenant
     override, matching the mml_edi.* ir.config_parameter idiom used
     elsewhere — e.g. mml_edi.gs1_company_prefix) with a fallback to the
     buyer res.partner's own VAT/company-number field."""
@@ -512,7 +512,10 @@ def generate_and_upload_invoic(env, move, partner) -> bytes:
 
     payload = dict(payload, buyer=dict(payload["buyer"], code=recipient_id))
 
-    invoic_bytes = build_invoic(payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref))
+    invoic_bytes = build_invoic(
+        payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref),
+        recipient=recipient_id, recipient_qualifier=recipient_qual,
+    )
 
     po_for_filename = str(payload["ref_on"]).replace("/", "")
     filename = "INVOIC_NIMBREL_%s_%s.edi" % (po_for_filename, payload["invoice_date"])

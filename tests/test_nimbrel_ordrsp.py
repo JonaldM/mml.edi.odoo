@@ -90,8 +90,13 @@ def test_ordrsp_matches_golden_fixture():
     """The committed fixture now carries the MIG's QTY+21:48:EA on the changed LIN 3
     (finding #12 — the previous fixture dropped it, one segment short of its own
     declared UNT+39). With QTY+21 present the fixture is internally consistent, so
-    the builder's output can be compared verbatim (module-ref-padding aside)."""
-    result = build_ordrsp(ORDRSP_PAYLOAD, ctrl_ref=12341, msg_ref=1)
+    the builder's output can be compared verbatim (module-ref-padding aside).
+
+    `recipient` is passed explicitly: the builder default is the REAL
+    VAN-provisioned counterparty mailbox (wire routing data), while the golden
+    fixture is fictional."""
+    result = build_ordrsp(ORDRSP_PAYLOAD, ctrl_ref=12341, msg_ref=1,
+                          recipient="NIMBREL")
     expected = _load("nimbrel_ordrsp_expected.edi")
     assert assert_equivalent(result.decode("latin-1"), expected) is True
 
@@ -182,7 +187,22 @@ def test_build_ordrsp_require_real_rejects_placeholder_ctrl_ref():
 
 
 def test_build_ordrsp_default_kwargs_unchanged_for_pure_tests():
-    """Backward compatibility: no envelope kwargs -> identical to pre-AN-01 output."""
+    """Backward compatibility: no envelope kwargs -> identical to pre-AN-01
+    output, except that the UNB recipient defaults to the shipped
+    VAN-provisioned counterparty mailbox rather than the fixture's fictional
+    one (routing data, asserted symbolically)."""
+    from mml_edi.parsers.nimbrel_edifact import (
+        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER,
+    )
     result = build_ordrsp(ORDRSP_PAYLOAD, ctrl_ref=12341, msg_ref=1)
+    _, segs = tokenize(result.decode("latin-1"))
+    unb = [s for s in segs if s.tag == "UNB"][0]
+    assert unb.elements[1] == ["SUPPLIER_GLN", "14"]
+    assert unb.elements[2] == [DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER]
+
+    # Everything else is byte-identical to the golden fixture once the
+    # counterparty mailbox is set to the fixture's fictional value.
+    result = build_ordrsp(ORDRSP_PAYLOAD, ctrl_ref=12341, msg_ref=1,
+                          recipient="NIMBREL")
     expected = _load("nimbrel_ordrsp_expected.edi")
     assert assert_equivalent(result.decode("latin-1"), expected) is True

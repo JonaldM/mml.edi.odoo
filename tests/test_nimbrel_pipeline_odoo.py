@@ -71,6 +71,11 @@ class _NimbrelOdooTestBase(EDITestSetup, TransactionCase):
         self.trading_partner.write({
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.nimbrel.NimbrelParser",
+            # Fictional counterparty VAN mailbox. The module defaults are
+            # the REAL provisioned mailbox ids (wire routing data), so
+            # fixtures configure their own rather than asserting on them.
+            "unb_recipient_id": "NIMBREL",
+            "unb_recipient_test_id": "TST1NIMBREL",
             "order_split_mode": "single",
         })
         # Match the barcode PIA+1 code used in the fixtures above.

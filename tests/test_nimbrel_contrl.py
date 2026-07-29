@@ -70,7 +70,7 @@ _ORDERS_INBOUND_PAYLOAD = {
 
 def test_build_outbound_contrl_envelope_is_supplier_to_nimbrel():
     out = build_contrl(_ORDERS_INBOUND_PAYLOAD, supplier_gln="SUPPLIER_GLN",
-                       ctrl_ref=88001, msg_ref=1)
+                       ctrl_ref=88001, msg_ref=1, recipient="NIMBREL")
     segs = _segs(out)
     unb = _by_tag(segs, "UNB")[0]
     # OUTBOUND envelope: sender = supplier:14, recipient = NIMBREL:ZZZ
@@ -115,7 +115,8 @@ def test_build_outbound_contrl_uci_parties_are_the_original_interchange_verbatim
 
 def test_build_outbound_contrl_uci_parties_differ_from_envelope():
     """M-CONTRL-UCI: the UCI parties are the REVERSE of the CONTRL envelope's parties."""
-    out = build_contrl(_ORDERS_INBOUND_PAYLOAD, ctrl_ref=88001, msg_ref=1)
+    out = build_contrl(_ORDERS_INBOUND_PAYLOAD, ctrl_ref=88001, msg_ref=1,
+                       recipient="NIMBREL")
     segs = _segs(out)
     unb = _by_tag(segs, "UNB")[0]
     uci = _by_tag(segs, "UCI")[0]
@@ -225,12 +226,20 @@ def test_build_contrl_require_real_rejects_placeholder_ctrl_ref():
 
 
 def test_build_contrl_default_kwargs_unchanged_for_pure_tests():
-    """Backward compatibility: no envelope kwargs -> identical to pre-AN-01 output."""
+    """Backward compatibility: no envelope kwargs -> identical to pre-AN-01 output.
+
+    The counterparty mailbox default is asserted SYMBOLICALLY: its value is
+    VAN routing data (nimbrel_edifact.DEFAULT_RECIPIENT_ID), deliberately not
+    fictionalised, so no fixture may hardcode it.
+    """
+    from mml_edi.parsers.nimbrel_edifact import (
+        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER,
+    )
     out = build_contrl(_ORDERS_INBOUND_PAYLOAD, ctrl_ref=88001, msg_ref=1)
     segs = _segs(out)
     unb = _by_tag(segs, "UNB")[0]
     assert unb.elements[1] == ["SUPPLIER_GLN", "14"]
-    assert unb.elements[2] == ["NIMBREL", "ZZZ"]
+    assert unb.elements[2] == [DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER]
 
 
 # --- extract_unb_identity: pull original UNB identity from ANY interchange ---

@@ -130,7 +130,11 @@ SPLIT_PAYLOAD = {
 
 
 def test_desadv_pallet_matches_golden():
-    result = build_desadv(PALLET_PAYLOAD, ctrl_ref=78401, msg_ref=1)
+    # `recipient` is passed explicitly: the builder default is the REAL
+    # VAN-provisioned counterparty mailbox (wire routing data), while the
+    # golden fixtures are fictional.
+    result = build_desadv(PALLET_PAYLOAD, ctrl_ref=78401, msg_ref=1,
+                          recipient="NIMBREL")
     expected = _load("nimbrel_desadv_pallet.edi")
     # Every body/envelope segment matches the golden fixture verbatim; the only
     # divergence is the fixture's non-conformant UNT count (39 vs real 38).
@@ -144,7 +148,8 @@ def test_desadv_pallet_validates():
 
 
 def test_desadv_split_matches_golden():
-    result = build_desadv(SPLIT_PAYLOAD, ctrl_ref=78402, msg_ref=1)
+    result = build_desadv(SPLIT_PAYLOAD, ctrl_ref=78402, msg_ref=1,
+                          recipient="NIMBREL")
     expected = _load("nimbrel_desadv_split.edi")
     # As above: only the fixture's non-conformant UNT count (27 vs real 24) differs.
     assert assert_equivalent_modulo_unt(result.decode("latin-1"), expected) is True

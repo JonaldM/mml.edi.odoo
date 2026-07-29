@@ -11,6 +11,11 @@ class TestKestrelbyASNGenerator(unittest.TestCase):
             'despatch_date': '20260305',
             'mml_edis_id': 'MMLEDI',
             'ctrl_ref': '1',
+            # Explicit fictional counterparty GLN. The module default
+            # (_KESTRELBY_GLN) is the REAL VAN-provisioned buyer GLN — routing
+            # data, not fixture content — so fixtures override it rather than
+            # asserting on it.
+            'buyer_gln': '0200099000008',
             'deliveries': [
                 {
                     'store_gln': '1005',

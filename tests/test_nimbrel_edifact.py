@@ -55,9 +55,14 @@ def test_escape_releases_release_char_first():
 
 # --- envelope qualifiers (octo C1) + CONTRL tail (octo C2) ---
 def test_unb_business_uses_supplier14_nimbrel_zzz_with_tail():
+    # The recipient default is the VAN-provisioned counterparty mailbox
+    # (routing data, not fixture content) — asserted symbolically.
+    from mml_edi.parsers.nimbrel_edifact import (
+        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER,
+    )
     unb = build_unb("0200000000011", 12341, "200916", "1030")
     assert unb.elements[1] == ["0200000000011", "14"]   # sender = supplier:14
-    assert unb.elements[2] == ["NIMBREL", "ZZZ"]        # recipient = NIMBREL:ZZZ
+    assert unb.elements[2] == [DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER]
     assert unb.elements[-1] == ["1"]                      # business message trailing ack-request
     assert len(unb.elements) == 9                         # UNOC:3, sender, recipient, dt, ref, +++1
 
@@ -67,7 +72,8 @@ def test_unb_contrl_omits_trailing_tail():
     assert len(unb.elements) == 5                        # no ++++1
 
 def test_unb_inbound_inverts_parties():
-    unb = build_unb("0200000000011", 12341, "200916", "1030", inbound=True)
+    unb = build_unb("0200000000011", 12341, "200916", "1030", inbound=True,
+                    recipient="NIMBREL")
     assert unb.elements[1] == ["NIMBREL", "ZZZ"]
     assert unb.elements[2] == ["0200000000011", "14"]
 

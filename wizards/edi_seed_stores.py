@@ -16,8 +16,8 @@ is safe (idempotent: skips/updates by res.partner.ref scoped to the parent
 customer, never creates a duplicate).
 
 Ref-collision safety: lookups/creates are always scoped to
-("parent_id", "=", parent_partner.id) so Nimbrel' 2-digit refs (e.g. "08")
-can never collide with Kestrelby' numeric refs (e.g. "1017") even though
+("parent_id", "=", parent_partner.id) so Nimbrel's 2-digit refs (e.g. "08")
+can never collide with Kestrelby's numeric refs (e.g. "1017") even though
 both trading partners' customers may exist in the same database — they sit
 under different parents.
 """
@@ -117,8 +117,8 @@ class EDISeedStoresWizard(models.TransientModel):
         skipped = 0
 
         for store_code, store_name in store_rows:
-            # Scoped to parent_id so Nimbrel' 2-digit/"R-xx" refs can never
-            # collide with Kestrelby' numeric refs even if both customers
+            # Scoped to parent_id so Nimbrel's 2-digit/"R-xx" refs can never
+            # collide with Kestrelby's numeric refs even if both customers
             # exist in the same database (see module docstring).
             existing = self.env["res.partner"].search([
                 ("parent_id", "=", parent_partner.id),

@@ -311,7 +311,7 @@ class EDIService:
         """Return ({edi_line_number: isc}, {edi_line_number: vendor_code}) by
         re-parsing the review's stored raw interchange (same source ORDRSP
         uses — see parsers/nimbrel.py::_review_to_ordrsp_payload). DESADV
-        can fire long after parse-time, so ISC (Nimbrel' own item number,
+        can fire long after parse-time, so ISC (Nimbrel's own item number,
         PIA+5:IN) is not assumed to be persisted anywhere on sale.order.line
         — it is re-derived from the original inbound ORDERS interchange,
         the single source of truth for that identifier.
@@ -448,9 +448,13 @@ class EDIService:
 
         # build_desadv's UNB is built inline (not via build_unb_for_partner),
         # so pass the real identity through its supplier_gln kwarg (sender
-        # side of the envelope — see nimbrel_desadv.build_desadv's
-        # supplier_gln/ctrl_ref kwargs, mirrored on build_ordrsp/build_contrl).
-        desadv_bytes = build_desadv(payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref))
+        # side of the envelope) AND its recipient kwargs (counterparty VAN
+        # mailbox — without these the envelope would silently fall back to the
+        # PRODUCTION mailbox even for a partner still on the test portal).
+        desadv_bytes = build_desadv(
+            payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref),
+            recipient=recipient_id, recipient_qualifier=recipient_qual,
+        )
 
         po_for_filename = payload['po'].replace('/', '')
         filename = 'DESADV_NIMBREL_%s_%s.edi' % (

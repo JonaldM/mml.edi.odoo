@@ -4,7 +4,7 @@ Inbound: ORDERS -> ParsedOrder (becomes a sale.order in Odoo).
 Outbound: generate_ack -> ORDRSP (built in B3, see nimbrel_ordrsp.py).
 
 Item identity (per the MIG + octo review):
-  PIA+5+<isc>:IN   = Nimbrel' item code (ISC)  -> buyer_article_no
+  PIA+5+<isc>:IN   = Nimbrel's item code (ISC)  -> buyer_article_no
   PIA+1+<code>:SA  = MML's article number       -> product_code + vendor_code
 The processor cascade (_find_product) then matches product_code/vendor_code
 (default_code) and falls back to buyer_article_no (supplier_sku / supplierinfo),
@@ -94,7 +94,7 @@ class NimbrelParser(BaseEDIParser):
             elif t == "PIA" and line is not None:
                 code = seg.comp(1, 0)
                 kind = seg.comp(1, 1)
-                if kind == "IN":          # Nimbrel' item code (ISC)
+                if kind == "IN":          # Nimbrel's item code (ISC)
                     line["buyer_article_no"] = code
                 elif kind == "SA":        # MML's article number
                     line["product_code"] = code
@@ -533,7 +533,13 @@ def _review_to_ordrsp_payload(review) -> dict:
     ack_code = "27" if rejected else ("4" if any_changed else "29")
 
     has_real_identity = callable(getattr(partner, "get_unb_recipient", None))
-    buyer, _buyer_qual = partner.get_unb_recipient() if has_real_identity else ("NIMBREL", "ZZZ")
+    # Fallback is the VAN-provisioned production mailbox, NOT a display name —
+    # a fictional value here would address the interchange to a mailbox that
+    # does not exist (see nimbrel_edifact.DEFAULT_RECIPIENT_ID).
+    buyer, _buyer_qual = (
+        partner.get_unb_recipient() if has_real_identity
+        else (edifact.DEFAULT_RECIPIENT_ID, edifact.DEFAULT_RECIPIENT_QUALIFIER)
+    )
     supplier = getattr(partner, "nimbrel_vendor_code", None) or getattr(partner, "code", "") or ""
 
     payload = {

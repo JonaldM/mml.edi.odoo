@@ -55,6 +55,11 @@ class _NimbrelOrdrspLiveOdooBase(EDITestSetup, TransactionCase):
         self.trading_partner.write({
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.nimbrel.NimbrelParser",
+            # Fictional counterparty VAN mailbox. The module defaults are
+            # the REAL provisioned mailbox ids (wire routing data), so
+            # fixtures configure their own rather than asserting on them.
+            "unb_recipient_id": "NIMBREL",
+            "unb_recipient_test_id": "TST1NIMBREL",
             "order_split_mode": "single",
             "edi_sender_id": "0200000000004T",
             "edi_sender_qualifier": "ZZZ",

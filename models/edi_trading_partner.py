@@ -216,6 +216,25 @@ class EDITradingPartner(models.Model):
              "NAD+SU and PIA+1:SA identity in outbound Nimbrel messages "
              "(ORDRSP/DESADV/INVOIC). Blank on non-Nimbrel partners.",
     )
+    unb_recipient_id = fields.Char(
+        string="Counterparty Mailbox (Production)",
+        help="The counterparty's PRODUCTION mailbox identity on the VAN, used "
+             "as the UNB recipient (S003 DE0010) of outbound interchanges and "
+             "matched against the UNB sender of inbound ones. This is "
+             "wire-protocol routing data provisioned by the VAN, not a display "
+             "name. Leave blank to use the module default.",
+    )
+    unb_recipient_test_id = fields.Char(
+        string="Counterparty Mailbox (Test)",
+        help="The counterparty's TEST-portal mailbox identity — a DISTINCT "
+             "mailbox, not the production one with a flag. Used whenever "
+             "environment = 'test'. Leave blank to use the module default.",
+    )
+    unb_recipient_qualifier = fields.Char(
+        string="Counterparty Mailbox Qualifier",
+        help="UNB S003 DE0007 qualifier for the counterparty mailbox "
+             "(default 'ZZZ' — mutually defined).",
+    )
 
     def get_unb_sender(self):
         """Return (id, qualifier) for OUR identity in an outbound UNB.
@@ -238,16 +257,40 @@ class EDITradingPartner(models.Model):
         )
 
     def get_unb_recipient(self):
-        """Return (id, qualifier) for the Nimbrel side of an outbound UNB.
+        """Return (id, qualifier) for the counterparty side of an outbound UNB.
 
         Switches on ``environment``: the TEST portal mailbox is a DISTINCT
-        recipient identity 'TST1NIMBREL' (per the ORDRSP/ORDERS MIG worked
-        examples), not the production 'NIMBREL' id with a flag — sending to
-        the wrong one silently misroutes the interchange in SPS Commerce.
+        recipient identity (per the ORDRSP/ORDERS MIG worked examples), not the
+        production id with a flag — sending to the wrong one silently misroutes
+        the interchange in SPS Commerce. The same pair is what
+        ``edi_processor._validate_inbound_envelope`` matches the inbound UNB
+        sender against (fail-closed), so a wrong value here is a total inbound
+        EDI outage as well as an outbound misroute.
+
+        Per-partner overrides live on unb_recipient_id / unb_recipient_test_id;
+        blank (the state of every pre-existing row after upgrade) falls back to
+        the VAN-provisioned defaults in parsers.nimbrel_edifact — see the
+        constants' comment: these are routing values, deliberately excluded
+        from the fixture-name sweep and carried as `config_extract` in
+        rename_map.yaml.
         """
+        # Deferred import: models/ is imported before parsers/ in the package
+        # __init__, and this keeps the model free of a parser-package import
+        # at class-definition time (same pattern as services/edi_service.py).
+        from ..parsers.nimbrel_edifact import (
+            DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER,
+            DEFAULT_RECIPIENT_TEST_ID,
+        )
         self.ensure_one()
-        recipient = "TST1NIMBREL" if self.environment == "test" else "NIMBREL"
-        return recipient, "ZZZ"
+        if self.environment == "test":
+            recipient = getattr(self, "unb_recipient_test_id", None) or DEFAULT_RECIPIENT_TEST_ID
+        else:
+            recipient = getattr(self, "unb_recipient_id", None) or DEFAULT_RECIPIENT_ID
+        qualifier = (
+            getattr(self, "unb_recipient_qualifier", None)
+            or DEFAULT_RECIPIENT_QUALIFIER
+        )
+        return recipient, qualifier
 
     # ── Notifications ─────────────────────────────────────────────────────
 

@@ -153,17 +153,25 @@ def _unit_segments(unit):
     return out
 
 
-def build_desadv(payload, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=78401, msg_ref=1):
+def build_desadv(payload, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=78401, msg_ref=1,
+                 recipient=None, recipient_qualifier=None):
     """Build an outbound Nimbrel DESADV interchange. Returns ``bytes``.
 
     See the module docstring for the payload schema. Handles both the pallet+carton
     hierarchy (p.57) and the split-shipment variance shape (p.58) from one function.
+
+    ``recipient``/``recipient_qualifier`` are the UNB S003 counterparty mailbox
+    identity. A PRODUCTION caller MUST pass ``partner.get_unb_recipient()`` so
+    a test-portal partner is addressed to the test mailbox; leaving them None
+    falls back to ``nimbrel_edifact.DEFAULT_RECIPIENT_ID`` (the production
+    mailbox), which is what the pure tests exercise.
     """
     ref = pad_ref(msg_ref)
 
     segs = [
         build_unb(supplier_gln, ctrl_ref, payload.get("doc_date", "")[2:8] or "000000",
-                  "0730"),
+                  "0730", recipient=recipient,
+                  recipient_qualifier=recipient_qualifier),
         build_unh(ref, "DESADV", version="D", release="01B", agency="UN",
                   assoc=_DESADV_ASSOC),
     ]

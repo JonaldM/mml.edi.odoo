@@ -80,6 +80,11 @@ class TestNimbrelInvoiceOdoo(EDITestSetup, TransactionCase):
             "partner_id": self.nimbrel_customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.nimbrel.NimbrelParser",
+            # Fictional counterparty VAN mailbox. The module defaults are
+            # the REAL provisioned mailbox ids (wire routing data), so
+            # fixtures configure their own rather than asserting on them.
+            "unb_recipient_id": "NIMBREL",
+            "unb_recipient_test_id": "TST1NIMBREL",
             "ftp_protocol": "localdir",
             "environment": "test",
             "ftp_test_inbox_path": self.edi_outbox,

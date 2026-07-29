@@ -22,6 +22,28 @@ from dataclasses import dataclass, field
 # UNA from the message rather than assume these, but they are the documented set.
 DEFAULT_UNA = "UNA:+.? '"
 
+# --- Counterparty VAN mailbox identity ---------------------------------------
+#
+# WIRE-PROTOCOL ROUTING DATA — NOT fixture content, NOT a brand label.
+#
+# These are the counterparty's mailbox identities as provisioned on the VAN
+# (SPS Commerce). They populate the UNB recipient (S003 DE0010) of every
+# outbound interchange and are matched against the UNB sender of every inbound
+# one (models/edi_processor.py::_validate_inbound_envelope, fail-closed). A
+# fictionalised value here means: every inbound file is rejected, and every
+# outbound interchange is addressed to a mailbox that does not exist on the
+# VAN. They are therefore deliberately EXCLUDED from the fixture-name sweep
+# and registered instead in scripts/cadence_transform/rename_map.yaml as
+# `config_extract: van_counterparty_mailbox`, so the transform replaces them
+# with a placeholder and points at the supported override.
+#
+# Per-deployment override: edi.trading.partner.unb_recipient_id /
+# unb_recipient_test_id (blank on an existing row => these defaults, so an
+# upgrade needs no reconfiguration).
+DEFAULT_RECIPIENT_ID = "ANIMATES"
+DEFAULT_RECIPIENT_TEST_ID = "TST1ANIMATES"
+DEFAULT_RECIPIENT_QUALIFIER = "ZZZ"
+
 
 @dataclass(frozen=True)
 class Delims:
@@ -157,18 +179,19 @@ _PLACEHOLDER_DATETIMES = frozenset({"200916", "200928", "200915"})
 
 
 def build_unb(sender_gln, ctrl_ref, date_yymmdd, time_hhmm, *, contrl=False,
-              recipient="NIMBREL", inbound=False,
+              recipient=None, inbound=False,
               sender_qualifier=None, recipient_qualifier=None,
               require_real=False):
     """UNB for an MML->Nimbrel interchange (or inverted for inbound/CONTRL parse).
 
     Backward-compatible defaults: sender qualifies ``14`` (GLN) and recipient
-    defaults to ``NIMBREL``:``ZZZ`` unless overridden — this is what every pure
-    test and the DESADV/INVOIC/CONTRL builders already pass. Callers that HAVE a
-    trading partner record should instead go through ``build_unb_for_partner``
-    (or pass ``sender_qualifier``/explicit ``recipient``/``recipient_qualifier``
-    themselves) so the real edi_sender_id / TST1NIMBREL-vs-NIMBREL identity is
-    used rather than these positional defaults.
+    defaults to ``DEFAULT_RECIPIENT_ID``:``ZZZ`` unless overridden — the real
+    counterparty production mailbox on the VAN (see the constant's comment: it
+    is routing data, not a name). Callers that HAVE a trading partner record
+    should instead go through ``build_unb_for_partner`` (or pass
+    ``sender_qualifier``/explicit ``recipient``/``recipient_qualifier``
+    themselves) so the partner's configured test-vs-production mailbox identity
+    is used rather than these defaults.
 
     sender_qualifier: DE0007 for the sender S002 (default ``"14"`` — GLN — for
         backward compatibility with the GLN-only call sites).
@@ -203,9 +226,9 @@ def build_unb(sender_gln, ctrl_ref, date_yymmdd, time_hhmm, *, contrl=False,
             )
 
     sender_qual = sender_qualifier or "14"
-    recipient_qual = recipient_qualifier or "ZZZ"
+    recipient_qual = recipient_qualifier or DEFAULT_RECIPIENT_QUALIFIER
     supplier = ["%s" % sender_gln, sender_qual]
-    nimbrel = [recipient, recipient_qual]
+    nimbrel = [recipient or DEFAULT_RECIPIENT_ID, recipient_qual]
     if inbound:
         send, recv = nimbrel, supplier
     else:
@@ -231,8 +254,8 @@ def build_unb_for_partner(partner, ctrl_ref, date_yymmdd, time_hhmm, *,
     This is the PRODUCTION entry point: sender identity comes from
     ``partner.get_unb_sender()`` (raises UserError if unconfigured — no silent
     placeholder fallback) and recipient from ``partner.get_unb_recipient()``
-    (switches NIMBREL/TST1NIMBREL on partner.environment). Always builds with
-    ``require_real=True``.
+    (switches the test/production VAN mailbox on partner.environment). Always
+    builds with ``require_real=True``.
     """
     sender_id, sender_qual = partner.get_unb_sender()
     recipient_id, recipient_qual = partner.get_unb_recipient()

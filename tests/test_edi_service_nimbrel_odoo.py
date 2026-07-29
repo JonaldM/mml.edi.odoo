@@ -66,6 +66,11 @@ class TestEDIServiceNimbrelDispatch(EDITestSetup, TransactionCase):
             "partner_id": self.nimbrel_customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.nimbrel.NimbrelParser",
+            # Fictional counterparty VAN mailbox. The module defaults are
+            # the REAL provisioned mailbox ids (wire routing data), so
+            # fixtures configure their own rather than asserting on them.
+            "unb_recipient_id": "NIMBREL",
+            "unb_recipient_test_id": "TST1NIMBREL",
             "ftp_protocol": "localdir",
             "environment": "test",
             "ftp_test_inbox_path": self.edi_outbox,
@@ -159,7 +164,7 @@ class TestEDIServiceNimbrelDispatch(EDITestSetup, TransactionCase):
         self.assertEqual(first_count, second_count)
 
     def test_kestrelby_dispatch_still_uses_kestrelby_path_not_nimbrel(self):
-        """The refactor must not touch Kestrelby' live production behaviour —
+        """The refactor must not touch Kestrelby's live production behaviour —
         routing a Kestrelby picking through the same entry point must NOT
         create any sscc.register rows (Nimbrel-only) and must still attempt
         the Kestrelby ASN path (asserted via the absence of DESADV_NIMBREL_

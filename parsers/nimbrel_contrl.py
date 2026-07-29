@@ -106,15 +106,16 @@ def extract_unb_identity(text) -> dict:
 
 def build_contrl(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
                  ctrl_ref: int = 99101, msg_ref: int = 1,
-                 sender_qualifier=None, recipient="NIMBREL",
+                 sender_qualifier=None, recipient=None,
                  recipient_qualifier=None, require_real=False) -> bytes:
     """Build an OUTBOUND CONTRL (supplier -> Nimbrel) acking a received interchange.
 
     Envelope identity (AN-01, mirrors build_ordrsp): ``supplier_gln``/``ctrl_ref``
     plus the optional ``sender_qualifier``/``recipient``/``recipient_qualifier`` are
     forwarded to ``build_unb`` — pure tests keep relying on the documented
-    ``SUPPLIER_GLN:14`` / ``NIMBREL:ZZZ`` worked-example defaults, while a
-    PRODUCTION caller (see ``nimbrel.py::NimbrelParser.generate_contrl``) passes
+    ``SUPPLIER_GLN:14`` sender default and (for ``recipient=None``) the real
+    counterparty production mailbox ``nimbrel_edifact.DEFAULT_RECIPIENT_ID``,
+    while a PRODUCTION caller (see ``nimbrel.py::NimbrelParser.generate_contrl``) passes
     the trading partner's real identity (``partner.get_unb_sender()`` /
     ``partner.get_unb_recipient()`` — C1) with ``require_real=True``.
 
@@ -164,7 +165,7 @@ def parse_contrl(text) -> dict:
     a positive/negative classification the processor can act on directly.
 
     Accepts str or bytes. Returns a dict the inbound-ack consumer uses to correlate
-    Nimbrel' acknowledgements to the interchanges we sent:
+    Nimbrel's acknowledgements to the interchanges we sent:
 
         {
             "original_ref":           str,  # UCI DE0020 — acked interchange ctrl ref

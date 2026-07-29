@@ -161,14 +161,15 @@ def _line_segments(line: dict) -> list:
 
 
 def build_ordrsp(payload: dict, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=12341, msg_ref=1,
-                 sender_qualifier=None, recipient="NIMBREL", recipient_qualifier=None,
+                 sender_qualifier=None, recipient=None, recipient_qualifier=None,
                  require_real=False) -> bytes:
     """Build an Nimbrel ORDRSP interchange from ``payload`` (see module docstring).
 
     Envelope identity (AN-01): ``supplier_gln``/``ctrl_ref`` plus the optional
     ``sender_qualifier``/``recipient``/``recipient_qualifier`` are forwarded verbatim
     to ``build_unb`` — pure tests can keep relying on the documented worked-example
-    defaults (``SUPPLIER_GLN``/``12341``/``NIMBREL``/``ZZZ``), while a PRODUCTION
+    defaults (``SUPPLIER_GLN``/``12341``/``ZZZ``, and for ``recipient=None`` the
+    real counterparty mailbox ``nimbrel_edifact.DEFAULT_RECIPIENT_ID``), while a PRODUCTION
     caller passes the trading partner's real identity (see
     ``nimbrel.py::_review_to_ordrsp_payload`` and
     ``nimbrel_edifact.build_unb_for_partner``) with ``require_real=True`` so a

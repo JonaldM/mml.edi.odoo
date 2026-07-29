@@ -31,7 +31,20 @@ from .kestrelby import _edifact_escape
 
 _logger = logging.getLogger(__name__)
 
-_KESTRELBY_GLN = '0200099000008'
+# --- Counterparty GLN --------------------------------------------------------
+#
+# WIRE-PROTOCOL ROUTING DATA — NOT fixture content, NOT a brand label.
+#
+# The buyer's real GS1 Global Location Number, written verbatim into the live
+# outbound DESADV envelope (UNB S003) and the NAD+BY segment below. A
+# fictionalised GLN here is worse than an invalid one: a syntactically valid
+# but wrong GLN is silently misrouted or rejected by the partner rather than
+# caught locally. Deliberately EXCLUDED from the fixture-name sweep and
+# registered instead in scripts/cadence_transform/rename_map.yaml as
+# `config_extract: kestrelby_buyer_gln`.
+#
+# Per-deployment override: pass ``buyer_gln`` in the despatch dict.
+_KESTRELBY_GLN = '9469313000007'
 _SEG_TERM = "'"
 
 
@@ -57,12 +70,15 @@ class KestrelbyASNGenerator:
         despatch_date  str   YYYYMMDD
         mml_edis_id    str   MML sender ID on EDIS VAN (from ir.config_parameter)
         ctrl_ref       str   Interchange control reference (unique per interchange)
+        buyer_gln      str   OPTIONAL — counterparty GLN override; defaults to
+                             _KESTRELBY_GLN (the VAN-provisioned buyer GLN)
         deliveries     list  [{'store_gln': str, 'lines': [{'ean13': str, 'qty': int, 'seq': int}]}]
     """
 
     def generate(self, despatch: dict) -> str:
         """Generate and return the full EDIFACT DESADV message as a string."""
         self._validate(despatch)
+        buyer_gln = despatch.get('buyer_gln') or _KESTRELBY_GLN
 
         now = datetime.now(timezone.utc)
         date_yymmdd = now.strftime('%y%m%d')
@@ -74,7 +90,7 @@ class KestrelbyASNGenerator:
         segments.append(
             'UNB+UNOA:3+{mml}:14+{kestrelby}:14+{date}:{time}+{ref}++DESADV'.format(
                 mml=_edifact_escape(despatch['mml_edis_id']),
-                kestrelby=_KESTRELBY_GLN,
+                kestrelby=buyer_gln,
                 date=date_yymmdd,
                 time=time_hhmm,
                 ref=_edifact_escape(despatch['ctrl_ref']),
@@ -97,7 +113,7 @@ class KestrelbyASNGenerator:
         segments.append('NAD+SE+{mml}::14'.format(mml=_edifact_escape(despatch['mml_edis_id'])))
 
         # Buyer (Kestrelby Group)
-        segments.append('NAD+BY+{gln}::14'.format(gln=_KESTRELBY_GLN))
+        segments.append('NAD+BY+{gln}::14'.format(gln=buyer_gln))
 
         # PO reference
         segments.append('RFF+ON:{po}'.format(po=_edifact_escape(despatch['po_number'])))

@@ -58,7 +58,7 @@ def test_nimbrel_parser_classes_excludes_kestrelby():
 
 def test_dispatch_routes_to_kestrelby_by_default():
     """A partner whose parser_class is NOT in _NIMBREL_PARSER_CLASSES must
-    route through _dispatch_kestrelby — proves the refactor kept Kestrelby'
+    route through _dispatch_kestrelby — proves the refactor kept Kestrelby's
     call path byte-identical (same method, same signature) rather than
     silently changing behaviour for the live production partner."""
     from mml_edi.services.edi_service import EDIService, _NIMBREL_PARSER_CLASSES

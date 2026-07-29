@@ -237,12 +237,18 @@ def _line_segments(line):
 
 
 def build_invoic(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
-                 ctrl_ref: int = 12341, msg_ref: int = 1) -> bytes:
+                 ctrl_ref: int = 12341, msg_ref: int = 1,
+                 recipient=None, recipient_qualifier=None) -> bytes:
     """Build an outbound Nimbrel INVOIC interchange from ``payload``.
 
     See the module docstring for the full payload schema. Returns the rendered
     interchange as latin-1 bytes (EDIFACT UNOC:3 is a Latin-1 superset; the
     Nimbrel worked examples are ASCII).
+
+    ``recipient``/``recipient_qualifier`` are the UNB S003 counterparty mailbox
+    identity. A PRODUCTION caller MUST pass ``partner.get_unb_recipient()``;
+    leaving them None falls back to ``nimbrel_edifact.DEFAULT_RECIPIENT_ID``
+    (the production mailbox), which is what the pure tests exercise.
     """
     delims = Delims()
     ref = pad_ref(msg_ref)
@@ -259,6 +265,8 @@ def build_invoic(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
             ctrl_ref,
             payload["date_yymmdd"],
             payload["time_hhmm"],
+            recipient=recipient,
+            recipient_qualifier=recipient_qualifier,
         ),
         build_unh(ref, "INVOIC", version="D", release="01B", agency="UN",
                   assoc=_INVOIC_ASSOC),
