@@ -37,7 +37,7 @@ def _is_picking_unit_race_violation(exc) -> bool:
 # Overridable via ir.config_parameter 'mml_edi.gs1_company_prefix' so a future
 # prefix change (e.g. GS1 reassigning a shorter/longer prefix) does not
 # require a code change.
-DEFAULT_GS1_PREFIX = "0200000"
+DEFAULT_GS1_PREFIX = "9419416"
 
 # GS1 requires SSCCs to be unique for at least 12 months per company prefix
 # (Nimbrel_DESADV.pdf p.9). This model never reuses a (gs1_prefix,

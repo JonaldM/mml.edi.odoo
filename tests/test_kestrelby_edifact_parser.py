@@ -89,14 +89,14 @@ class TestOrdersParsing:
         results = parser.parse_file(raw, _mock_partner())
         store_1005 = next(o for o in results if o.store_code == "1005")
         barcodes = {l.product_code for l in store_1005.lines}
-        assert "9414844375629" in barcodes
+        assert "0200000375621" in barcodes
 
     def test_line_buyer_article_no_extracted(self):
         raw = _load("kestrelby_orders_4500038166.edi")
         parser = KestrelbyParser()
         results = parser.parse_file(raw, _mock_partner())
         store_1005 = next(o for o in results if o.store_code == "1005")
-        line = next(l for l in store_1005.lines if l.product_code == "9414844375629")
+        line = next(l for l in store_1005.lines if l.product_code == "0200000375621")
         assert line.buyer_article_no == "375629"
 
     def test_line_store_qty_used_not_total(self):
@@ -105,7 +105,7 @@ class TestOrdersParsing:
         parser = KestrelbyParser()
         results = parser.parse_file(raw, _mock_partner())
         store_1005 = next(o for o in results if o.store_code == "1005")
-        line = next(l for l in store_1005.lines if l.product_code == "9414844375629")
+        line = next(l for l in store_1005.lines if l.product_code == "0200000375621")
         assert line.quantity == 10.0  # QTY+11:10.000
 
     def test_line_price_extracted(self):
@@ -113,7 +113,7 @@ class TestOrdersParsing:
         parser = KestrelbyParser()
         results = parser.parse_file(raw, _mock_partner())
         store_1005 = next(o for o in results if o.store_code == "1005")
-        line = next(l for l in store_1005.lines if l.product_code == "9414844375629")
+        line = next(l for l in store_1005.lines if l.product_code == "0200000375621")
         assert line.unit_price == 5.50
 
     def test_delivery_date_extracted(self):
@@ -129,7 +129,7 @@ class TestOrdersParsing:
         parser = KestrelbyParser()
         results = parser.parse_file(raw, _mock_partner())
         store_1005 = next(o for o in results if o.store_code == "1005")
-        line = next(l for l in store_1005.lines if l.product_code == "9414844375629")
+        line = next(l for l in store_1005.lines if l.product_code == "0200000375621")
         assert line.carton_qty == 1.0
 
     def test_raw_data_set(self):
@@ -171,7 +171,7 @@ class TestChangeOrderParsing:
         parser = KestrelbyParser()
         results = parser.parse_file(raw, _mock_partner())
         all_barcodes = {l.product_code for o in results for l in o.lines}
-        assert "9414844375674" in all_barcodes
+        assert "0200000375676" in all_barcodes
 
     def test_does_not_crash(self):
         raw = _load("kestrelby_ordchg_4500038166.edi")
@@ -183,15 +183,15 @@ class TestChangeOrderParsing:
         """Lines with action=3 (cancel) are excluded from ParsedOrderLines.
 
         ORDCHG fixture has four LIN segments:
-          00010 action=3 (cancel): barcode 9414844375629, store 1005  <- excluded
-          00020 action=3 (cancel): barcode 9414844375636, store 1007  <- excluded
-          00060 action=2 (change): barcode 9414844375629, store 1005  <- included
-          00090 action=1 (add):    barcode 9414844375674, store 1007  <- included
+          00010 action=3 (cancel): barcode 0200000375621, store 1005  <- excluded
+          00020 action=3 (cancel): barcode 0200000375638, store 1007  <- excluded
+          00060 action=2 (change): barcode 0200000375621, store 1005  <- included
+          00090 action=1 (add):    barcode 0200000375676, store 1007  <- included
 
         Verification strategy:
-        - 9414844375636 only appears in the cancelled line 00020, so it must be
+        - 0200000375638 only appears in the cancelled line 00020, so it must be
           entirely absent from all results.
-        - 9414844375629 for store 1005 appears in both a cancelled line (00010)
+        - 0200000375621 for store 1005 appears in both a cancelled line (00010)
           and a changed line (00060). The cancelled duplicate must not inflate the
           count: store 1005 should have exactly 1 occurrence of that barcode.
         """
@@ -199,18 +199,18 @@ class TestChangeOrderParsing:
         parser = KestrelbyParser()
         results = parser.parse_file(raw, _mock_partner())
 
-        # Line 00020: barcode 9414844375636 only in a cancelled line — must not appear
+        # Line 00020: barcode 0200000375638 only in a cancelled line — must not appear
         all_barcodes = [l.product_code for o in results for l in o.lines]
-        assert "9414844375636" not in all_barcodes
+        assert "0200000375638" not in all_barcodes
 
         # Line 00010 (cancelled) vs line 00060 (changed): same barcode+store.
         # Cancelled line must not be double-counted — exactly 1 occurrence for store 1005.
         store_1005 = next((o for o in results if o.store_code == "1005"), None)
         assert store_1005 is not None, "Store 1005 should be present (line 00060 is action=2)"
-        occurrences = [l for l in store_1005.lines if l.product_code == "9414844375629"]
+        occurrences = [l for l in store_1005.lines if l.product_code == "0200000375621"]
         assert len(occurrences) == 1, (
             "Cancelled line 00010 must not duplicate the changed line 00060; "
-            "expected exactly 1 occurrence of barcode 9414844375629 for store 1005"
+            "expected exactly 1 occurrence of barcode 0200000375621 for store 1005"
         )
 
 
@@ -231,7 +231,7 @@ class TestCartonQty:
         parser = KestrelbyParser()
         results = parser.parse_file(raw, _mock_partner())
         store_1005 = next(o for o in results if o.store_code == "1005")
-        line = next(l for l in store_1005.lines if l.product_code == "9414844375629")
+        line = next(l for l in store_1005.lines if l.product_code == "0200000375621")
         assert line.carton_qty == 1.0
 
 
@@ -251,9 +251,9 @@ class TestEdgeCases:
             b"UNH+1+ORDERS:D:96A:UN:EAN005'"
             b"BGM+220+4500099999+9'"
             b"DTM+137:20261122:102'"
-            b"NAD+BY+9421234567890::92'"
+            b"NAD+BY+0200000567897::92'"
             b"NAD+SU+VENDOR::92'"
-            b"LIN+00010++9414844375629:EN'"
+            b"LIN+00010++0200000375621:EN'"
             b"QTY+21:24.000:EA'"
             b"QTY+11:12.000:EA'"
             b"QTY+52:6.000:EA'"
@@ -304,9 +304,9 @@ class TestEdgeCases:
             b"UNH+1+ORDERS:D:96A:UN:EAN005'"
             b"BGM+220+4500099999+9'"
             b"DTM+137:20261122:102'"
-            b"NAD+BY+9421234567890::92'"
+            b"NAD+BY+0200000567897::92'"
             b"NAD+SU+VENDOR::92'"
-            b"LIN+00010++9414844375629:EN'"
+            b"LIN+00010++0200000375621:EN'"
             b"QTY+11:12.000:EA'"
             b"PRI+AAA:5.50'"
             b"LOC+7+1005::92'"

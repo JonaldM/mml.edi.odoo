@@ -69,10 +69,10 @@ Payload schema (plain dict; every value that varies in the fixtures is carried)
         {
             "cps_idx": 2,            # CPS hierarchy index (1=shipment; units run 2..N)
             "pac_type": "09",        # "09" pallet, "CT" carton
-            "sscc": "00593161000045350112",   # GIN+AW value (18-digit, verbatim)
+            "sscc": "00502000000045350114",   # GIN+AW value (18-digit, verbatim)
             "inner_cartons": 8,      # pallet only -> inner PAC+<n>++CT (omit/None for cartons)
             "line_no": "1",          # LIN line number
-            "gtin": "9310088126129", # optional -> LIN+n++<gtin>:SRV  (None/absent -> bare LIN+n)
+            "gtin": "0200000126124", # optional -> LIN+n++<gtin>:SRV  (None/absent -> bare LIN+n)
             "isc": "2581281",        # PIA+5 ... :IN
             "vendor_code": "VEN111", # PIA+1 ... :SA
             "qty": "96",             # QTY+12:<qty>:EA

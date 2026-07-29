@@ -78,7 +78,7 @@ class TestOrdrspGeneration:
 
     def test_approved_clean_uses_purpose_29(self):
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol = _make_sol(10, "9414844375629", "INT001", 10.0, 5.50, shortfall=0.0)
+        sol = _make_sol(10, "0200000375621", "INT001", 10.0, 5.50, shortfall=0.0)
         so = _make_so([sol])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
@@ -87,7 +87,7 @@ class TestOrdrspGeneration:
 
     def test_approved_with_shortfall_uses_purpose_4(self):
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol = _make_sol(10, "9414844375629", "INT001", 8.0, 5.50, shortfall=2.0)
+        sol = _make_sol(10, "0200000375621", "INT001", 8.0, 5.50, shortfall=2.0)
         so = _make_so([sol])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
@@ -102,7 +102,7 @@ class TestOrdrspGeneration:
 
     def test_accepted_line_action_5(self):
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol = _make_sol(10, "9414844375629", "INT001", 10.0, 5.50, shortfall=0.0)
+        sol = _make_sol(10, "0200000375621", "INT001", 10.0, 5.50, shortfall=0.0)
         so = _make_so([sol])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
@@ -111,7 +111,7 @@ class TestOrdrspGeneration:
 
     def test_shortfall_line_action_3(self):
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol = _make_sol(10, "9414844375629", "INT001", 8.0, 5.50, shortfall=2.0)
+        sol = _make_sol(10, "0200000375621", "INT001", 8.0, 5.50, shortfall=2.0)
         so = _make_so([sol])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
@@ -120,7 +120,7 @@ class TestOrdrspGeneration:
 
     def test_rejected_line_action_7(self):
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol = _make_sol(10, "9414844375629", "INT001", 10.0, 5.50, shortfall=0.0)
+        sol = _make_sol(10, "0200000375621", "INT001", 10.0, 5.50, shortfall=0.0)
         so = _make_so([sol])
         review = _make_review(state="rejected", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
@@ -131,7 +131,7 @@ class TestOrdrspGeneration:
         """A line short-shipped to zero (nothing available) is a line rejection
         (action 7), not a qty-change (action 3) carrying a confirmed qty of 0."""
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol = _make_sol(10, "9414844375629", "INT001", 0.0, 5.50, shortfall=10.0)
+        sol = _make_sol(10, "0200000375621", "INT001", 0.0, 5.50, shortfall=10.0)
         so = _make_so([sol])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
@@ -144,7 +144,7 @@ class TestOrdrspGeneration:
         """Regression: a partially short line (some qty ships) stays a qty-change
         (action 3), not a rejection."""
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol = _make_sol(10, "9414844375629", "INT001", 8.0, 5.50, shortfall=2.0)
+        sol = _make_sol(10, "0200000375621", "INT001", 8.0, 5.50, shortfall=2.0)
         so = _make_so([sol])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")
@@ -157,7 +157,7 @@ class TestOrdrspGeneration:
         block the ORDRSP — only shipping lines (qty > 0) need barcodes."""
         from mml_edi.parsers.kestrelby import _generate_ordrsp
         bad = _make_sol(10, "NOTANEAN", "OOS001", 0.0, 5.50, shortfall=10.0)
-        good = _make_sol(20, "9414844375629", "INT002", 4.0, 5.50, shortfall=0.0)
+        good = _make_sol(20, "0200000375621", "INT002", 4.0, 5.50, shortfall=0.0)
         so = _make_so([bad, good])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")  # must not raise UserError
@@ -188,8 +188,8 @@ class TestOrdrspGeneration:
     def test_multiple_lines_mixed_actions(self):
         """One accepted + one shortfall line -> purpose 4, actions 5 and 3."""
         from mml_edi.parsers.kestrelby import _generate_ordrsp
-        sol_ok = _make_sol(10, "9414844375629", "INT001", 10.0, 5.50, shortfall=0.0)
-        sol_short = _make_sol(20, "9414844375636", "INT002", 5.0, 0.55, shortfall=2.0)
+        sol_ok = _make_sol(10, "0200000375621", "INT001", 10.0, 5.50, shortfall=0.0)
+        sol_short = _make_sol(20, "0200000375638", "INT002", 5.0, 0.55, shortfall=2.0)
         so = _make_so([sol_ok, sol_short])
         review = _make_review(state="approved", so=so)
         text = _generate_ordrsp(review).decode("utf-8")

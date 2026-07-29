@@ -55,21 +55,21 @@ def test_escape_releases_release_char_first():
 
 # --- envelope qualifiers (octo C1) + CONTRL tail (octo C2) ---
 def test_unb_business_uses_supplier14_nimbrel_zzz_with_tail():
-    unb = build_unb("5412345000013", 12341, "200916", "1030")
-    assert unb.elements[1] == ["5412345000013", "14"]   # sender = supplier:14
+    unb = build_unb("0200000000011", 12341, "200916", "1030")
+    assert unb.elements[1] == ["0200000000011", "14"]   # sender = supplier:14
     assert unb.elements[2] == ["NIMBREL", "ZZZ"]        # recipient = NIMBREL:ZZZ
     assert unb.elements[-1] == ["1"]                      # business message trailing ack-request
     assert len(unb.elements) == 9                         # UNOC:3, sender, recipient, dt, ref, +++1
 
 def test_unb_contrl_omits_trailing_tail():
-    unb = build_unb("5412345000013", 99101, "200928", "1030", contrl=True)
+    unb = build_unb("0200000000011", 99101, "200928", "1030", contrl=True)
     assert unb.elements[-1] == ["99101"]                 # ends at the control reference
     assert len(unb.elements) == 5                        # no ++++1
 
 def test_unb_inbound_inverts_parties():
-    unb = build_unb("5412345000013", 12341, "200916", "1030", inbound=True)
+    unb = build_unb("0200000000011", 12341, "200916", "1030", inbound=True)
     assert unb.elements[1] == ["NIMBREL", "ZZZ"]
-    assert unb.elements[2] == ["5412345000013", "14"]
+    assert unb.elements[2] == ["0200000000011", "14"]
 
 
 # --- control-count validation on a self-built correct message ---

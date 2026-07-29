@@ -62,8 +62,8 @@ class TestSSCCRegister(EDITestSetup, TransactionCase):
     def test_get_or_create_uses_configured_gs1_prefix(self):
         picking = self._make_picking("SSCC-PREFIX-1")
         row = self.env["sscc.register"].get_or_create(picking, "carton-1")
-        self.assertTrue(row.sscc.startswith("0" + "0200000"))
-        self.assertEqual(row.gs1_prefix, "0200000")
+        self.assertTrue(row.sscc.startswith("0" + "9419416"))
+        self.assertEqual(row.gs1_prefix, "9419416")
 
     def test_get_or_create_persists_picking_and_unit_key(self):
         picking = self._make_picking("SSCC-PERSIST-1")

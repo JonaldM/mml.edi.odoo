@@ -10,9 +10,9 @@ Run on Hetzner dev instance:
         --test-tags /mml_edi --no-http --stop-after-init -u mml_edi
 
 Barcodes in sample files (must exist as products in setUp):
-    9414844375629  price 5.50
-    9414844375636  price 0.55
-    9414844375674  price 9.50
+    0200000375621  price 5.50
+    0200000375638  price 0.55
+    0200000375676  price 9.50
 
 Store codes in sample files: 1005, 1007
 """
@@ -49,21 +49,21 @@ class EDIKestrelbySetup(EDITestSetup):
         # Products matching barcode values in the Kestrelby EDIFACT sample files
         self.product_a = self.env["product.product"].create({
             "name": "Kestrelby Test Product A",
-            "barcode": "9414844375629",
+            "barcode": "0200000375621",
             "default_code": "375629",
             "list_price": 5.50,
             "type": "consu",
         })
         self.product_b = self.env["product.product"].create({
             "name": "Kestrelby Test Product B",
-            "barcode": "9414844375636",
+            "barcode": "0200000375638",
             "default_code": "375636",
             "list_price": 0.55,
             "type": "consu",
         })
         self.product_c = self.env["product.product"].create({
             "name": "Kestrelby Test Product C",
-            "barcode": "9414844375674",
+            "barcode": "0200000375676",
             "default_code": "375674",
             "list_price": 9.50,
             "type": "consu",
@@ -181,8 +181,8 @@ class TestKestrelbyOrdersIntegration(EDIKestrelbySetup, TransactionCase):
         review = self._find_review("4500038166", store_code="1005")
         so = review.sale_order_id
         barcodes = {line.product_id.barcode for line in so.order_line}
-        self.assertIn("9414844375629", barcodes)
-        self.assertIn("9414844375636", barcodes)
+        self.assertIn("0200000375621", barcodes)
+        self.assertIn("0200000375638", barcodes)
 
     def test_orders_review_state_is_pending(self):
         """With auto_confirm_clean=False, review state must be pending_review."""

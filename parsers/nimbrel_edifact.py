@@ -151,7 +151,7 @@ def serialize(segments, delims: Delims = None, una: str = DEFAULT_UNA) -> str:
 #: worked-example control ref/date from the MIG). A ``require_real=True`` caller
 #: gets an EdifactError if any of these leak through, so a production payload
 #: path can never silently ship placeholder identity (AN-01 / OPS-identity).
-_PLACEHOLDER_SENDER_IDS = frozenset({"SUPPLIER_GLN", "5412345000013"})
+_PLACEHOLDER_SENDER_IDS = frozenset({"SUPPLIER_GLN", "0200000000011"})
 _PLACEHOLDER_CTRL_REFS = frozenset({"12341", "99101", "78401"})
 _PLACEHOLDER_DATETIMES = frozenset({"200916", "200928", "200915"})
 

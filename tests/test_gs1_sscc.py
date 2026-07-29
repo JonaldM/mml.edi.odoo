@@ -15,21 +15,23 @@ from mml_edi.parsers.gs1_sscc import (
 # --- gs1_mod10_check_digit -------------------------------------------------
 
 def test_check_digit_matches_real_nimbrel_desadv_pallet_sscc():
-    """00593161000045350112 (AI 00 + 18-digit SSCC) from Nimbrel_DESADV.pdf p.56
-    is a genuine GS1 mod-10 SSCC — verifies our algorithm against a real one."""
-    sscc = "593161000045350112"
+    """00502000000045350114 (AI 00 + 18-digit SSCC) is a valid GS1 mod-10
+    SSCC test vector (internal-use 0200000-range company prefix) — verifies
+    our algorithm produces a check digit consistent with a known-good SSCC
+    of this shape, same structure as the Nimbrel_DESADV.pdf p.56 example."""
+    sscc = "502000000045350114"
     payload, check = sscc[:-1], sscc[-1]
     assert gs1_mod10_check_digit(payload) == check
 
 
 def test_check_digit_matches_real_nimbrel_desadv_carton_sscc():
-    sscc = "693161000027682504"
+    sscc = "602000000027682506"
     payload, check = sscc[:-1], sscc[-1]
     assert gs1_mod10_check_digit(payload) == check
 
 
 def test_check_digit_second_carton_sscc():
-    sscc = "693161000027682498"
+    sscc = "602000000027682490"
     payload, check = sscc[:-1], sscc[-1]
     assert gs1_mod10_check_digit(payload) == check
 
@@ -129,7 +131,7 @@ def test_validate_sscc18_rejects_wrong_length():
 
 
 def test_validate_sscc18_rejects_non_numeric():
-    assert validate_sscc18("59316100004535011X") is False
+    assert validate_sscc18("50200000004535011X") is False
 
 
 def test_validate_sscc18_rejects_bad_check_digit():

@@ -15,14 +15,14 @@ class TestKestrelbyASNGenerator(unittest.TestCase):
                 {
                     'store_gln': '1005',
                     'lines': [
-                        {'ean13': '9414844375629', 'qty': 10, 'seq': 10},
-                        {'ean13': '9414844375636', 'qty': 7, 'seq': 20},
+                        {'ean13': '0200000375621', 'qty': 10, 'seq': 10},
+                        {'ean13': '0200000375638', 'qty': 7, 'seq': 20},
                     ],
                 },
                 {
                     'store_gln': '1007',
                     'lines': [
-                        {'ean13': '9414844375629', 'qty': 7, 'seq': 30},
+                        {'ean13': '0200000375621', 'qty': 7, 'seq': 30},
                     ],
                 },
             ],
@@ -40,7 +40,7 @@ class TestKestrelbyASNGenerator(unittest.TestCase):
         self.assertIn('DESADV:D:96A:UN:EAN008', result)
         self.assertIn('BGM+351', result)
         self.assertIn('RFF+ON:4500038166', result)
-        self.assertIn('9414844375629:EN', result)
+        self.assertIn('0200000375621:EN', result)
         self.assertIn('QTY+12:10:EA', result)
         self.assertIn('UNS+S', result)
 
@@ -68,7 +68,7 @@ class TestKestrelbyASNGenerator(unittest.TestCase):
     def test_invalid_ean13_raises_value_error(self):
         gen = self._get_generator()
         bad = self._make_despatch()
-        bad['deliveries'][0]['lines'][0]['ean13'] = '9414844375620'  # wrong check digit
+        bad['deliveries'][0]['lines'][0]['ean13'] = '0200000375620'  # wrong check digit
         with self.assertRaises(ValueError):
             gen.generate(bad)
 

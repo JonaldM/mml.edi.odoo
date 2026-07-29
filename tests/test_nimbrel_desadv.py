@@ -70,10 +70,10 @@ PALLET_PAYLOAD = {
             # Pallet: opens CPS+2, carries inner-carton PAC+8++CT.
             "cps_idx": 2,
             "pac_type": "09",
-            "sscc": "00593161000045350112",
+            "sscc": "00502000000045350114",
             "inner_cartons": 8,
             "line_no": "1",
-            "gtin": "9310088126129",
+            "gtin": "0200000126124",
             "isc": "2581281",
             "vendor_code": "VEN111",
             "qty": "96",
@@ -83,7 +83,7 @@ PALLET_PAYLOAD = {
             # still opens its OWN CPS+3 (MIG worked example p.56-57).
             "cps_idx": 3,
             "pac_type": "CT",
-            "sscc": "00693161000027682504",
+            "sscc": "00602000000027682506",
             "line_no": "2",
             "isc": "2581888",
             "vendor_code": "VEN222",
@@ -93,7 +93,7 @@ PALLET_PAYLOAD = {
             # Second carton: free-standing -> opens CPS+4.
             "cps_idx": 4,
             "pac_type": "CT",
-            "sscc": "00693161000027682498",
+            "sscc": "00602000000027682490",
             "line_no": "3",
             "isc": "2581999",
             "vendor_code": "VEN333",
@@ -116,9 +116,9 @@ SPLIT_PAYLOAD = {
     "units": [
         {
             "pac_type": "CT",
-            "sscc": "193106531002906599",
+            "sscc": "102000001002906599",
             "line_no": "1",
-            "gtin": "9314598018011",
+            "gtin": "0200000018016",
             "isc": "2581777",
             "vendor_code": "VEN777",
             "qty": "24",

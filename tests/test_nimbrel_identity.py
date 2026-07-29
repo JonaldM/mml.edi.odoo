@@ -80,8 +80,8 @@ def test_get_unb_recipient_test_uses_tst1nimbrel():
 
 def test_build_unb_default_qualifiers_unchanged():
     """Existing DESADV/INVOIC/CONTRL positional call sites must be unaffected."""
-    unb = build_unb("5412345000013", 12341, "200916", "1030")
-    assert unb.elements[1] == ["5412345000013", "14"]
+    unb = build_unb("0200000000011", 12341, "200916", "1030")
+    assert unb.elements[1] == ["0200000000011", "14"]
     assert unb.elements[2] == ["NIMBREL", "ZZZ"]
 
 

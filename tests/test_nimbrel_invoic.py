@@ -41,7 +41,7 @@ def _fixture_payload():
             "state": "",
             "postcode": "1051",
             "country": "NZ",
-            "nzbn": "9429040432250",
+            "nzbn": "0200000432256",
         },
         "supplier": {
             "code": "V1058",

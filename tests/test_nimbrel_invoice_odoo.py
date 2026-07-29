@@ -55,7 +55,7 @@ class TestNimbrelInvoiceOdoo(EDITestSetup, TransactionCase):
         self.nimbrel_customer = self.env["res.partner"].create({
             "name": "Nimbrel NZ Holding LTD",
             "customer_rank": 1,
-            "vat": "9429040432250",
+            "vat": "0200000432256",
         })
         # per_store mode resolves NAD+ST to a child contact by ref; without
         # it the order blocks unknown_store and never auto-confirms.

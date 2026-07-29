@@ -92,7 +92,7 @@ formatting line amounts/price to 4dp and summary amounts/tax rate to 2dp.
         "state": "",             # C059/3164-like state element (empty for NZ here)
         "postcode": "1051",
         "country": "NZ",
-        "nzbn": "9429040432250", # RFF AMT under the buyer NAD
+        "nzbn": "0200000432256", # RFF AMT under the buyer NAD
       },
       "supplier": {              # NAD SU
         "code": "V1058",         # Nimbrel-assigned supplier code (qualifier 92)

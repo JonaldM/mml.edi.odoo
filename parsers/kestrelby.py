@@ -76,8 +76,8 @@ def _split_segments(raw: bytes) -> List[List[List[str]]]:
     Kestrelby EDIS files use as an alternate terminator.
 
     Example:
-      "LIN+00010++9414844375629:EN'" ->
-      [["LIN"], ["00010"], [""], ["9414844375629", "EN"]]
+      "LIN+00010++0200000375621:EN'" ->
+      [["LIN"], ["00010"], [""], ["0200000375621", "EN"]]
     """
     # Decode as Windows-1252 (superset of latin-1) to preserve 0x92 as a character
     text = raw.decode("cp1252", errors="replace")

@@ -216,7 +216,7 @@ def _basic_setup(qty_shipped=2.0, qty_invoiced=2.0):
         sale_line_ids=[sol],
         product_id=product,
     )
-    buyer_partner = FakePartner(vat="9429040432250")
+    buyer_partner = FakePartner(vat="0200000432256")
     company = FakeCompany(vat="12345678901")
     env = FakeEnv(company=company)
     move = FakeMoveHeader(
@@ -434,7 +434,7 @@ def test_payload_buyer_nzbn_from_config_param_overrides_partner_vat():
 def test_payload_buyer_nzbn_falls_back_to_partner_vat():
     move, sol, order, picking, move_line = _basic_setup()
     payload = build_invoic_payload_from_move(move, FakeTradingPartner())
-    assert payload["buyer"]["nzbn"] == "9429040432250"
+    assert payload["buyer"]["nzbn"] == "0200000432256"
 
 
 def test_payload_summary_totals_sum_line_moa():
