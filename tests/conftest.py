@@ -73,8 +73,16 @@ def _ensure_odoo_test_stubs() -> None:
     import unittest as _unittest
 
     class TransactionCase(_unittest.TestCase):
-        """Stub — real Odoo TransactionCase has an 'env' attribute."""
-        pass
+        """Stub — real Odoo TransactionCase has an 'env' attribute.
+
+        Subclasses are Odoo integration tests: they cannot run against this
+        stub, so skip them wholesale under plain pytest. They still run for
+        real via odoo-bin --test-enable, which never imports this conftest.
+        """
+
+        @classmethod
+        def setUpClass(cls):
+            raise _unittest.SkipTest("requires a running Odoo (odoo-bin --test-enable)")
 
     def tagged(*args, **kwargs):
         """Stub for Odoo's test-tag decorator — a no-op class decorator under
@@ -88,6 +96,7 @@ def _ensure_odoo_test_stubs() -> None:
     odoo_tests_common.tagged = tagged
     odoo_tests = types.ModuleType("odoo.tests")
     odoo_tests.common = odoo_tests_common
+    odoo_tests.TransactionCase = TransactionCase
     odoo_tests.tagged = tagged
 
     # Also stub the bare 'odoo' package if not already present so that
