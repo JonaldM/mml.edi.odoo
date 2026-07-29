@@ -14,7 +14,7 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
-from .common import EDITestSetup, make_clean_parsed_order
+from .common import EDITestSetup, make_clean_parsed_order, make_island_warehouse
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
@@ -35,8 +35,7 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
         # ISC (PIA+5:IN) is recovered by re-parsing the order raw_data, which
         # carries PIA+5+ISC001:IN — no product-field dependency.
         self.edi_outbox = tempfile.mkdtemp()
-        self.wh = self.env["stock.warehouse"].create(
-            {"name": "Animates Dispatch DC", "code": "ADDC", "roq_island": "north"})
+        self.wh = make_island_warehouse(self.env, "Animates Dispatch DC", "ADDC")
         self.env["ir.config_parameter"].sudo().set_param("mml_edi.asn_enabled", "1")
 
         self.animates_customer = self.env["res.partner"].create({

@@ -44,6 +44,22 @@ def make_idoc_raw(po_number, ordered_each=10.0, posex="00001"):
     ) % (po_number, posex, ordered_each, ordered_each)
 
 
+def make_island_warehouse(env, name, code):
+    """Create a test fulfilment DC, island-tagged when mml_roq_forecast is
+    installed.
+
+    ``roq_island`` is owned by mml_roq_forecast, which mml_edi soft-depends on
+    (see EDIProcessor._dc_available_qty). On prod-like DBs the tag routes
+    availability through the real _fulfilment_free_qty island fence; on a bare
+    DB (mml_edi installed alone) the field does not exist and the processor's
+    warehouse-scoped free_qty fallback is exercised instead.
+    """
+    vals = {"name": name, "code": code}
+    if "roq_island" in env["stock.warehouse"]._fields:
+        vals["roq_island"] = "north"
+    return env["stock.warehouse"].create(vals)
+
+
 class RecordingFTPHandler:
     """Network-free stand-in for EDIFTPHandler (ACK send-path tests).
 

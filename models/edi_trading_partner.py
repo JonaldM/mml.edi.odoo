@@ -285,26 +285,14 @@ class EDITradingPartner(models.Model):
         help="Minutes to wait before retrying after the circuit trips.",
     )
 
-    # ── EDI Interchange Identity ──────────────────────────────────────────
-    # Used to build the EDIFACT UNB interchange envelope for VAN partners
-    # (e.g. Animates via SPS Commerce). iDOC partners (Briscoes) route by GLN
-    # in the iDOC header rather than a UNB envelope, so these may be blank for
-    # them. Stored config consumed when the EDIFACT sender path is enabled.
+    # ── Vendor code (Settings screen) ─────────────────────────────────────
+    # edi_sender_id / edi_sender_qualifier / supplier_gln for the Settings
+    # screen are the canonical definitions in the "EDI Identity" section
+    # above (SPS certification build) — do NOT re-declare them here: a second
+    # fields.Char() on the same name silently clobbers the first (last
+    # assignment wins), which once flipped the certified ZZZ qualifier
+    # default to '14'.
 
-    edi_sender_id = fields.Char(
-        string="EDI Sender ID",
-        help="Interchange sender identification (typically the supplier GLN) "
-             "placed in the EDIFACT UNB segment.",
-    )
-    edi_sender_qualifier = fields.Char(
-        string="Sender Qualifier",
-        default="14",
-        help="UNB sender qualifier (14 = GLN / GS1 Global Location Number).",
-    )
-    supplier_gln = fields.Char(
-        string="Supplier GLN",
-        help="MML's GS1 Global Location Number for this trading relationship.",
-    )
     vendor_code = fields.Char(
         string="Vendor Code",
         help="The supplier/vendor account code this partner identifies MML by "

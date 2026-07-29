@@ -8,7 +8,7 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
-from .common import EDITestSetup, make_clean_parsed_order
+from .common import EDITestSetup, make_clean_parsed_order, make_island_warehouse
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
@@ -25,8 +25,7 @@ class TestShortShipPolicy(EDITestSetup, TransactionCase):
         self.test_product.is_storable = True
         # Route EDI orders to a controlled, island-tagged warehouse so availability
         # flows through the real _fulfilment_free_qty path (not the untagged fallback).
-        self.wh = self.env["stock.warehouse"].create(
-            {"name": "Short Ship DC", "code": "SSDC", "roq_island": "north"})
+        self.wh = make_island_warehouse(self.env, "Short Ship DC", "SSDC")
         self.trading_partner.write({
             "oos_policy": "short_ship",
             "warehouse_id": self.wh.id,
