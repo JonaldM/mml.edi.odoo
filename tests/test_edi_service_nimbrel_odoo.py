@@ -77,9 +77,9 @@ class TestEDIServiceNimbrelDispatch(EDITestSetup, TransactionCase):
             "warehouse_id": self.wh.id,
             "auto_confirm_clean": True,
             "oos_policy": "backorder",
-            "edi_sender_id": "0200000000008T",
+            "edi_sender_id": "0200000000004T",
             "edi_sender_qualifier": "ZZZ",
-            "supplier_gln": "0200000000008",
+            "supplier_gln": "0200000000004",
             "nimbrel_vendor_code": "V1058",
         })
         self.test_product.is_storable = True
@@ -90,7 +90,7 @@ class TestEDIServiceNimbrelDispatch(EDITestSetup, TransactionCase):
         order = make_clean_parsed_order(po_number=po_number, store_code=store_code, qty=qty)
         order.raw_data = (
             "UNA:+.? '"
-            "UNB+UNOC:3+0200000000008T:ZZZ+TST1NIMBREL:ZZZ+260703:0900+1++++1'"
+            "UNB+UNOC:3+0200000000004T:ZZZ+TST1NIMBREL:ZZZ+260703:0900+1++++1'"
             "UNH+1+ORDERS:D:01B:UN:EAN008'"
             "BGM+220+%s+9'"
             "NAD+ST+%s::92'"

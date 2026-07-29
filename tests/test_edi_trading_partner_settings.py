@@ -34,12 +34,12 @@ class TestEdiTradingPartnerSettings(TransactionCase, EDITestSetup):
 
     def test_identity_fields_writable(self):
         self.trading_partner.write({
-            "edi_sender_id": "0200099000007",
-            "supplier_gln": "0200099000007",
+            "edi_sender_id": "0200099000008",
+            "supplier_gln": "0200099000008",
             "vendor_code": "300024",
         })
-        self.assertEqual(self.trading_partner.edi_sender_id, "0200099000007")
-        self.assertEqual(self.trading_partner.supplier_gln, "0200099000007")
+        self.assertEqual(self.trading_partner.edi_sender_id, "0200099000008")
+        self.assertEqual(self.trading_partner.supplier_gln, "0200099000008")
         self.assertEqual(self.trading_partner.vendor_code, "300024")
 
     def test_store_partner_ids_relates_to_customer_children(self):

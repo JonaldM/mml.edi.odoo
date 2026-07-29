@@ -98,22 +98,22 @@ def test_validate_rejects_bad_party_qualifier():
 
 def test_validate_accepts_both_parties_zzz_qualified():
     # C1 identity contract: a partner configured via edi_sender_id (portal
-    # test-mailbox convention, e.g. 0200000000008T:ZZZ) + the always-ZZZ
+    # test-mailbox convention, e.g. 0200000000004T:ZZZ) + the always-ZZZ
     # Nimbrel recipient is a legitimate production envelope per the CONTRL
     # MIG (sender qualifier may be 14 OR ZZZ, independently of the recipient).
     segs = _build_min_message()
-    segs[0].elements[1] = ["0200000000008T", "ZZZ"]
+    segs[0].elements[1] = ["0200000000004T", "ZZZ"]
     assert validate_interchange(segs) is True
 
 def test_validate_rejects_unknown_qualifier():
     segs = _build_min_message()
-    segs[0].elements[1] = ["0200000000008", "91"]  # not a known Nimbrel qualifier
+    segs[0].elements[1] = ["0200000000004", "91"]  # not a known Nimbrel qualifier
     with pytest.raises(EdifactError):
         validate_interchange(segs)
 
 def test_validate_rejects_missing_qualifier():
     segs = _build_min_message()
-    segs[0].elements[1] = ["0200000000008"]  # qualifier component absent
+    segs[0].elements[1] = ["0200000000004"]  # qualifier component absent
     with pytest.raises(EdifactError):
         validate_interchange(segs)
 

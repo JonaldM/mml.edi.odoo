@@ -236,7 +236,7 @@ class FakeTradingPartner:
         self.code = code
 
     def get_unb_sender(self):
-        return "0200000000008", "ZZZ"
+        return "0200000000004", "ZZZ"
 
     def get_unb_recipient(self):
         return "NIMBREL", "ZZZ"

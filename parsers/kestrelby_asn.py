@@ -31,7 +31,7 @@ from .kestrelby import _edifact_escape
 
 _logger = logging.getLogger(__name__)
 
-_KESTRELBY_GLN = '0200099000007'
+_KESTRELBY_GLN = '0200099000008'
 _SEG_TERM = "'"
 
 

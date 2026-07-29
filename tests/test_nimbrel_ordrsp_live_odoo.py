@@ -56,9 +56,9 @@ class _NimbrelOrdrspLiveOdooBase(EDITestSetup, TransactionCase):
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.nimbrel.NimbrelParser",
             "order_split_mode": "single",
-            "edi_sender_id": "0200000000008T",
+            "edi_sender_id": "0200000000004T",
             "edi_sender_qualifier": "ZZZ",
-            "supplier_gln": "0200000000008",
+            "supplier_gln": "0200000000004",
             "nimbrel_vendor_code": "V1058",
             "environment": "test",
         })
@@ -209,7 +209,7 @@ class TestGenerateAckEnvelopeIdentityOdoo(_NimbrelOrdrspLiveOdooBase):
 
         segs = self._segs(review)
         unb = self._seg(segs, "UNB")[0]
-        self.assertEqual(unb.elements[1], ["0200000000008T", "ZZZ"])
+        self.assertEqual(unb.elements[1], ["0200000000004T", "ZZZ"])
         self.assertEqual(unb.elements[2], ["TST1NIMBREL", "ZZZ"])
         self.assertNotIn(unb.comp(4, 0), ("12341", "99101", "78401"))
 

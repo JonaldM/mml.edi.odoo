@@ -21,7 +21,7 @@ FIXTURES = Path(__file__).parent / "fixtures"
 ORDERS_RAW = (FIXTURES / "nimbrel_orders_PO169603.edi").read_text(encoding="iso-8859-1")
 
 
-def _partner(sender_id="0200000000008", sender_qual="ZZZ", environment="test"):
+def _partner(sender_id="0200000000004", sender_qual="ZZZ", environment="test"):
     return NS(
         get_unb_sender=lambda: (sender_id, sender_qual),
         get_unb_recipient=lambda: (
@@ -52,7 +52,7 @@ def test_generate_contrl_validates_as_interchange():
 def test_generate_contrl_validates_with_gln_fallback_sender():
     # GLN-fallback identity (qualifier 14) remains valid alongside ZZZ.
     out = NimbrelParser().generate_contrl(
-        ORDERS_RAW, _partner(sender_id="0200000000008", sender_qual="14"))
+        ORDERS_RAW, _partner(sender_id="0200000000004", sender_qual="14"))
     _, segs = edifact.tokenize(out.decode("latin-1"))
     assert edifact.validate_interchange(segs) is True
 
@@ -63,7 +63,7 @@ def test_generate_contrl_envelope_is_supplier_to_partner_recipient():
     out = NimbrelParser().generate_contrl(ORDERS_RAW, _partner(environment="test"))
     _, segs = edifact.tokenize(out.decode("latin-1"))
     unb = [s for s in segs if s.tag == "UNB"][0]
-    assert unb.elements[1] == ["0200000000008", "ZZZ"]
+    assert unb.elements[1] == ["0200000000004", "ZZZ"]
     assert unb.elements[2] == ["TST1NIMBREL", "ZZZ"]
 
 

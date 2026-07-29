@@ -44,14 +44,14 @@ _KESTRELBY_STORES = [
     ("1081", "Kestrelby - Riccarton"),
     ("1082", "Kestrelby - Papanui"),
     ("1090", "Kestrelby - Dunedin"),
-    ("2017", "Rebel Sport - Auckland City"),
-    ("2042", "Rebel Sport - Penrose"),
-    ("2050", "Rebel Sport - Hamilton"),
-    ("2070", "Rebel Sport - Wellington"),
-    ("2080", "Rebel Sport - Christchurch"),
-    ("3017", "Living & Giving - Auckland City"),
-    ("3070", "Living & Giving - Wellington"),
-    ("3080", "Living & Giving - Christchurch"),
+    ("2017", "Vantekka Sports - Auckland City"),
+    ("2042", "Vantekka Sports - Penrose"),
+    ("2050", "Vantekka Sports - Hamilton"),
+    ("2070", "Vantekka Sports - Wellington"),
+    ("2080", "Vantekka Sports - Christchurch"),
+    ("3017", "Larkbury Living - Auckland City"),
+    ("3070", "Larkbury Living - Wellington"),
+    ("3080", "Larkbury Living - Christchurch"),
 ]
 
 

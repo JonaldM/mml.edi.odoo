@@ -189,9 +189,9 @@ class EDITradingPartner(models.Model):
     edi_sender_id = fields.Char(
         string="EDI Sender ID",
         help="Our identity in the UNB interchange header sent to this partner "
-             "(e.g. our GLN: '0200000000008'). Portal test-mailbox convention "
+             "(e.g. our GLN: '0200000000004'). Portal test-mailbox convention "
              "appends a literal 'T' suffix for the TEST environment "
-             "(e.g. '0200000000008T', qualifier ZZZ) — some partners issue a "
+             "(e.g. '0200000000004T', qualifier ZZZ) — some partners issue a "
              "distinct test sender id rather than deriving it; set the exact "
              "value the partner's onboarding/portal assigned for each "
              "environment. See get_unb_sender().",

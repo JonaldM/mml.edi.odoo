@@ -157,13 +157,13 @@ _REAL_INTERCHANGE = {"date": "260703", "time": "1015"}
 def test_build_ordrsp_forwards_real_envelope_identity():
     payload = dict(ORDRSP_PAYLOAD, interchange=_REAL_INTERCHANGE)
     result = build_ordrsp(
-        payload, supplier_gln="0200000000008", ctrl_ref=555, msg_ref=1,
+        payload, supplier_gln="0200000000004", ctrl_ref=555, msg_ref=1,
         sender_qualifier="ZZZ", recipient="NIMBREL", recipient_qualifier="ZZZ",
         require_real=True,
     )
     _, segs = tokenize(result.decode("latin-1"))
     unb = [s for s in segs if s.tag == "UNB"][0]
-    assert unb.elements[1] == ["0200000000008", "ZZZ"]
+    assert unb.elements[1] == ["0200000000004", "ZZZ"]
     assert unb.elements[2] == ["NIMBREL", "ZZZ"]
 
 
@@ -177,7 +177,7 @@ def test_build_ordrsp_require_real_rejects_placeholder_sender():
 def test_build_ordrsp_require_real_rejects_placeholder_ctrl_ref():
     payload = dict(ORDRSP_PAYLOAD, interchange=_REAL_INTERCHANGE)
     with pytest.raises(EdifactError):
-        build_ordrsp(payload, supplier_gln="0200000000008", ctrl_ref=12341,
+        build_ordrsp(payload, supplier_gln="0200000000004", ctrl_ref=12341,
                      msg_ref=1, require_real=True)
 
 

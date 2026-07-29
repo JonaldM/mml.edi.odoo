@@ -76,6 +76,10 @@ def _ensure_odoo_test_stubs() -> None:
         """Stub — real Odoo TransactionCase has an 'env' attribute."""
         pass
 
+    class HttpCase(TransactionCase):
+        """Stub — real Odoo HttpCase additionally requires a running HTTP server."""
+        pass
+
     def tagged(*args, **kwargs):
         """Stub for Odoo's test-tag decorator — a no-op class decorator under
         pytest. Real Odoo uses it to schedule tests at_install/post_install."""
@@ -85,9 +89,22 @@ def _ensure_odoo_test_stubs() -> None:
 
     odoo_tests_common = types.ModuleType("odoo.tests.common")
     odoo_tests_common.TransactionCase = TransactionCase
+    odoo_tests_common.HttpCase = HttpCase
     odoo_tests_common.tagged = tagged
     odoo_tests = types.ModuleType("odoo.tests")
     odoo_tests.common = odoo_tests_common
+    # Match the root conftest.py's stub shape: some test files do
+    # `from odoo.tests import TransactionCase, tagged` directly (not via
+    # `.common`) — both forms must resolve identically to the same classes,
+    # or a module collected standalone (`cd mml_edi && pytest`, using only
+    # this local conftest) fails with "cannot import name 'TransactionCase'
+    # from 'odoo.tests'" even though the identical module collects fine when
+    # the whole repo's root conftest.py (which does set these directly) has
+    # already run first. Found via the fixture-reseed gate-repair guard test
+    # (test_tests_package_imports.py) failing under this file's own
+    # documented test-running convention.
+    odoo_tests.TransactionCase = TransactionCase
+    odoo_tests.HttpCase = HttpCase
     odoo_tests.tagged = tagged
 
     # Also stub the bare 'odoo' package if not already present so that

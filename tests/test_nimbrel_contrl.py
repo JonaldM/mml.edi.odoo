@@ -202,13 +202,13 @@ def test_parse_non_8_action_is_not_positive():
 
 def test_build_contrl_forwards_real_envelope_identity():
     out = build_contrl(
-        _ORDERS_INBOUND_PAYLOAD, supplier_gln="0200000000008", ctrl_ref=555,
+        _ORDERS_INBOUND_PAYLOAD, supplier_gln="0200000000004", ctrl_ref=555,
         msg_ref=1, sender_qualifier="ZZZ", recipient="NIMBREL",
         recipient_qualifier="ZZZ", require_real=True,
     )
     segs = _segs(out)
     unb = _by_tag(segs, "UNB")[0]
-    assert unb.elements[1] == ["0200000000008", "ZZZ"]
+    assert unb.elements[1] == ["0200000000004", "ZZZ"]
     assert unb.elements[2] == ["NIMBREL", "ZZZ"]
 
 
@@ -220,7 +220,7 @@ def test_build_contrl_require_real_rejects_placeholder_sender():
 
 def test_build_contrl_require_real_rejects_placeholder_ctrl_ref():
     with pytest.raises(EdifactError):
-        build_contrl(_ORDERS_INBOUND_PAYLOAD, supplier_gln="0200000000008",
+        build_contrl(_ORDERS_INBOUND_PAYLOAD, supplier_gln="0200000000004",
                      ctrl_ref=99101, msg_ref=1, require_real=True)
 
 

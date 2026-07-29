@@ -77,7 +77,7 @@ class TestSingleStoreParsing:
     def test_product_codes(self):
         line0 = self.orders[0].lines[0]
         # match key = MML internal code (QUALF 002 -> default_code), NOT the
-        # carton/shipper GTIN-14 (QUALF 003 = 10200000111909, the case barcode)
+        # carton/shipper GTIN-14 (QUALF 003 = 10200000111905, the case barcode)
         assert line0.product_code == "HESPG"
         assert line0.vendor_code == "HESPG"
         assert line0.buyer_article_no == "1023632"        # Kestrelby art (QUALF 001, zero-stripped)
@@ -155,7 +155,7 @@ class TestParseEdgeCases:
             '<E1EDKA1 SEGMENT="1"><PARVW>WE</PARVW><LIFNR>1050</LIFNR></E1EDKA1>'
             '<E1EDP01 SEGMENT="1"><POSEX>00010</POSEX><ACTION>002</ACTION>'
             '<BMNG2>6.000</BMNG2><PMENE>EA</PMENE><VPREI>9.29</VPREI><WERKS>1050</WERKS>'
-            '<E1EDP19 SEGMENT="1"><QUALF>003</QUALF><IDTNR>10200000111909</IDTNR></E1EDP19>'
+            '<E1EDP19 SEGMENT="1"><QUALF>003</QUALF><IDTNR>10200000111905</IDTNR></E1EDP19>'
             '</E1EDP01>'
             '<E1EDP01 SEGMENT="1"><POSEX>00020</POSEX><ACTION>003</ACTION>'
             '<BMNG2>4.000</BMNG2><PMENE>EA</PMENE><VPREI>1.00</VPREI><WERKS>1050</WERKS>'

@@ -82,7 +82,7 @@ class TestKestrelbyASNGenerator(unittest.TestCase):
     def test_kestrelby_gln_appears_in_nad_by(self):
         gen = self._get_generator()
         result = gen.generate(self._make_despatch())
-        self.assertIn('NAD+BY+0200099000007::14', result)
+        self.assertIn('NAD+BY+0200099000008::14', result)
 
     def test_special_characters_in_po_number_are_escaped(self):
         """EDIFACT delimiters in PO number must be escaped with the release character '?'."""

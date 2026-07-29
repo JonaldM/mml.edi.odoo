@@ -38,18 +38,18 @@ class TestNimbrelIdentityFields(TransactionCase):
             "order_split_mode": "per_store",
             "product_match_field": "default_code",
             "client_ref_template": "{po_number}",
-            "edi_sender_id": "0200000000008T",
+            "edi_sender_id": "0200000000004T",
             "edi_sender_qualifier": "ZZZ",
-            "supplier_gln": "0200000000008",
+            "supplier_gln": "0200000000004",
             "nimbrel_vendor_code": "V1058",
         })
 
     # --- field persistence -----------------------------------------------
 
     def test_identity_fields_persist(self):
-        self.assertEqual(self.partner.edi_sender_id, "0200000000008T")
+        self.assertEqual(self.partner.edi_sender_id, "0200000000004T")
         self.assertEqual(self.partner.edi_sender_qualifier, "ZZZ")
-        self.assertEqual(self.partner.supplier_gln, "0200000000008")
+        self.assertEqual(self.partner.supplier_gln, "0200000000004")
         self.assertEqual(self.partner.nimbrel_vendor_code, "V1058")
 
     def test_edi_sender_qualifier_defaults_to_zzz(self):
@@ -70,13 +70,13 @@ class TestNimbrelIdentityFields(TransactionCase):
 
     def test_get_unb_sender_uses_explicit_sender_id_over_gln(self):
         self.assertEqual(
-            self.partner.get_unb_sender(), ("0200000000008T", "ZZZ")
+            self.partner.get_unb_sender(), ("0200000000004T", "ZZZ")
         )
 
     def test_get_unb_sender_falls_back_to_gln(self):
         self.partner.write({"edi_sender_id": False})
         self.assertEqual(
-            self.partner.get_unb_sender(), ("0200000000008", "14")
+            self.partner.get_unb_sender(), ("0200000000004", "14")
         )
 
     def test_get_unb_sender_raises_useerror_when_unconfigured(self):
@@ -141,6 +141,6 @@ class TestNimbrelIdentityFields(TransactionCase):
         Seq = self.env["ir.sequence"].sudo()
         ctrl_ref = Seq.next_by_code("mml_edi.nimbrel.interchange.ref")
         unb = build_unb_for_partner(self.partner, ctrl_ref, "260703", "0900")
-        self.assertEqual(unb.elements[1], ["0200000000008T", "ZZZ"])
+        self.assertEqual(unb.elements[1], ["0200000000004T", "ZZZ"])
         self.assertEqual(unb.elements[2], ["TST1NIMBREL", "ZZZ"])
         self.assertEqual(unb.elements[4], [str(ctrl_ref)])

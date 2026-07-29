@@ -24,7 +24,7 @@ def _partner(code="V1058", vendor_code="V1058", environment="test", sender_qual=
     return NS(
         code=code,
         nimbrel_vendor_code=vendor_code,
-        get_unb_sender=lambda: ("0200000000008T", sender_qual),
+        get_unb_sender=lambda: ("0200000000004T", sender_qual),
         get_unb_recipient=lambda: (
             ("TST1NIMBREL", "ZZZ") if environment == "test" else ("NIMBREL", "ZZZ")
         ),
@@ -219,7 +219,7 @@ def test_generate_ack_uses_real_envelope_identity_not_placeholders():
     out = NimbrelParser().generate_ack(review)
     segs = _segs_from_bytes(out)
     unb = _seg(segs, "UNB")[0]
-    assert unb.elements[1] == ["0200000000008T", "ZZZ"]
+    assert unb.elements[1] == ["0200000000004T", "ZZZ"]
     assert unb.elements[2] == ["TST1NIMBREL", "ZZZ"]
     assert unb.comp(4, 0) not in ("12341", "99101", "78401")
 
