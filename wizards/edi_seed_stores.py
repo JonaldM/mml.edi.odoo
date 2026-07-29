@@ -4,46 +4,46 @@ Wizard to seed store/customer child partners under a trading partner's
 Odoo customer record.
 
 Two modes, auto-detected from the trading partner's parser_class:
-  - Briscoes (BriscoesIDOCParser): flat store list, numeric refs.
-  - Animates (AnimatesParser): store list embedded from the Animates
-    Clinic/Store Master File (wizards/animates_store_master_data.py),
+  - Kestrelby (KestrelbyIDOCParser): flat store list, numeric refs.
+  - Nimbrel (NimbrelParser): store list embedded from the Nimbrel
+    Clinic/Store Master File (wizards/nimbrel_store_master_data.py),
     2-digit + "R-xx" refs. See that module's docstring for the
     clinic/retail collision handling (gate review AN-13/OPS-5).
 
-Used for fresh installs / dev environments. In production, Briscoes store
+Used for fresh installs / dev environments. In production, Kestrelby store
 partners already exist from the legacy .NET system — running this wizard
 is safe (idempotent: skips/updates by res.partner.ref scoped to the parent
 customer, never creates a duplicate).
 
 Ref-collision safety: lookups/creates are always scoped to
-("parent_id", "=", parent_partner.id) so Animates' 2-digit refs (e.g. "08")
-can never collide with Briscoes' numeric refs (e.g. "1017") even though
+("parent_id", "=", parent_partner.id) so Nimbrel' 2-digit refs (e.g. "08")
+can never collide with Kestrelby' numeric refs (e.g. "1017") even though
 both trading partners' customers may exist in the same database — they sit
 under different parents.
 """
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
-from .animates_store_master_data import get_animates_stores
+from .nimbrel_store_master_data import get_nimbrel_stores
 
-# Briscoes store master data — update when new stores are added
+# Kestrelby store master data — update when new stores are added
 # Format: (store_code, store_name)
-_BRISCOES_STORES = [
-    ("1017", "Briscoes - Auckland City"),
-    ("1042", "Briscoes - Penrose"),
-    ("1043", "Briscoes - Manukau"),
-    ("1044", "Briscoes - Albany"),
-    ("1045", "Briscoes - Westgate"),
-    ("1046", "Briscoes - Henderson"),
-    ("1050", "Briscoes - Hamilton"),
-    ("1060", "Briscoes - Tauranga"),
-    ("1070", "Briscoes - Wellington City"),
-    ("1071", "Briscoes - Petone"),
-    ("1072", "Briscoes - Porirua"),
-    ("1080", "Briscoes - Christchurch"),
-    ("1081", "Briscoes - Riccarton"),
-    ("1082", "Briscoes - Papanui"),
-    ("1090", "Briscoes - Dunedin"),
+_KESTRELBY_STORES = [
+    ("1017", "Kestrelby - Auckland City"),
+    ("1042", "Kestrelby - Penrose"),
+    ("1043", "Kestrelby - Manukau"),
+    ("1044", "Kestrelby - Albany"),
+    ("1045", "Kestrelby - Westgate"),
+    ("1046", "Kestrelby - Henderson"),
+    ("1050", "Kestrelby - Hamilton"),
+    ("1060", "Kestrelby - Tauranga"),
+    ("1070", "Kestrelby - Wellington City"),
+    ("1071", "Kestrelby - Petone"),
+    ("1072", "Kestrelby - Porirua"),
+    ("1080", "Kestrelby - Christchurch"),
+    ("1081", "Kestrelby - Riccarton"),
+    ("1082", "Kestrelby - Papanui"),
+    ("1090", "Kestrelby - Dunedin"),
     ("2017", "Rebel Sport - Auckland City"),
     ("2042", "Rebel Sport - Penrose"),
     ("2050", "Rebel Sport - Hamilton"),
@@ -56,10 +56,10 @@ _BRISCOES_STORES = [
 
 
 # parser_class values (see models/edi_trading_partner.py _ALLOWED_PARSER_CLASSES)
-# that select Animates seed mode. Anything else falls back to Briscoes mode —
-# the wizard predates multi-partner support and Briscoes has no marker of its
-# own, so Animates is the ONLY mode that opts in explicitly.
-_ANIMATES_PARSER_CLASS = "mml_edi.parsers.animates.AnimatesParser"
+# that select Nimbrel seed mode. Anything else falls back to Kestrelby mode —
+# the wizard predates multi-partner support and Kestrelby has no marker of its
+# own, so Nimbrel is the ONLY mode that opts in explicitly.
+_NIMBREL_PARSER_CLASS = "mml_edi.parsers.nimbrel.NimbrelParser"
 
 
 class EDISeedStoresWizard(models.TransientModel):
@@ -86,14 +86,14 @@ class EDISeedStoresWizard(models.TransientModel):
 
     def _seed_store_rows(self):
         """Return the (store_code, store_name) rows to seed for this wizard's
-        trading partner. Animates partners (by parser_class) get the embedded
-        Clinic/Store Master table; everything else gets the legacy Briscoes
-        list — this wizard predates multi-partner support and Briscoes has no
+        trading partner. Nimbrel partners (by parser_class) get the embedded
+        Clinic/Store Master table; everything else gets the legacy Kestrelby
+        list — this wizard predates multi-partner support and Kestrelby has no
         explicit opt-in marker of its own."""
         self.ensure_one()
-        if self.trading_partner_id.parser_class == _ANIMATES_PARSER_CLASS:
-            return [(code, name) for code, name, _region in get_animates_stores()]
-        return _BRISCOES_STORES
+        if self.trading_partner_id.parser_class == _NIMBREL_PARSER_CLASS:
+            return [(code, name) for code, name, _region in get_nimbrel_stores()]
+        return _KESTRELBY_STORES
 
     def action_seed_stores(self):
         """Create/update store partners. Idempotent: re-running never creates
@@ -117,8 +117,8 @@ class EDISeedStoresWizard(models.TransientModel):
         skipped = 0
 
         for store_code, store_name in store_rows:
-            # Scoped to parent_id so Animates' 2-digit/"R-xx" refs can never
-            # collide with Briscoes' numeric refs even if both customers
+            # Scoped to parent_id so Nimbrel' 2-digit/"R-xx" refs can never
+            # collide with Kestrelby' numeric refs even if both customers
             # exist in the same database (see module docstring).
             existing = self.env["res.partner"].search([
                 ("parent_id", "=", parent_partner.id),

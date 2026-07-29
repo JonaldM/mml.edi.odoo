@@ -6,7 +6,7 @@ Aggregates the landing-dashboard payload from the three EDI models
 client action ``edi_dashboard``. Mirrors the carrier-agnostic 3PL dashboard
 contract (``3pl.kpi.dashboard.get_kpi_summary``): one batched, read-mostly
 ``@api.model`` method returns the whole board, narrowed by an optional
-trading-partner scope so the segmented "All / Briscoes / Animates" control
+trading-partner scope so the segmented "All / Kestrelby / Nimbrel" control
 recomputes every number, list and feed on the screen.
 
 Honesty caveats baked into the design copy (README "Fidelity") survive to

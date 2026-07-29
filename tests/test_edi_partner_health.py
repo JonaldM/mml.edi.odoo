@@ -32,7 +32,7 @@ class TestEdiPartnerHealth(TransactionCase, EDITestSetup):
             "code": "SFTPB",
             "partner_id": self.trading_partner.partner_id.id,
             "edi_format": "idoc_xml",
-            "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
+            "parser_class": "mml_edi.parsers.kestrelby.KestrelbyParser",
             "ftp_protocol": "sftp",
             "ftp_host": "sftp.b.local",
             "ftp_port": 22,

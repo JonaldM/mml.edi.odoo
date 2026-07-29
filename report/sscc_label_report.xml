@@ -3,7 +3,7 @@
     <data>
 
         <!-- A6 (105mm x 148mm) paper format — the label is fixed-size real
-             estate per Animates_SSCC_Label_Specification.pdf p.4: "The label
+             estate per Nimbrel_SSCC_Label_Specification.pdf p.4: "The label
              MUST NOT be re formatted." No header/footer margin, no company
              letterhead — this is a shipping label, not a business document. -->
         <record id="paperformat_sscc_label_a6" model="report.paperformat">
@@ -22,7 +22,7 @@
         </record>
 
         <record id="action_report_sscc_label" model="ir.actions.report">
-            <field name="name">Animates SSCC Label</field>
+            <field name="name">Nimbrel SSCC Label</field>
             <field name="model">sscc.register</field>
             <field name="report_type">qweb-pdf</field>
             <field name="report_name">mml_edi.report_sscc_label</field>

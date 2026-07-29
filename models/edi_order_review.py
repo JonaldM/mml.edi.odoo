@@ -468,8 +468,8 @@ class EDIOrderReview(models.Model):
         Send ONE acknowledgement for the WHOLE PO, once every store-review for it
         is resolved.
 
-        Briscoes (and EDI partners generally) expect a single per-PO response —
-        verified against real Briscoes ORDRSPs, where one response covered all 47
+        Kestrelby (and EDI partners generally) expect a single per-PO response —
+        verified against real Kestrelby ORDRSPs, where one response covered all 47
         stores of a PO. Because we split a PO into one review per store, this is:
 
         - **per-PO**: the parser's generate_ack echoes the full PO (all stores);

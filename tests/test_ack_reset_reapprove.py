@@ -2,7 +2,7 @@
 
 action_reset_to_review used to leave the old ack_sent/success log matching the
 identical exchange filename, so a corrected re-approve silently never sent —
-Briscoes kept the stale confirmed quantities. Now a reset AFTER a sent ACK
+Kestrelby kept the stale confirmed quantities. Now a reset AFTER a sent ACK
 bumps ack_attempt on every sibling store-review of the exchange; the filename
 gains an '_aN' suffix, so the corrected ORDRSP goes out as a fresh exchange,
 _compute_ack_status reads the LATEST attempt, and retry_pending_acks targets
@@ -25,7 +25,7 @@ class TestAckResetReapprove(EDITestSetup, TransactionCase):
         super().setUp()
         self.setup_edi_test_data()
         self.trading_partner.parser_class = (
-            "mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser")
+            "mml_edi.parsers.kestrelby_idoc.KestrelbyIDOCParser")
         try:
             from odoo.addons.mml_edi.models import edi_ftp as edi_ftp_mod
         except ImportError:

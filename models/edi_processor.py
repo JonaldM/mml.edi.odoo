@@ -211,7 +211,7 @@ class EDIProcessor(models.AbstractModel):
         """Re-queue ORDRSP/ACKs that should have been sent but weren't.
 
         A deferred ACK upload can fail (FTP down, transient error) and is logged
-        ack_sent/error but never retried — Briscoes then never gets a response.
+        ack_sent/error but never retried — Kestrelby then never gets a response.
         This cron finds POs whose store-reviews are ALL resolved (none still in
         pending_review) yet have no successful ack_sent log row, and re-queues the
         ACK. Idempotent: _queue_ack() defers while any sibling is pending and is
@@ -233,7 +233,7 @@ class EDIProcessor(models.AbstractModel):
         requeued = 0
         for review in resolved:
             # C5: a cancellation review is a terminal, no-ACK record by design
-            # — it must NEVER be offered to _queue_ack (Animates gets a CONTRL
+            # — it must NEVER be offered to _queue_ack (Nimbrel gets a CONTRL
             # only). Checked first so a cancellation can never enter the
             # per-exchange dedup set and (via seen_exchanges) accidentally
             # suppress a legitimate sibling exchange's retry.
@@ -524,7 +524,7 @@ class EDIProcessor(models.AbstractModel):
         # AN-02: every inbound ORDERS interchange gets exactly one supplier
         # CONTRL, mandatory regardless of business outcome (accept/reject/
         # cancel) — emitted once per file/interchange, not per PO. hasattr-
-        # guarded so partners whose parser has no CONTRL support (Briscoes)
+        # guarded so partners whose parser has no CONTRL support (Kestrelby)
         # are a strict no-op; must never raise into the poll loop.
         try:
             self._emit_inbound_contrl(partner, file_hash)
@@ -539,7 +539,7 @@ class EDIProcessor(models.AbstractModel):
         one just-processed inbound interchange (C4 / AN-02).
 
         No-op (hasattr-guarded) for any parser without generate_contrl (e.g.
-        Briscoes) — preserves that partner's behaviour byte-for-byte. Failure
+        Kestrelby) — preserves that partner's behaviour byte-for-byte. Failure
         here is logged (rate-limited alert) and NEVER raised into the poll
         loop: a missing/failed CONTRL must not turn a successfully processed
         ORDERS file into a failed poll (that would re-download and re-process
@@ -618,7 +618,7 @@ class EDIProcessor(models.AbstractModel):
     # with errors='replace' permanently corrupts any non-ASCII byte (0x80-0xFF)
     # into U+FFFD BEFORE the parser ever sees it — a Latin-1 round-trip cannot
     # recover the original character once replaced (verified missed finding,
-    # AN gate review). iDOC/CSV partners (Briscoes) are unaffected and keep
+    # AN gate review). iDOC/CSV partners (Kestrelby) are unaffected and keep
     # their existing utf-8 decode.
     _EDIFACT_FORMATS = frozenset({"edifact_d96a", "edifact_d01b"})
 
@@ -654,13 +654,13 @@ class EDIProcessor(models.AbstractModel):
         'parsed 0 orders' for a CONTRL body with no BGM/LIN.
 
         A NEGATIVE CONTRL (action code other than '8' = interchange received)
-        must create a blocking review, not vanish — Animates uses only '8' by
+        must create a blocking review, not vanish — Nimbrel uses only '8' by
         spec, but the wire is not trusted to enforce that.
         """
         parser = partner.get_parser_instance()
         parse_contrl = getattr(parser, "parse_contrl", None)
         if not callable(parse_contrl):
-            # Parser has no CONTRL support (e.g. Briscoes) — nothing to do;
+            # Parser has no CONTRL support (e.g. Kestrelby) — nothing to do;
             # the probe in _is_contrl_message is best-effort and format-
             # agnostic, so a partner without CONTRL support simply can't
             # receive one in practice, but guard anyway (hasattr contract).
@@ -735,13 +735,13 @@ class EDIProcessor(models.AbstractModel):
         partial/wrong order. No-ops for non-EDIFACT partners and for any
         partner whose parser/trading-partner record doesn't yet expose the
         validator or the C1 sender-identity helpers (hasattr-guarded so this
-        never regresses Briscoes and degrades gracefully before Wave1-A's
+        never regresses Kestrelby and degrades gracefully before Wave1-A's
         partner fields land).
         """
         if partner.edi_format not in self._EDIFACT_FORMATS:
             return
         try:
-            from ..parsers import animates_edifact as edifact_mod
+            from ..parsers import nimbrel_edifact as edifact_mod
         except Exception:
             # Shared EDIFACT helper module absent/broken — skip rather than
             # block every inbound EDIFACT file on an import error.
@@ -797,7 +797,7 @@ class EDIProcessor(models.AbstractModel):
 
         raw_text = self._decode_raw_text(content, partner)
 
-        # AN-15: an inbound CONTRL (SPS/Animates acking OUR outbound ORDRSP or
+        # AN-15: an inbound CONTRL (SPS/Nimbrel acking OUR outbound ORDRSP or
         # ORDERS) must be routed to parse_contrl, not silently swallowed as
         # "parsed 0 orders" by the ORDERS parser. Checked before parse_file so
         # a CONTRL body (no BGM/LIN) never reaches the ORDERS code path at all.
@@ -806,7 +806,7 @@ class EDIProcessor(models.AbstractModel):
             return []
 
         # AN envelope validation: catches truncated/malformed interchanges and
-        # sender/recipient mismatches (wrong mailbox, TST1ANIMATES vs ANIMATES)
+        # sender/recipient mismatches (wrong mailbox, TST1NIMBREL vs NIMBREL)
         # BEFORE any order is parsed from them — fail-closed, not partial-accept.
         self._validate_inbound_envelope(raw_text, partner)
 
@@ -829,9 +829,9 @@ class EDIProcessor(models.AbstractModel):
         failures = []
         for order in parsed_orders:
             # Only fill raw_data when the parser did not already set it — a
-            # parser (e.g. Briscoes) that decodes and stores its own raw_data
+            # parser (e.g. Kestrelby) that decodes and stores its own raw_data
             # is trusted over this generic fallback; this only fires for
-            # parsers (e.g. Animates) that leave it to the processor.
+            # parsers (e.g. Nimbrel) that leave it to the processor.
             if not order.raw_data:
                 order.raw_data = raw_text
             try:
@@ -884,7 +884,7 @@ class EDIProcessor(models.AbstractModel):
         """
         client_ref = partner.render_client_ref(order.po_number, order.store_code)
 
-        # C5: a cancellation (BGM 1225=1, Animates) carries no order lines and
+        # C5: a cancellation (BGM 1225=1, Nimbrel) carries no order lines and
         # must NEVER be treated as a change order that mutates+re-confirms a
         # SO, and must NEVER queue an ORDRSP — only a CONTRL. Routed before
         # the change_order/new_order split so it can never fall through to
@@ -936,7 +936,7 @@ class EDIProcessor(models.AbstractModel):
             "company_id": self.env.company.id,
         }
         # Indent detection: a delivery date far in the future marks a FORWARD
-        # COMMITMENT (e.g. Briscoes indent POs placed months ahead of stock
+        # COMMITMENT (e.g. Kestrelby indent POs placed months ahead of stock
         # arrival). Indents skip the OOS short-ship gate — the stock is
         # EXPECTED to be absent at import — and are held from the 3PL until
         # their release window (see stock_3pl_rohlig outbound gating).
@@ -946,7 +946,7 @@ class EDIProcessor(models.AbstractModel):
             so_vals['commitment_date'], fields.Datetime.now(), indent_days)
         # Carry the clean customer PO number onto the SO. Per-store SOs otherwise
         # only have the suffixed client_order_ref (e.g. "4500180080_1080"); the
-        # full Briscoes PO must be visible per store for matching, packing slips
+        # full Kestrelby PO must be visible per store for matching, packing slips
         # and downstream Enabling reports. Set both the standard field and the
         # legacy Studio field when present (guarded so other DBs don't break).
         _so_fields = self.env['sale.order']._fields
@@ -1031,7 +1031,7 @@ class EDIProcessor(models.AbstractModel):
             review.write({"state": "auto_approved"})
             # ACK is sent once per PO after the whole file is processed,
             # committed and renamed (see poll loop -> _send_file_responses) —
-            # Briscoes expects a single per-PO ORDRSP.
+            # Kestrelby expects a single per-PO ORDRSP.
             self.env["edi.log"].log(
                 partner, "inbound", "order_created", "success",
                 "Auto-approved: SO %s from %s" % (so.name, filename),
@@ -1132,7 +1132,7 @@ class EDIProcessor(models.AbstractModel):
             policy = 'backorder'
         # Short-ship math and availability are both in EA. If a line ever arrives in
         # a non-EA UoM (e.g. cartons), ordered and available aren't comparable —
-        # accept in full rather than mis-ship (plan decision 5.5; all live Briscoes
+        # accept in full rather than mis-ship (plan decision 5.5; all live Kestrelby
         # lines are EA today, this guards a future format change).
         line_uom = (getattr(parsed_line, 'uom', None) or '').strip().upper()
         uom_shippable = line_uom in ('', 'EA', 'EACH', 'PCE', 'PC', 'UNIT', 'UNITS')
@@ -1217,7 +1217,7 @@ class EDIProcessor(models.AbstractModel):
         # ~15% discrepancy here and is flagged per line. edi.trading.partner only
         # surfaces a non-blocking advisory (pricelist_gst_warning) when products
         # carry an inc-GST tax — it no longer hard-blocks, because a product can
-        # legitimately hold both taxes while being priced ex-GST (e.g. Animates).
+        # legitimately hold both taxes while being priced ex-GST (e.g. Nimbrel).
         system_price = self._get_pricelist_price(product, parsed_line.quantity, partner)
         if system_price is not None:
             _logger.debug(
@@ -1712,7 +1712,7 @@ class EDIProcessor(models.AbstractModel):
         """Find an existing EDI SO by client reference, scoped to the trading
         partner and company (IDEM major 3). An unrelated SO that happens to
         carry the same client_order_ref (e.g. a manually-entered ref colliding
-        with Animates' bare '{po_number}' template) must never suppress a real
+        with Nimbrel' bare '{po_number}' template) must never suppress a real
         order as duplicate_skipped. Returns record or None."""
         return self.env["sale.order"].search([
             ("client_order_ref", "=", client_ref),

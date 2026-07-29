@@ -29,7 +29,7 @@ class TestAckSendClaim(EDITestSetup, TransactionCase):
         # Real production ACK path: the iDOC parser (allow-listed) working off
         # the review's stored raw iDOC. FTP is a recording fake — no network.
         self.trading_partner.parser_class = (
-            "mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser")
+            "mml_edi.parsers.kestrelby_idoc.KestrelbyIDOCParser")
         try:
             from odoo.addons.mml_edi.models import edi_ftp as edi_ftp_mod
         except ImportError:

@@ -7,7 +7,7 @@ Per file the poll loop MUST do, in this order:
 
 The DB must be durable BEFORE the rename (a worker death after the rename but
 before a commit would silently lose the PO forever), and the ACK must go LAST
-(Briscoes must never hold an ORDRSP for uncommitted state).
+(Kestrelby must never hold an ORDRSP for uncommitted state).
 
 Also covered: the advisory lock is taken at the top of the poll AND re-taken
 after each commit (pg_advisory_xact_lock is transaction-scoped, so every

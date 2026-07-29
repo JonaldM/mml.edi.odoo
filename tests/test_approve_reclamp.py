@@ -172,7 +172,7 @@ class TestApproveReclamp(EDITestSetup, TransactionCase):
     # ── ORDRSP reflects the POST-reclamp quantity ──────────────────────────
 
     def test_ordrsp_wmeng_reflects_reclamped_qty(self):
-        """The iDOC ACK reads the LIVE sol qty (briscoes_idoc reads
+        """The iDOC ACK reads the LIVE sol qty (kestrelby_idoc reads
         product_uom_qty per POSEX), so after an approve-time re-clamp the
         ORDRSP must carry the re-clamped DELIVERABLE qty in E1EDP20/WMENG
         (per the iDOC ORDRSP IG v1.7 — BMNG2 always echoes the ORDERED qty,
@@ -185,10 +185,10 @@ class TestApproveReclamp(EDITestSetup, TransactionCase):
         review = self._process("AR-ACK-1")
         line = self._line(review)
         # Swap in an iDOC raw file + the iDOC parser so generate_ack runs the
-        # production Briscoes path (POSEX 00001 == the line's edi_line_number 1).
+        # production Kestrelby path (POSEX 00001 == the line's edi_line_number 1).
         review.edi_raw_data = make_idoc_raw("AR-ACK-1", ordered_each=10.0)
         self.trading_partner.parser_class = (
-            "mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser")
+            "mml_edi.parsers.kestrelby_idoc.KestrelbyIDOCParser")
         self._drain_stock(6)  # 4 left at approve time
 
         RecordingFTPHandler.reset()

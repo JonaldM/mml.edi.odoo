@@ -4,12 +4,12 @@ from datetime import datetime, timezone
 
 _logger = logging.getLogger(__name__)
 
-# Parser classes routed to the Animates DESADV path. Kept as a small frozenset
+# Parser classes routed to the Nimbrel DESADV path. Kept as a small frozenset
 # (like edi_trading_partner._ALLOWED_PARSER_CLASSES) rather than a field on
 # edi.trading.partner, so adding a future EDIFACT-DESADV partner is a
 # one-line change here with no migration.
-_ANIMATES_PARSER_CLASSES = frozenset({
-    "mml_edi.parsers.animates.AnimatesParser",
+_NIMBREL_PARSER_CLASSES = frozenset({
+    "mml_edi.parsers.nimbrel.NimbrelParser",
 })
 
 
@@ -32,13 +32,13 @@ class EDIService:
         event.res_id    = stock.picking id
 
         Per-partner dispatch (AN-03/OPS-6): the despatch hook used to be
-        hardcoded to the Briscoes iDOC ASN format. It now routes on the
+        hardcoded to the Kestrelby iDOC ASN format. It now routes on the
         trading partner's parser_class, exactly like edi.trading_partner.
-        get_parser_instance() does for inbound parsing — Briscoes keeps its
-        existing behaviour byte-for-byte (see _dispatch_briscoes /
-        _build_despatch_dict_briscoes / _generate_and_upload_asn_briscoes,
-        unchanged from the pre-refactor implementation), Animates gets a new
-        DESADV path (_dispatch_animates).
+        get_parser_instance() does for inbound parsing — Kestrelby keeps its
+        existing behaviour byte-for-byte (see _dispatch_kestrelby /
+        _build_despatch_dict_kestrelby / _generate_and_upload_asn_kestrelby,
+        unchanged from the pre-refactor implementation), Nimbrel gets a new
+        DESADV path (_dispatch_nimbrel).
         """
         enabled = self.env['ir.config_parameter'].sudo().get_param(
             'mml_edi.asn_enabled', '0'
@@ -71,20 +71,20 @@ class EDIService:
             )
             return
 
-        if partner.parser_class in _ANIMATES_PARSER_CLASSES:
-            self._dispatch_animates(picking, sale_order, partner)
+        if partner.parser_class in _NIMBREL_PARSER_CLASSES:
+            self._dispatch_nimbrel(picking, sale_order, partner)
         else:
-            self._dispatch_briscoes(picking, sale_order, partner)
+            self._dispatch_kestrelby(picking, sale_order, partner)
 
-    # ── Briscoes path (pre-existing behaviour, unchanged) ───────────────────
+    # ── Kestrelby path (pre-existing behaviour, unchanged) ───────────────────
 
-    def _dispatch_briscoes(self, picking, sale_order, partner) -> None:
-        despatch = self._build_despatch_dict_briscoes(picking, sale_order, partner)
+    def _dispatch_kestrelby(self, picking, sale_order, partner) -> None:
+        despatch = self._build_despatch_dict_kestrelby(picking, sale_order, partner)
         if not despatch:
             return
 
         try:
-            self._generate_and_upload_asn_briscoes(despatch, partner, picking)
+            self._generate_and_upload_asn_kestrelby(despatch, partner, picking)
         except Exception:
             _logger.exception(
                 'EDI ASN: failed to generate/upload ASN for picking %s', picking.name
@@ -95,8 +95,8 @@ class EDIService:
                 detail='See server log for traceback.',
             )
 
-    def _build_despatch_dict_briscoes(self, picking, sale_order, partner) -> dict:
-        """Extract despatch data from the stock.picking for the Briscoes ASN generator."""
+    def _build_despatch_dict_kestrelby(self, picking, sale_order, partner) -> dict:
+        """Extract despatch data from the stock.picking for the Kestrelby ASN generator."""
         mml_edis_id = self.env['ir.config_parameter'].sudo().get_param(
             'mml_edi.sender_id', 'MMLEDI'
         )
@@ -152,12 +152,12 @@ class EDIService:
             ],
         }
 
-    def _generate_and_upload_asn_briscoes(self, despatch: dict, partner, picking) -> None:
+    def _generate_and_upload_asn_kestrelby(self, despatch: dict, partner, picking) -> None:
         """Generate DESADV bytes and upload to partner EDIS VAN /ToEDIS/ outbox."""
-        from ..parsers.briscoes_asn import BriscoesASNGenerator
+        from ..parsers.kestrelby_asn import KestrelbyASNGenerator
         from ..models.edi_ftp import get_transport_handler
 
-        gen = BriscoesASNGenerator()
+        gen = KestrelbyASNGenerator()
         asn_content = gen.generate(despatch).encode('ascii')
 
         filename = 'DESADV_{po}_{date}.edi'.format(
@@ -177,7 +177,7 @@ class EDIService:
             'res_id': picking.id,
             'mimetype': 'text/plain',
         })
-        picking.message_post(body='ASN sent to Briscoes: %s' % filename)
+        picking.message_post(body='ASN sent to Kestrelby: %s' % filename)
         self.env['edi.log'].log(
             partner, 'outbound', 'ack_sent', 'success',
             'DESADV uploaded to EDIS VAN: %s (%d bytes)' % (filename, len(asn_content)),
@@ -185,14 +185,14 @@ class EDIService:
         )
         _logger.info('EDI ASN: uploaded %s (%d bytes)', filename, len(asn_content))
 
-    # ── Animates path (AN-03/OPS-6: new) ────────────────────────────────────
+    # ── Nimbrel path (AN-03/OPS-6: new) ────────────────────────────────────
 
-    def _dispatch_animates(self, picking, sale_order, partner) -> None:
+    def _dispatch_nimbrel(self, picking, sale_order, partner) -> None:
         try:
-            payload = self._build_despatch_dict_animates(picking, sale_order, partner)
+            payload = self._build_despatch_dict_nimbrel(picking, sale_order, partner)
         except Exception:
             _logger.exception(
-                'EDI ASN: failed to build Animates DESADV payload for picking %s',
+                'EDI ASN: failed to build Nimbrel DESADV payload for picking %s',
                 picking.name,
             )
             self.env['edi.log'].log(
@@ -206,10 +206,10 @@ class EDIService:
             return
 
         try:
-            self._generate_and_upload_desadv_animates(payload, partner, picking, sale_order)
+            self._generate_and_upload_desadv_nimbrel(payload, partner, picking, sale_order)
         except Exception:
             _logger.exception(
-                'EDI ASN: failed to generate/upload Animates DESADV for picking %s',
+                'EDI ASN: failed to generate/upload Nimbrel DESADV for picking %s',
                 picking.name,
             )
             self.env['edi.log'].log(
@@ -219,14 +219,14 @@ class EDIService:
                 sale_order=sale_order,
             )
 
-    def _build_despatch_dict_animates(self, picking, sale_order, partner) -> dict:
-        """Build the ``parsers.animates_desadv.build_desadv`` payload from a
+    def _build_despatch_dict_nimbrel(self, picking, sale_order, partner) -> dict:
+        """Build the ``parsers.nimbrel_desadv.build_desadv`` payload from a
         stock.picking, minting one SSCC per logistic unit (one carton per
-        product-carrying move; see _pack_units_for_animates) and determining
+        product-carrying move; see _pack_units_for_nimbrel) and determining
         partial vs complete shipment status (scenario 5A/5B).
 
         Returns {} (no-op, logged) when the picking has nothing shippable —
-        mirrors the Briscoes path's own empty-deliveries no-op.
+        mirrors the Kestrelby path's own empty-deliveries no-op.
         """
         from odoo.exceptions import UserError
 
@@ -240,7 +240,7 @@ class EDIService:
             return {}
 
         review = sale_order.edi_review_id
-        isc_by_line, vendor_by_line = self._animates_item_identity_map(
+        isc_by_line, vendor_by_line = self._nimbrel_item_identity_map(
             partner, review, sale_order,
         )
 
@@ -257,13 +257,13 @@ class EDIService:
             )
         if not store_code:
             raise UserError(
-                "Cannot generate Animates DESADV for %s: no store code resolvable "
+                "Cannot generate Nimbrel DESADV for %s: no store code resolvable "
                 "(neither the originating review nor the shipping partner has one)."
                 % sale_order.name
             )
 
         po_number = sale_order.client_order_ref or sale_order.name
-        units, cnt_qty_by_line = self._pack_units_for_animates(
+        units, cnt_qty_by_line = self._pack_units_for_nimbrel(
             picking, done_moves, isc_by_line, vendor_by_line,
         )
         if not units:
@@ -273,7 +273,7 @@ class EDIService:
             )
             return {}
 
-        shipped_status = self._animates_shipment_status(
+        shipped_status = self._nimbrel_shipment_status(
             partner, sale_order, po_number, cnt_qty_by_line,
         )
 
@@ -289,7 +289,7 @@ class EDIService:
             'connote': connote,
             'buyer': None,       # filled by get_unb_recipient() at build time
             'ship_to': store_code,
-            'supplier': partner.animates_vendor_code or partner.code,
+            'supplier': partner.nimbrel_vendor_code or partner.code,
             'shipment_totals': {
                 'units': len(units),
                 'unit_pac_type': 'CT',
@@ -307,11 +307,11 @@ class EDIService:
 
         return payload
 
-    def _animates_item_identity_map(self, partner, review, sale_order):
+    def _nimbrel_item_identity_map(self, partner, review, sale_order):
         """Return ({edi_line_number: isc}, {edi_line_number: vendor_code}) by
         re-parsing the review's stored raw interchange (same source ORDRSP
-        uses — see parsers/animates.py::_review_to_ordrsp_payload). DESADV
-        can fire long after parse-time, so ISC (Animates' own item number,
+        uses — see parsers/nimbrel.py::_review_to_ordrsp_payload). DESADV
+        can fire long after parse-time, so ISC (Nimbrel' own item number,
         PIA+5:IN) is not assumed to be persisted anywhere on sale.order.line
         — it is re-derived from the original inbound ORDERS interchange,
         the single source of truth for that identifier.
@@ -319,7 +319,7 @@ class EDIService:
         Falls back to an empty map (never raises) when no review/raw data is
         available — the DESADV builder degrades to using the live product's
         default_code for PIA+1:SA and omits PIA+5:IN's ISC only if truly
-        unrecoverable (see _pack_units_for_animates).
+        unrecoverable (see _pack_units_for_nimbrel).
         """
         isc_by_line, vendor_by_line = {}, {}
         if not review or not review.edi_raw_data:
@@ -347,7 +347,7 @@ class EDIService:
                     vendor_by_line[line.line_number] = line.vendor_code
         return isc_by_line, vendor_by_line
 
-    def _pack_units_for_animates(self, picking, done_moves, isc_by_line, vendor_by_line):
+    def _pack_units_for_nimbrel(self, picking, done_moves, isc_by_line, vendor_by_line):
         """One logistic unit (carton) per shipped move line, each minting its
         own SSCC via sscc.register.get_or_create() (idempotent — re-running
         this for the same picking never re-mints).
@@ -393,13 +393,13 @@ class EDIService:
             cnt_qty_by_line[line_no] = cnt_qty_by_line.get(line_no, 0.0) + qty
         return units, cnt_qty_by_line
 
-    def _animates_shipment_status(self, partner, sale_order, po_number, cnt_qty_by_line):
+    def _nimbrel_shipment_status(self, partner, sale_order, po_number, cnt_qty_by_line):
         """Determine partial / complete_after_partial / complete_single_shipment
         for THIS despatch by comparing cumulative shipped qty (this DESADV +
         every prior DESADV logged for this PO) against each SO line's ordered
         qty. Prior DESADVs are counted via edi.log rows this service itself
-        writes (event_type='ack_sent', filename LIKE 'DESADV_ANIMATES_<po>_%')
-        — consistent with how the Briscoes path already treats edi.log as the
+        writes (event_type='ack_sent', filename LIKE 'DESADV_NIMBREL_<po>_%')
+        — consistent with how the Kestrelby path already treats edi.log as the
         durable record of what has been sent (no new persisted model needed
         beyond sscc.register, which is scoped to labels/uniqueness, not
         shipment-completeness accounting).
@@ -409,7 +409,7 @@ class EDIService:
             ('event_type', '=', 'ack_sent'),
             ('status', '=', 'success'),
             ('sale_order_id', '=', sale_order.id),
-            ('filename', 'like', 'DESADV_ANIMATES_%'),
+            ('filename', 'like', 'DESADV_NIMBREL_%'),
         ])
         had_prior_desadv = bool(prior_logs)
 
@@ -427,33 +427,33 @@ class EDIService:
             return 'complete_after_partial' if had_prior_desadv else 'complete_single_shipment'
         return 'partial'
 
-    def _generate_and_upload_desadv_animates(self, payload: dict, partner, picking, sale_order) -> None:
-        """Build the DESADV interchange via parsers.animates_desadv.build_desadv
+    def _generate_and_upload_desadv_nimbrel(self, payload: dict, partner, picking, sale_order) -> None:
+        """Build the DESADV interchange via parsers.nimbrel_desadv.build_desadv
         (using the partner's real UNB identity per contracts C1/C3) and upload
         it to the partner's EDIS/SPS outbox."""
-        from ..parsers.animates_desadv import build_desadv
+        from ..parsers.nimbrel_desadv import build_desadv
         from ..models.edi_ftp import get_transport_handler
 
         recipient_id, recipient_qual = partner.get_unb_recipient()
         sender_id, sender_qual = partner.get_unb_sender()
         ctrl_ref = self.env['ir.sequence'].sudo().next_by_code(
-            'mml_edi.animates.interchange.ref'
+            'mml_edi.nimbrel.interchange.ref'
         )
         if not ctrl_ref:
             raise ValueError(
-                "mml_edi.animates.interchange.ref sequence is not configured"
+                "mml_edi.nimbrel.interchange.ref sequence is not configured"
             )
 
         payload = dict(payload, buyer=recipient_id)
 
         # build_desadv's UNB is built inline (not via build_unb_for_partner),
         # so pass the real identity through its supplier_gln kwarg (sender
-        # side of the envelope — see animates_desadv.build_desadv's
+        # side of the envelope — see nimbrel_desadv.build_desadv's
         # supplier_gln/ctrl_ref kwargs, mirrored on build_ordrsp/build_contrl).
         desadv_bytes = build_desadv(payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref))
 
         po_for_filename = payload['po'].replace('/', '')
-        filename = 'DESADV_ANIMATES_%s_%s.edi' % (
+        filename = 'DESADV_NIMBREL_%s_%s.edi' % (
             po_for_filename, payload['doc_date'],
         )
 
@@ -468,7 +468,7 @@ class EDIService:
             'res_id': picking.id,
             'mimetype': 'text/plain',
         })
-        picking.message_post(body='DESADV sent to Animates: %s' % filename)
+        picking.message_post(body='DESADV sent to Nimbrel: %s' % filename)
         self.env['edi.log'].log(
             partner, 'outbound', 'ack_sent', 'success',
             'DESADV uploaded for %s: %s (%d bytes)' % (
@@ -478,6 +478,6 @@ class EDIService:
             sale_order=sale_order,
         )
         _logger.info(
-            'EDI ASN: uploaded Animates DESADV %s (%d bytes)',
+            'EDI ASN: uploaded Nimbrel DESADV %s (%d bytes)',
             filename, len(desadv_bytes),
         )

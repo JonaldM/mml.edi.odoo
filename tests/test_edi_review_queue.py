@@ -38,7 +38,7 @@ class TestEdiReviewQueue(TransactionCase, EDITestSetup):
             "code": "PARTNERB",
             "partner_id": self.trading_partner.partner_id.id,
             "edi_format": "idoc_xml",
-            "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
+            "parser_class": "mml_edi.parsers.kestrelby.KestrelbyParser",
             "ftp_protocol": "ftp",
             "ftp_host": "ftp.b.local",
             "environment": "test",

@@ -2,7 +2,7 @@
 <templates xml:space="preserve">
 
 <!-- Segmented partner filter — the README sub-header "primary filter" pill
-     control (All partners / Briscoes / Animates). Renders the shared
+     control (All partners / Kestrelby / Nimbrel). Renders the shared
      .edi-seg / .edi-seg-pill vocabulary from edi_shared.scss. -->
 <t t-name="mml_edi.EdiPartnerFilter" owl="1">
     <div class="edi-seg">

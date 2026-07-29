@@ -19,11 +19,11 @@ except ImportError:
 
 
 def make_idoc_raw(po_number, ordered_each=10.0, posex="00001"):
-    """Minimal single-PO Briscoes ORDERS iDOC (one line) for ACK-flow tests.
+    """Minimal single-PO Kestrelby ORDERS iDOC (one line) for ACK-flow tests.
 
     POSEX '00001' parses to line 1 — matching make_parsed_line's default
     line_number — so a review processed from make_clean_parsed_order can have
-    its edi_raw_data swapped for this and BriscoesIDOCParser.generate_ack will
+    its edi_raw_data swapped for this and KestrelbyIDOCParser.generate_ack will
     map the live SO line's confirmed qty onto the echoed line's WMENG.
     EA order unit throughout, so the ORDRSP's order-unit quantities (MENGE /
     WMENG) read directly in eaches.
@@ -32,7 +32,7 @@ def make_idoc_raw(po_number, ordered_each=10.0, posex="00001"):
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<ORDERSEXT><IDOC BEGIN="1">'
         '<EDI_DC40 SEGMENT="1"><DOCNUM>0000000000000001</DOCNUM>'
-        '<SNDPOR>SAPBRP_TEST</SNDPOR><SNDPRN>BRISCOES</SNDPRN>'
+        '<SNDPOR>SAPBRP_TEST</SNDPOR><SNDPRN>KESTRELBY</SNDPRN>'
         '<CREDAT>20260701</CREDAT><CRETIM>120000</CRETIM></EDI_DC40>'
         '<E1EDK01 SEGMENT="1"><CURCY>NZD</CURCY><BELNR>%s</BELNR></E1EDK01>'
         '<E1EDP01 SEGMENT="1"><POSEX>%s</POSEX>'
@@ -176,7 +176,7 @@ class EDITestSetup:
             # "TEST001" was not a valid EAN-13, causing _validate_ean13_for_ordrsp
             # to raise UserError whenever an ORDRSP was generated for an SO that
             # included this product (e.g. auto-approved new-order reviews and
-            # TestBriscoesOrdrspIntegration happy-path tests).
+            # TestKestrelbyOrdrspIntegration happy-path tests).
             "barcode": "9780000000002",
             "list_price": 9.99,
             "type": "consu",
@@ -199,7 +199,7 @@ class EDITestSetup:
             "code": "TESTPARTNER",
             "partner_id": test_partner.id,
             "edi_format": "csv",
-            "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
+            "parser_class": "mml_edi.parsers.kestrelby.KestrelbyParser",
             "ftp_protocol": "ftp",
             "ftp_host": "ftp.test.local",
             "ftp_port": 21,
@@ -218,7 +218,7 @@ class EDITestSetup:
 def make_fallback_lookup_order(
     primary_ean="NONEXISTENT_EAN_0000",
     vendor_code="MML-INTERNAL-001",
-    buyer_article_no="BRISCOES-ART-001",
+    buyer_article_no="KESTRELBY-ART-001",
     po_number="TESTPO_CASCADE",
 ):
     """

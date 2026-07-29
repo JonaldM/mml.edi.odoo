@@ -30,7 +30,7 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
             "code": "PARTNERB",
             "partner_id": self.trading_partner.partner_id.id,
             "edi_format": "edifact_d01b",
-            "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
+            "parser_class": "mml_edi.parsers.kestrelby.KestrelbyParser",
             "ftp_protocol": "ftp",
             "ftp_host": "ftp.b.local",
             "environment": "test",
@@ -180,7 +180,7 @@ class TestEdiDashboard(TransactionCase, EDITestSetup):
         self.assertIn("retry_ack", ack[0]["actions"])
 
     def test_attention_ack_failed_auto_approved(self):
-        # An auto-approved clean PO (the majority class for Briscoes) carries NO
+        # An auto-approved clean PO (the majority class for Kestrelby) carries NO
         # reviewed_date — retry_pending_acks still covers it, so a failed ACK on
         # one must surface. The failed-ORDRSP scan bounds it by received_date.
         r = self._review(po="POAUTO", state="auto_approved", file_hash="0ddba11abc",

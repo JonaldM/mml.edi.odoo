@@ -2,18 +2,18 @@
 
 Used by ``models/sscc_register.py`` (Odoo persistence/minting) and directly by
 pure pytest (``tests/test_gs1_sscc.py``). Kept Odoo-free, like
-``animates_edifact.py``, so the check-digit/composition logic is testable
+``nimbrel_edifact.py``, so the check-digit/composition logic is testable
 without a database and cannot accidentally depend on ORM state.
 
 SSCC-18 structure (GS1 General Specifications):
     N1                  Extension digit (0-9, supplier's choice; MML uses '0')
-    N2..N8 (or N9/N10)  GS1 Company Prefix (here: 7-digit prefix '9419416')
+    N2..N8 (or N9/N10)  GS1 Company Prefix (here: 7-digit prefix '0200000')
     N9..N17             Serial reference — enough digits to fill 16 total
                          digits before the check digit (extension + prefix +
                          serial == 16 digits)
     N18                 Check digit (GS1 mod-10, computed over N1..N17)
 
-For MML's 7-digit prefix '9419416': extension(1) + prefix(7) + serial(9) +
+For MML's 7-digit prefix '0200000': extension(1) + prefix(7) + serial(9) +
 check(1) = 18. The serial component is therefore a 9-digit, zero-padded
 sequence value.
 
@@ -56,7 +56,7 @@ def build_sscc18(gs1_prefix: str, serial: int, *, extension_digit: str = "0") ->
     """Compose a full 18-digit SSCC from a GS1 company prefix + serial number.
 
     Args:
-        gs1_prefix: numeric GS1 Company Prefix (MML: '9419416', 7 digits).
+        gs1_prefix: numeric GS1 Company Prefix (MML: '0200000', 7 digits).
         serial: non-negative integer serial reference (from
             ``mml_edi.sscc.serial`` ir.sequence — contract C2).
         extension_digit: single digit 0-9 (default '0'); GS1 lets the

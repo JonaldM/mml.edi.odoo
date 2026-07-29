@@ -2,8 +2,8 @@
 // mml_edi/static/src/utils/use_partner_filter.js
 //
 // Shared trading-partner segmented-filter hook + control component for the EDI
-// client-action screens (the README "primary filter": All partners / Briscoes
-// / Animates). Persists the selection per user in localStorage and exposes a
+// client-action screens (the README "primary filter": All partners / Kestrelby
+// / Nimbrel). Persists the selection per user in localStorage and exposes a
 // `partnerParam` getter for RPC scoping. Modelled on the 3PL DC-filter hook
 // (stock_3pl_core/utils/use_dc_filter.js) — the same persist + reconcile +
 // onChange shape — so every EDI screen composes one control instead of

@@ -5,8 +5,8 @@ Historical lines were processed under the accept-in-full policy, so the ordered 
 equals the current line qty — safe to copy. Idempotent.
 
 DELIBERATELY behaviour-neutral: every trading partner keeps the ``'backorder'``
-default. The Briscoe Group partner is flipped to ``oos_policy = 'short_ship'`` as a
-separate, explicit go-live step ONLY AFTER Briscoes confirm they accept a
+default. The Kestrelby Group partner is flipped to ``oos_policy = 'short_ship'`` as a
+separate, explicit go-live step ONLY AFTER Kestrelby confirm they accept a
 short-confirm ORDRSP (open decision 5.4). Flipping the flag is the single switch
 that activates the new behaviour — do not auto-flip it here.
 """

@@ -16,13 +16,13 @@ class TestAckExchangeFilename:
     def test_attempt_one_keeps_historical_shape(self):
         # Prod ack_sent rows were written with this exact shape — attempt 1
         # must never change it or every already-sent ACK re-sends.
-        assert _ack_filename("BRISCOES", "4500178971", "ab12cd34") == (
-            "ACK_BRISCOES_4500178971_ab12cd34.edi"
+        assert _ack_filename("KESTRELBY", "4500178971", "ab12cd34") == (
+            "ACK_KESTRELBY_4500178971_ab12cd34.edi"
         )
 
     def test_attempt_two_appends_suffix(self):
-        assert _ack_filename("BRISCOES", "4500178971", "ab12cd34", attempt=2) == (
-            "ACK_BRISCOES_4500178971_ab12cd34_a2.edi"
+        assert _ack_filename("KESTRELBY", "4500178971", "ab12cd34", attempt=2) == (
+            "ACK_KESTRELBY_4500178971_ab12cd34_a2.edi"
         )
 
     def test_falsy_attempt_treated_as_first(self):

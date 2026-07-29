@@ -1,7 +1,7 @@
 """Pure tests for indent-order detection and the OOS-gate exemption.
 
 Indent orders are forward commitments placed months before the stock arrives
-(live case: two Briscoes POs from 25 Feb 2026 committing $128k for 1 October
+(live case: two Kestrelby POs from 25 Feb 2026 committing $128k for 1 October
 delivery). They must be accepted in full — the short-ship gate would zero
 every line — and flagged so operators never mistake them for stale orders.
 """

@@ -1,11 +1,11 @@
 {
     "name": "MML EDI",
     "version": "19.0.1.2.1",
-    "summary": "Electronic Data Interchange for retail partners (Briscoes Group and others)",
+    "summary": "Electronic Data Interchange for retail partners (Kestrelby Group and others)",
     "description": """
         Customer-agnostic EDI module for Odoo 19.
-        Replaces the legacy .NET Windows service handling Briscoes Group purchase orders.
-        Phase 1: Briscoes parser stub + full processing engine, review dashboard, FTP handler.
+        Replaces the legacy .NET Windows service handling Kestrelby Group purchase orders.
+        Phase 1: Kestrelby parser stub + full processing engine, review dashboard, FTP handler.
         Phase 2: Real EDIFACT D96A parsing (awaiting partner technical spec).
     """,
     "author": "MML Consumer Products Ltd",
@@ -41,7 +41,7 @@
         # menu is defined in menuitems.xml).
         "views/edi_wall_mobile_actions.xml",
         # Seed data (noupdate=1 inside)
-        "data/edi_trading_partner_briscoes.xml",
+        "data/edi_trading_partner_kestrelby.xml",
         # Templates
         "data/mail_template.xml",
         # Reports

@@ -46,7 +46,7 @@ class TestCascadeLookup(EDITestSetup, TransactionCase):
             # Intentionally NO barcode field set
         })
 
-    def _create_supplier_coded_product(self, buyer_code="BRISCOES-ART-001"):
+    def _create_supplier_coded_product(self, buyer_code="KESTRELBY-ART-001"):
         """Product with neither barcode nor default_code, but a supplierinfo entry."""
         product = self.env["product.product"].create({
             "name": "Supplier Code Test Product",
@@ -115,7 +115,7 @@ class TestCascadeLookup(EDITestSetup, TransactionCase):
         EAN and vendor_code both miss. buyer_article_no matches supplierinfo.product_code.
         edi_matched_by='supplier_sku', warning issue raised.
         """
-        product = self._create_supplier_coded_product("BRISCOES-ART-001")
+        product = self._create_supplier_coded_product("KESTRELBY-ART-001")
         self.env["product.pricelist.item"].create({
             "pricelist_id": self.trading_partner.pricelist_id.id,
             "product_id": product.id,
@@ -126,7 +126,7 @@ class TestCascadeLookup(EDITestSetup, TransactionCase):
         order = make_fallback_lookup_order(
             primary_ean="NONEXISTENT_EAN_9999",
             vendor_code="NONEXISTENT_INTERNAL",
-            buyer_article_no="BRISCOES-ART-001",
+            buyer_article_no="KESTRELBY-ART-001",
         )
 
         review = self.env["edi.order.review"].create({

@@ -12,7 +12,7 @@ Both read from the same three EDI models (``edi.order.review`` /
 ``edi.order.issue`` / ``edi.log``) plus chatter, and mirror the batched,
 read-mostly ``@api.model`` contract the landing dashboard (``edi.dashboard``)
 established: one call returns a whole screen's payload, narrowed by an optional
-trading-partner scope so the segmented "All / Briscoes / Animates" control
+trading-partner scope so the segmented "All / Kestrelby / Nimbrel" control
 recomputes everything and persists per user.
 
 Honesty caveats from the design copy survive to production: ONE ORDRSP covers
@@ -330,7 +330,7 @@ class EdiReviewQueue(models.AbstractModel):
         (``ack_sent``) log rows in scope, plus the first line of the most recent
         failure's own message. It never asserts a transport ("SFTP"), a route
         ("EDIS VAN") or a shared error signature the backend has not inspected:
-        those would be a fabricated diagnosis (a Briscoes/Animates upload can be
+        those would be a fabricated diagnosis (a Kestrelby/Nimbrel upload can be
         plain FTP, not SFTP). See the module bar at the top of this file.
         """
         from datetime import timedelta

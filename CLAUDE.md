@@ -28,8 +28,8 @@ EDIFTPHandler          (models/edi_ftp.py)       — FTP/SFTP connection, retry,
     │
     ▼
 BaseEDIParser          (parsers/base_parser.py)   — Abstract contract: parse_file() + generate_ack()
-BriscoesParser         (parsers/briscoes.py)      — EDIFACT D96A: ORDERS(220) + ORDCHG(230) + ORDRSP(231)
-BriscoesIDOCParser     (parsers/briscoes_idoc.py) — SAP ORDERSEXT stub (Phase 2 — raises NotImplementedError)
+KestrelbyParser        (parsers/kestrelby.py)      — EDIFACT D96A: ORDERS(220) + ORDCHG(230) + ORDRSP(231)
+KestrelbyIDOCParser    (parsers/kestrelby_idoc.py) — SAP ORDERSEXT stub (Phase 2 — raises NotImplementedError)
     │
     ▼  ParsedOrder / ParsedOrderLine (dataclasses in base_parser.py)
     │
@@ -50,7 +50,7 @@ EDILog                 (models/edi_log.py)           — Append-only audit log; 
     │
     ▼
 EDIService             (services/edi_service.py)    — mml.registry service 'edi'; handles outbound ASN
-BriscoesASNGenerator   (parsers/briscoes_asn.py)    — Generates EDIFACT DESADV D96A (ASN)
+KestrelbyASNGenerator  (parsers/kestrelby_asn.py)    — Generates EDIFACT DESADV D96A (ASN)
 ```
 
 ### Key Models
@@ -79,7 +79,7 @@ BriscoesASNGenerator   (parsers/briscoes_asn.py)    — Generates EDIFACT DESADV
 
 ### EDIFACT / File Handling Notes
 
-- Briscoes files may use Windows-1252 encoding with `\x92` (right single quote) as an alternate segment terminator — `_split_segments()` normalises this before parsing
+- Kestrelby files may use Windows-1252 encoding with `\x92` (right single quote) as an alternate segment terminator — `_split_segments()` normalises this before parsing
 - Processed files are renamed in-place on FTP: `{filename}.processed.{YYYYMMDDHHMMSS}` (not deleted)
 - File-level deduplication via SHA-256 hash checked against `edi.log` (`event_type=file_download, status=success`)
 - EAN-13 check digit validation is enforced before ORDRSP and DESADV generation — missing/invalid barcodes raise `UserError` to prevent silent partner rejection
@@ -95,7 +95,7 @@ Designed trigger: `mml.event` `3pl.despatch.confirmed`:
 1. `EDIService.on_3pl_despatch_confirmed(event)` looks up `stock.picking`
 2. Validates picking has a linked `sale.order` with an active `edi.trading.partner`
 3. Groups `stock.move` lines by `location_dest_id.edi_store_gln` (custom field on `stock.location`)
-4. `BriscoesASNGenerator.generate(despatch)` builds EDIFACT DESADV D96A
+4. `KestrelbyASNGenerator.generate(despatch)` builds EDIFACT DESADV D96A
 5. Uploads via `EDIFTPHandler` to partner outbox; logs `ir.attachment` on the picking
 
 ### System Parameters
@@ -115,10 +115,10 @@ Designed trigger: `mml.event` `3pl.despatch.confirmed`:
 pytest -q
 
 # Single test file
-pytest tests/test_briscoes_edifact_parser.py -q
+pytest tests/test_kestrelby_edifact_parser.py -q
 
 # Single test by name
-pytest tests/test_briscoes_edifact_parser.py -k "test_parse_multistore" -q
+pytest tests/test_kestrelby_edifact_parser.py -k "test_parse_multistore" -q
 ```
 
 Tests run from the `mml.edi/` directory. The `pytest.ini` restricts collection to `tests/` and uses `--import-mode=importlib` (required because the directory name contains a dot).

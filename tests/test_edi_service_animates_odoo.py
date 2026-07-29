@@ -1,10 +1,10 @@
-# mml.edi/tests/test_edi_service_animates_odoo.py
-"""Odoo TransactionCase tests for the Animates DESADV dispatch path (Wave2-D,
+# mml.edi/tests/test_edi_service_nimbrel_odoo.py
+"""Odoo TransactionCase tests for the Nimbrel DESADV dispatch path (Wave2-D,
 AN-03/OPS-6).
 
 Covers what pure mocked tests/test_edi_service.py cannot: a real
 stock.picking produced by order-confirm, real sscc.register minting wired
-through the despatch build, and the Briscoes path staying byte-identical
+through the despatch build, and the Kestrelby path staying byte-identical
 when routed through the SAME on_3pl_despatch_confirmed entry point.
 
 Requires a live Odoo DB (odoo-bin --test-enable)."""
@@ -21,13 +21,13 @@ _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
 @unittest.skipUnless(_ODOO_AVAILABLE, "Requires Odoo runtime — run with odoo-bin --test-enable")
 @tagged("post_install", "-at_install")
-class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
+class TestEDIServiceNimbrelDispatch(EDITestSetup, TransactionCase):
 
     def setUp(self):
         super().setUp()
         self.setup_edi_test_data()
         self.test_product.is_storable = True
-        # Animates matches products on default_code (the shared fixture only
+        # Nimbrel matches products on default_code (the shared fixture only
         # sets barcode) — without it the order blocks product_not_found and
         # never auto-confirms, so no picking is ever generated to dispatch.
         self.test_product.default_code = "9780000000002"
@@ -36,51 +36,51 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
         # carries PIA+5+ISC001:IN — no product-field dependency.
         self.edi_outbox = tempfile.mkdtemp()
         self.wh = self.env["stock.warehouse"].create(
-            {"name": "Animates Dispatch DC", "code": "ADDC", "roq_island": "north"})
+            {"name": "Nimbrel Dispatch DC", "code": "ADDC", "roq_island": "north"})
         self.env["ir.config_parameter"].sudo().set_param("mml_edi.asn_enabled", "1")
 
-        self.animates_customer = self.env["res.partner"].create({
-            "name": "Animates NZ Holding LTD",
+        self.nimbrel_customer = self.env["res.partner"].create({
+            "name": "Nimbrel NZ Holding LTD",
             "customer_rank": 1,
         })
         # per_store mode resolves NAD+ST to a child contact by ref; without
         # it the order blocks unknown_store and never auto-confirms.
         self.env["res.partner"].create({
-            "name": "Animates Store 12345",
-            "parent_id": self.animates_customer.id,
+            "name": "Nimbrel Store 12345",
+            "parent_id": self.nimbrel_customer.id,
             "ref": "12345",
         })
-        self.animates_pricelist = self.env["product.pricelist"].create({
-            "name": "Animates Test Pricelist",
+        self.nimbrel_pricelist = self.env["product.pricelist"].create({
+            "name": "Nimbrel Test Pricelist",
             "currency_id": self.env.company.currency_id.id,
         })
         self.env["product.pricelist.item"].create({
-            "pricelist_id": self.animates_pricelist.id,
+            "pricelist_id": self.nimbrel_pricelist.id,
             "product_id": self.test_product.id,
             "compute_price": "fixed",
             "fixed_price": 9.99,
         })
-        self.animates_partner = self.env["edi.trading.partner"].create({
-            "name": "Animates",
-            "code": "ANIMATES",
-            "partner_id": self.animates_customer.id,
+        self.nimbrel_partner = self.env["edi.trading.partner"].create({
+            "name": "Nimbrel",
+            "code": "NIMBREL",
+            "partner_id": self.nimbrel_customer.id,
             "edi_format": "edifact_d01b",
-            "parser_class": "mml_edi.parsers.animates.AnimatesParser",
+            "parser_class": "mml_edi.parsers.nimbrel.NimbrelParser",
             "ftp_protocol": "localdir",
             "environment": "test",
             "ftp_test_inbox_path": self.edi_outbox,
             "ftp_test_outbox_path": self.edi_outbox,
-            "pricelist_id": self.animates_pricelist.id,
+            "pricelist_id": self.nimbrel_pricelist.id,
             "order_split_mode": "per_store",
             "product_match_field": "default_code",
             "client_ref_template": "{po_number}",
             "warehouse_id": self.wh.id,
             "auto_confirm_clean": True,
             "oos_policy": "backorder",
-            "edi_sender_id": "9419416000008T",
+            "edi_sender_id": "0200000000008T",
             "edi_sender_qualifier": "ZZZ",
-            "supplier_gln": "9419416000008",
-            "animates_vendor_code": "V1058",
+            "supplier_gln": "0200000000008",
+            "nimbrel_vendor_code": "V1058",
         })
         self.test_product.is_storable = True
         self.env["stock.quant"]._update_available_quantity(
@@ -90,7 +90,7 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
         order = make_clean_parsed_order(po_number=po_number, store_code=store_code, qty=qty)
         order.raw_data = (
             "UNA:+.? '"
-            "UNB+UNOC:3+9419416000008T:ZZZ+TST1ANIMATES:ZZZ+260703:0900+1++++1'"
+            "UNB+UNOC:3+0200000000008T:ZZZ+TST1NIMBREL:ZZZ+260703:0900+1++++1'"
             "UNH+1+ORDERS:D:01B:UN:EAN008'"
             "BGM+220+%s+9'"
             "NAD+ST+%s::92'"
@@ -103,7 +103,7 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
         ) % (po_number, store_code, int(qty))
         file_hash = hashlib.sha256(order.raw_data.encode()).hexdigest()
         self.processor.process_parsed_order(
-            order, self.animates_partner, "animates_dispatch.edi", file_hash)
+            order, self.nimbrel_partner, "nimbrel_dispatch.edi", file_hash)
         review = self.env["edi.order.review"].search(
             [("customer_po_number", "=", po_number)], limit=1)
         so = review.sale_order_id
@@ -128,17 +128,17 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
 
     # --- routing -------------------------------------------------------------
 
-    def test_animates_picking_generates_desadv_log(self):
+    def test_nimbrel_picking_generates_desadv_log(self):
         picking, so, review = self._confirm_and_ship("PO-DISPATCH-1")
         self._dispatch(picking)
         logs = self.env["edi.log"].search([
-            ("trading_partner_id", "=", self.animates_partner.id),
+            ("trading_partner_id", "=", self.nimbrel_partner.id),
             ("event_type", "=", "ack_sent"),
-            ("filename", "like", "DESADV_ANIMATES_%"),
+            ("filename", "like", "DESADV_NIMBREL_%"),
         ])
-        self.assertTrue(logs, "Animates dispatch must log a DESADV ack_sent event")
+        self.assertTrue(logs, "Nimbrel dispatch must log a DESADV ack_sent event")
 
-    def test_animates_dispatch_mints_sscc_for_the_picking(self):
+    def test_nimbrel_dispatch_mints_sscc_for_the_picking(self):
         picking, so, review = self._confirm_and_ship("PO-DISPATCH-2")
         self._dispatch(picking)
         rows = self.env["sscc.register"].search([("picking_id", "=", picking.id)])
@@ -146,7 +146,7 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
         for row in rows:
             self.assertEqual(len(row.sscc), 18)
 
-    def test_animates_dispatch_is_idempotent_on_sscc(self):
+    def test_nimbrel_dispatch_is_idempotent_on_sscc(self):
         """Re-running the despatch hook (e.g. a retry) must never re-mint a
         second SSCC for the same picking/unit."""
         picking, so, review = self._confirm_and_ship("PO-DISPATCH-3")
@@ -158,17 +158,17 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
             [("picking_id", "=", picking.id)])
         self.assertEqual(first_count, second_count)
 
-    def test_briscoes_dispatch_still_uses_briscoes_path_not_animates(self):
-        """The refactor must not touch Briscoes' live production behaviour —
-        routing a Briscoes picking through the same entry point must NOT
-        create any sscc.register rows (Animates-only) and must still attempt
-        the Briscoes ASN path (asserted via the absence of DESADV_ANIMATES_
-        logs and presence of the Briscoes-style error/ack pattern)."""
-        # trading_partner from EDITestSetup defaults to a csv/briscoes-class
-        # parser; point it at the real Briscoes iDOC parser class to exercise
-        # the Briscoes branch explicitly.
+    def test_kestrelby_dispatch_still_uses_kestrelby_path_not_nimbrel(self):
+        """The refactor must not touch Kestrelby' live production behaviour —
+        routing a Kestrelby picking through the same entry point must NOT
+        create any sscc.register rows (Nimbrel-only) and must still attempt
+        the Kestrelby ASN path (asserted via the absence of DESADV_NIMBREL_
+        logs and presence of the Kestrelby-style error/ack pattern)."""
+        # trading_partner from EDITestSetup defaults to a csv/kestrelby-class
+        # parser; point it at the real Kestrelby iDOC parser class to exercise
+        # the Kestrelby branch explicitly.
         self.trading_partner.write({
-            "parser_class": "mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser",
+            "parser_class": "mml_edi.parsers.kestrelby_idoc.KestrelbyIDOCParser",
             "warehouse_id": self.wh.id,
             "auto_confirm_clean": True,
             "ftp_protocol": "localdir",
@@ -179,13 +179,13 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
         # Dispatch ROUTING (not parsing) is under test: make_idoc_raw carries no
         # product segment, so pass a matchable ParsedOrder with the iDOC as
         # raw_data. Routing keys off sale_order.edi_trading_partner_id.
-        order = make_clean_parsed_order(po_number="BRISCOES-PO-1", qty=10.0)
-        order.raw_data = make_idoc_raw("BRISCOES-PO-1", ordered_each=10.0)
+        order = make_clean_parsed_order(po_number="KESTRELBY-PO-1", qty=10.0)
+        order.raw_data = make_idoc_raw("KESTRELBY-PO-1", ordered_each=10.0)
         file_hash = hashlib.sha256(order.raw_data.encode()).hexdigest()
         self.processor.process_parsed_order(
-            order, self.trading_partner, "briscoes_dispatch.edi", file_hash)
+            order, self.trading_partner, "kestrelby_dispatch.edi", file_hash)
         review = self.env["edi.order.review"].search(
-            [("customer_po_number", "=", "BRISCOES-PO-1")], limit=1)
+            [("customer_po_number", "=", "KESTRELBY-PO-1")], limit=1)
         so = review.sale_order_id
         self.assertTrue(so)
         outgoing = so.picking_ids.filtered(lambda p: p.picking_type_code == "outgoing")
@@ -200,12 +200,12 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
         sscc_after = self.env["sscc.register"].search_count([])
         self.assertEqual(
             sscc_before, sscc_after,
-            "Briscoes dispatch must never mint an SSCC (Animates-only concept)",
+            "Kestrelby dispatch must never mint an SSCC (Nimbrel-only concept)",
         )
-        animates_desadv_logs = self.env["edi.log"].search([
-            ("filename", "like", "DESADV_ANIMATES_%"),
+        nimbrel_desadv_logs = self.env["edi.log"].search([
+            ("filename", "like", "DESADV_NIMBREL_%"),
         ])
         self.assertFalse(
-            animates_desadv_logs,
-            "Briscoes picking must never produce an Animates-format DESADV filename",
+            nimbrel_desadv_logs,
+            "Kestrelby picking must never produce an Nimbrel-format DESADV filename",
         )

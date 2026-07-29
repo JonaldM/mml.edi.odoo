@@ -6,7 +6,7 @@ EDI prices are quoted ex-GST. A pricelist whose products carry a
 GST-inclusive (``price_include``) tax USED to hard-fail the partner save.
 That proved too aggressive: a product can legitimately carry both an
 ex-GST and an inc-GST tax (retail vs wholesale / multi-company) while its
-EDI pricelist value is ex-GST — e.g. the live Animates pricelist ($8.10
+EDI pricelist value is ex-GST — e.g. the live Nimbrel pricelist ($8.10
 ex-GST on products that also hold an inc-GST retail tax). The price
 comparison uses the raw pricelist value, and the per-line
 ``price_discrepancy`` check at order time is the authoritative guard.
@@ -97,19 +97,19 @@ class TestPricelistGstAdvisory:
         product = _make_product(taxes=[_make_tax(price_include=True)])
         pricelist = _make_pricelist(
             items=[_make_pricelist_item(product=product)],
-            name="Animates",
+            name="Nimbrel",
         )
         partner = _make_partner(pricelist=pricelist)
 
         msg = partner._pricelist_gst_inclusive_message()  # must NOT raise
         assert msg
-        assert "Animates" in msg
+        assert "Nimbrel" in msg
         assert "ex-GST" in msg
         assert "GST-inclusive" in msg
 
     def test_mixed_taxes_with_one_inclusive_warns(self):
         """A product carrying BOTH an ex-GST and an inc-GST tax (the real
-        Animates shape) still triggers the advisory — but does not block."""
+        Nimbrel shape) still triggers the advisory — but does not block."""
         ex_gst = _make_tax(price_include=False)
         inc_gst = _make_tax(price_include=True)
         clean = _make_product(taxes=[ex_gst], name="Clean SKU")

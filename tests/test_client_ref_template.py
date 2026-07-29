@@ -72,7 +72,7 @@ def test_render_client_ref_substitutes_with_underscore_separator():
         def ensure_one(self):
             pass
 
-    # per-store template with an underscore separator (Briscoes multi-store)
+    # per-store template with an underscore separator (Kestrelby multi-store)
     assert EDITradingPartner.render_client_ref(
         _P('{po_number}_{store_code}'), '4500176574', '1050') == '4500176574_1050'
     # dollar-style equivalent

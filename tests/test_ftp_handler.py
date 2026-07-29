@@ -83,8 +83,8 @@ class TestSafeFilename:
     def test_safe_filename_accepts_normal_edi_filename(self):
         """Standard EDI filenames must pass through unchanged."""
         from mml_edi.models.edi_ftp import _safe_filename
-        result = _safe_filename('BRISCOES_PO_20260308_001.edi')
-        assert result == 'BRISCOES_PO_20260308_001.edi'
+        result = _safe_filename('KESTRELBY_PO_20260308_001.edi')
+        assert result == 'KESTRELBY_PO_20260308_001.edi'
 
     def test_safe_filename_accepts_alphanumeric_with_dashes(self):
         """Hyphenated filenames must be accepted."""

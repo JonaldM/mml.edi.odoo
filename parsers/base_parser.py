@@ -60,7 +60,7 @@ class ParsedOrder:
 
     # 'new_order', 'change_order', or 'cancellation'. Parsers set this from the
     # EDI message type. If the format doesn't distinguish, detect by matching PO
-    # number to existing SO. 'cancellation' (e.g. Animates BGM 1225=1 / contract
+    # number to existing SO. 'cancellation' (e.g. Nimbrel BGM 1225=1 / contract
     # C5) carries no order lines — the processor cancels the existing SO and
     # never queues an ORDRSP for it (see models/edi_processor.py
     # _process_cancellation / CANCELLATION_MARKER).

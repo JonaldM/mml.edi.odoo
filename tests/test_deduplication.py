@@ -95,7 +95,7 @@ class TestDeduplication(EDITestSetup, TransactionCase):
         processor's _find_existing_so() must return it so the new-order flow
         can skip creating a duplicate SO.
         """
-        client_ref = "BRISCOES_4500176806_1017"
+        client_ref = "KESTRELBY_4500176806_1017"
 
         # Pre-create a SO with this reference (simulates a previously processed
         # PO — EDI SOs always carry the trading-partner discriminator).

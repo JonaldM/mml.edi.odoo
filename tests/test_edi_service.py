@@ -46,22 +46,22 @@ def test_on_3pl_despatch_confirmed_returns_none_when_disabled():
 
 # --- Per-partner dispatch routing (AN-03/OPS-6) -----------------------------
 
-def test_animates_parser_classes_contains_animates_parser():
-    from mml_edi.services.edi_service import _ANIMATES_PARSER_CLASSES
-    assert 'mml_edi.parsers.animates.AnimatesParser' in _ANIMATES_PARSER_CLASSES
+def test_nimbrel_parser_classes_contains_nimbrel_parser():
+    from mml_edi.services.edi_service import _NIMBREL_PARSER_CLASSES
+    assert 'mml_edi.parsers.nimbrel.NimbrelParser' in _NIMBREL_PARSER_CLASSES
 
 
-def test_animates_parser_classes_excludes_briscoes():
-    from mml_edi.services.edi_service import _ANIMATES_PARSER_CLASSES
-    assert 'mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser' not in _ANIMATES_PARSER_CLASSES
+def test_nimbrel_parser_classes_excludes_kestrelby():
+    from mml_edi.services.edi_service import _NIMBREL_PARSER_CLASSES
+    assert 'mml_edi.parsers.kestrelby_idoc.KestrelbyIDOCParser' not in _NIMBREL_PARSER_CLASSES
 
 
-def test_dispatch_routes_to_briscoes_by_default():
-    """A partner whose parser_class is NOT in _ANIMATES_PARSER_CLASSES must
-    route through _dispatch_briscoes — proves the refactor kept Briscoes'
+def test_dispatch_routes_to_kestrelby_by_default():
+    """A partner whose parser_class is NOT in _NIMBREL_PARSER_CLASSES must
+    route through _dispatch_kestrelby — proves the refactor kept Kestrelby'
     call path byte-identical (same method, same signature) rather than
     silently changing behaviour for the live production partner."""
-    from mml_edi.services.edi_service import EDIService, _ANIMATES_PARSER_CLASSES
+    from mml_edi.services.edi_service import EDIService, _NIMBREL_PARSER_CLASSES
 
     config_param = MagicMock()
     config_param.sudo.return_value = config_param
@@ -71,8 +71,8 @@ def test_dispatch_routes_to_briscoes_by_default():
     picking.exists.return_value = True
     sale_order = MagicMock()
     partner = MagicMock()
-    partner.parser_class = 'mml_edi.parsers.briscoes_idoc.BriscoesIDOCParser'
-    assert partner.parser_class not in _ANIMATES_PARSER_CLASSES
+    partner.parser_class = 'mml_edi.parsers.kestrelby_idoc.KestrelbyIDOCParser'
+    assert partner.parser_class not in _NIMBREL_PARSER_CLASSES
     sale_order.edi_trading_partner_id = partner
     picking.sale_id = sale_order
 
@@ -90,19 +90,19 @@ def test_dispatch_routes_to_briscoes_by_default():
     env.__getitem__ = MagicMock(side_effect=getitem)
 
     svc = EDIService(env)
-    svc._dispatch_briscoes = MagicMock()
-    svc._dispatch_animates = MagicMock()
+    svc._dispatch_kestrelby = MagicMock()
+    svc._dispatch_nimbrel = MagicMock()
 
     class FakeEvent:
         res_id = 1
         res_model = 'stock.picking'
 
     svc.on_3pl_despatch_confirmed(FakeEvent())
-    svc._dispatch_briscoes.assert_called_once_with(picking, sale_order, partner)
-    svc._dispatch_animates.assert_not_called()
+    svc._dispatch_kestrelby.assert_called_once_with(picking, sale_order, partner)
+    svc._dispatch_nimbrel.assert_not_called()
 
 
-def test_dispatch_routes_to_animates_for_animates_parser():
+def test_dispatch_routes_to_nimbrel_for_nimbrel_parser():
     from mml_edi.services.edi_service import EDIService
 
     config_param = MagicMock()
@@ -113,7 +113,7 @@ def test_dispatch_routes_to_animates_for_animates_parser():
     picking.exists.return_value = True
     sale_order = MagicMock()
     partner = MagicMock()
-    partner.parser_class = 'mml_edi.parsers.animates.AnimatesParser'
+    partner.parser_class = 'mml_edi.parsers.nimbrel.NimbrelParser'
     sale_order.edi_trading_partner_id = partner
     picking.sale_id = sale_order
 
@@ -131,19 +131,19 @@ def test_dispatch_routes_to_animates_for_animates_parser():
     env.__getitem__ = MagicMock(side_effect=getitem)
 
     svc = EDIService(env)
-    svc._dispatch_briscoes = MagicMock()
-    svc._dispatch_animates = MagicMock()
+    svc._dispatch_kestrelby = MagicMock()
+    svc._dispatch_nimbrel = MagicMock()
 
     class FakeEvent:
         res_id = 1
         res_model = 'stock.picking'
 
     svc.on_3pl_despatch_confirmed(FakeEvent())
-    svc._dispatch_animates.assert_called_once_with(picking, sale_order, partner)
-    svc._dispatch_briscoes.assert_not_called()
+    svc._dispatch_nimbrel.assert_called_once_with(picking, sale_order, partner)
+    svc._dispatch_kestrelby.assert_not_called()
 
 
-# --- _animates_shipment_status (scenario 5A/5B partial/complete) -----------
+# --- _nimbrel_shipment_status (scenario 5A/5B partial/complete) -----------
 
 def _make_service_for_shipment_status(prior_logs, order_lines):
     from mml_edi.services.edi_service import EDIService
@@ -173,7 +173,7 @@ def test_shipment_status_partial_when_line_not_fully_shipped():
     order_lines = [_make_sol(1, 10.0), _make_sol(2, 5.0)]
     svc, so = _make_service_for_shipment_status(prior_logs=[], order_lines=order_lines)
     partner = MagicMock()
-    status = svc._animates_shipment_status(
+    status = svc._nimbrel_shipment_status(
         partner, so, 'PO0319555', {1: 10.0, 2: 3.0}  # line 2 short-shipped
     )
     assert status == 'partial'
@@ -183,7 +183,7 @@ def test_shipment_status_complete_single_shipment_no_prior_desadv():
     order_lines = [_make_sol(1, 10.0), _make_sol(2, 5.0)]
     svc, so = _make_service_for_shipment_status(prior_logs=[], order_lines=order_lines)
     partner = MagicMock()
-    status = svc._animates_shipment_status(
+    status = svc._nimbrel_shipment_status(
         partner, so, 'PO0319555', {1: 10.0, 2: 5.0}
     )
     assert status == 'complete_single_shipment'
@@ -194,7 +194,7 @@ def test_shipment_status_complete_after_partial_when_prior_desadv_exists():
     prior = [MagicMock()]  # a previous DESADV was logged for this SO
     svc, so = _make_service_for_shipment_status(prior_logs=prior, order_lines=order_lines)
     partner = MagicMock()
-    status = svc._animates_shipment_status(
+    status = svc._nimbrel_shipment_status(
         partner, so, 'PO0319555', {1: 10.0, 2: 5.0}
     )
     assert status == 'complete_after_partial'
@@ -203,5 +203,5 @@ def test_shipment_status_complete_after_partial_when_prior_desadv_exists():
 def test_shipment_status_no_order_lines_defaults_complete():
     svc, so = _make_service_for_shipment_status(prior_logs=[], order_lines=[])
     partner = MagicMock()
-    status = svc._animates_shipment_status(partner, so, 'PO0319555', {})
+    status = svc._nimbrel_shipment_status(partner, so, 'PO0319555', {})
     assert status == 'complete_single_shipment'

@@ -1,6 +1,6 @@
 -- Neutralize EDI trading-partner credentials on a cloned (non-production) database.
--- Prevents a clone from reaching a real trading-partner FTP mailbox (Briscoes,
--- Animates) or auto-confirming inbound EDI orders.
+-- Prevents a clone from reaching a real trading-partner FTP mailbox (Kestrelby,
+-- Nimbrel) or auto-confirming inbound EDI orders.
 UPDATE edi_trading_partner
    SET environment        = 'test',
        ftp_host           = 'neutralized.invalid',

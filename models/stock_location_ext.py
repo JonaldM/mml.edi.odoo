@@ -6,5 +6,5 @@ class StockLocationEdiExt(models.Model):
 
     edi_store_gln = fields.Char(
         string='EDI Store GLN',
-        help='Briscoes store GLN for this delivery location. Used in DESADV (ASN) generation.',
+        help='Kestrelby store GLN for this delivery location. Used in DESADV (ASN) generation.',
     )
