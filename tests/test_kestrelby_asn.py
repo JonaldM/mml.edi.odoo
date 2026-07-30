@@ -9,12 +9,12 @@ class TestKestrelbyASNGenerator(unittest.TestCase):
             'po_number': '4500038166',
             'despatch_ref': 'DASN-4500038166',
             'despatch_date': '20260305',
-            'mml_edis_id': 'MMLEDI',
+            # Both routing identities are supplied explicitly: neither has a
+            # code default any more (they are account-specific configuration —
+            # ir.config_parameter mml_edi.sender_id / mml_edi.kestrelby_buyer_gln,
+            # read by services/edi_service.py). Fictional values on purpose.
+            'van_sender_id': 'DEMOEDI',
             'ctrl_ref': '1',
-            # Explicit fictional counterparty GLN. The module default
-            # (_KESTRELBY_GLN) is the REAL VAN-provisioned buyer GLN — routing
-            # data, not fixture content — so fixtures override it rather than
-            # asserting on it.
             'buyer_gln': '0200099000008',
             'deliveries': [
                 {
@@ -88,6 +88,38 @@ class TestKestrelbyASNGenerator(unittest.TestCase):
         gen = self._get_generator()
         result = gen.generate(self._make_despatch())
         self.assertIn('NAD+BY+0200099000008::14', result)
+
+    def test_configured_identities_reach_the_wire_segments(self):
+        """The extracted values must be what the outbound DESADV actually
+        carries: van_sender_id in UNB S002 and NAD+SE, buyer_gln in UNB S003
+        and NAD+BY. This is the "outbound document reflects the configured
+        value" half of the config extraction."""
+        gen = self._get_generator()
+        result = gen.generate(self._make_despatch(
+            van_sender_id='CFGSENDER', buyer_gln='0200099000008'))
+        segments = [s for s in result.split("'") if s.strip()]
+        unb = next(s for s in segments if s.startswith('UNB+'))
+        self.assertIn('CFGSENDER:14', unb)
+        self.assertIn('0200099000008:14', unb)
+        self.assertIn('NAD+SE+CFGSENDER::14', result)
+        self.assertIn('NAD+BY+0200099000008::14', result)
+
+    def test_no_account_specific_default_is_baked_into_the_parser(self):
+        """Fresh-install neutrality: the module carries no counterparty GLN."""
+        from mml_edi.parsers.kestrelby_asn import DEFAULT_BUYER_GLN
+        self.assertEqual(DEFAULT_BUYER_GLN, '')
+
+    def test_missing_van_sender_id_fails_closed(self):
+        gen = self._get_generator()
+        despatch = self._make_despatch(van_sender_id='')
+        with self.assertRaises(ValueError):
+            gen.generate(despatch)
+
+    def test_missing_buyer_gln_fails_closed(self):
+        gen = self._get_generator()
+        despatch = self._make_despatch(buyer_gln='')
+        with self.assertRaises(ValueError):
+            gen.generate(despatch)
 
     def test_special_characters_in_po_number_are_escaped(self):
         """EDIFACT delimiters in PO number must be escaped with the release character '?'."""

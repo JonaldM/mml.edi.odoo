@@ -35,16 +35,21 @@ _logger = logging.getLogger(__name__)
 #
 # WIRE-PROTOCOL ROUTING DATA — NOT fixture content, NOT a brand label.
 #
-# The buyer's real GS1 Global Location Number, written verbatim into the live
-# outbound DESADV envelope (UNB S003) and the NAD+BY segment below. A
-# fictionalised GLN here is worse than an invalid one: a syntactically valid
-# but wrong GLN is silently misrouted or rejected by the partner rather than
-# caught locally. Deliberately EXCLUDED from the fixture-name sweep and
-# registered instead in scripts/cadence_transform/rename_map.yaml as
-# `config_extract: kestrelby_buyer_gln`.
+# The buyer's GS1 Global Location Number is written verbatim into the live
+# outbound DESADV envelope (UNB S003) and the NAD+BY segment below, so it is
+# ACCOUNT-SPECIFIC data: it identifies one deployment's counterparty, never the
+# product. It therefore carries NO built-in default — a hardcoded GLN here
+# would put one customer's counterparty on every other customer's wire, and a
+# *fictionalised* one is worse than an invalid one (a syntactically valid but
+# wrong GLN is silently misrouted or rejected by the partner rather than caught
+# locally).
 #
-# Per-deployment override: pass ``buyer_gln`` in the despatch dict.
-_KESTRELBY_GLN = '9469313000007'
+# The value is supplied per call as ``despatch['buyer_gln']`` by the Odoo
+# adapter (services/edi_service.py), which reads ir.config_parameter
+# ``mml_edi.kestrelby_buyer_gln``. Generation fails closed when it is missing —
+# see ``_validate``. Registered in scripts/cadence_transform/rename_map.yaml as
+# `config_extract: kestrelby_buyer_gln`.
+DEFAULT_BUYER_GLN = ''
 _SEG_TERM = "'"
 
 
@@ -68,17 +73,19 @@ class KestrelbyASNGenerator:
         po_number      str   Kestrelby PO number (e.g. '4500038166')
         despatch_ref   str   Unique ASN reference (e.g. 'DASN-4500038166')
         despatch_date  str   YYYYMMDD
-        mml_edis_id    str   MML sender ID on EDIS VAN (from ir.config_parameter)
+        van_sender_id  str   REQUIRED — our own sender identity on the VAN
+                             (ir.config_parameter ``mml_edi.sender_id``)
         ctrl_ref       str   Interchange control reference (unique per interchange)
-        buyer_gln      str   OPTIONAL — counterparty GLN override; defaults to
-                             _KESTRELBY_GLN (the VAN-provisioned buyer GLN)
+        buyer_gln      str   REQUIRED — the counterparty's GLN
+                             (ir.config_parameter ``mml_edi.kestrelby_buyer_gln``).
+                             No built-in default: see DEFAULT_BUYER_GLN above.
         deliveries     list  [{'store_gln': str, 'lines': [{'ean13': str, 'qty': int, 'seq': int}]}]
     """
 
     def generate(self, despatch: dict) -> str:
         """Generate and return the full EDIFACT DESADV message as a string."""
         self._validate(despatch)
-        buyer_gln = despatch.get('buyer_gln') or _KESTRELBY_GLN
+        buyer_gln = despatch.get('buyer_gln') or DEFAULT_BUYER_GLN
 
         now = datetime.now(timezone.utc)
         date_yymmdd = now.strftime('%y%m%d')
@@ -89,7 +96,7 @@ class KestrelbyASNGenerator:
         # Interchange header
         segments.append(
             'UNB+UNOA:3+{mml}:14+{kestrelby}:14+{date}:{time}+{ref}++DESADV'.format(
-                mml=_edifact_escape(despatch['mml_edis_id']),
+                mml=_edifact_escape(despatch['van_sender_id']),
                 kestrelby=buyer_gln,
                 date=date_yymmdd,
                 time=time_hhmm,
@@ -110,7 +117,7 @@ class KestrelbyASNGenerator:
         segments.append('DTM+11:{date}:102'.format(date=despatch['despatch_date']))
 
         # Seller (MML)
-        segments.append('NAD+SE+{mml}::14'.format(mml=_edifact_escape(despatch['mml_edis_id'])))
+        segments.append('NAD+SE+{mml}::14'.format(mml=_edifact_escape(despatch['van_sender_id'])))
 
         # Buyer (Kestrelby Group)
         segments.append('NAD+BY+{gln}::14'.format(gln=buyer_gln))
@@ -151,7 +158,26 @@ class KestrelbyASNGenerator:
         return _SEG_TERM.join(segments) + _SEG_TERM
 
     def _validate(self, despatch: dict) -> None:
-        """Validate all EAN-13 barcodes in the despatch."""
+        """Validate the routing identities and every EAN-13 barcode.
+
+        Fail-closed on the two account-specific routing identities. Neither has
+        a built-in default any more (they used to be hardcoded to one
+        deployment's values), so an unconfigured install must be stopped HERE
+        rather than emitting an interchange addressed to an empty mailbox —
+        which a VAN accepts syntactically and then black-holes.
+        """
+        if not str(despatch.get('van_sender_id') or '').strip():
+            raise ValueError(
+                "DESADV: van_sender_id is required and not configured. Set the "
+                "ir.config_parameter 'mml_edi.sender_id' to the sender identity "
+                "the VAN provisioned for this deployment."
+            )
+        if not str(despatch.get('buyer_gln') or '').strip():
+            raise ValueError(
+                "DESADV: buyer_gln is required and not configured. Set the "
+                "ir.config_parameter 'mml_edi.kestrelby_buyer_gln' to the "
+                "counterparty GLN, or pass 'buyer_gln' in the despatch dict."
+            )
         for delivery in despatch.get('deliveries', []):
             for line in delivery.get('lines', []):
                 ean = str(line.get('ean13', ''))

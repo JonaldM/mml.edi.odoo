@@ -32,12 +32,17 @@ def _is_picking_unit_race_violation(exc) -> bool:
     return SSCC_PICKING_UNIT_UNIQUE_CONSTRAINT in str(exc)
 
 
-# MML's GS1 Company Prefix. 7 digits -> 9 digits of serial headroom per
+# GS1 Company Prefix — ACCOUNT-SPECIFIC, no built-in default.
+#
+# A company prefix is allocated by GS1 to ONE company; baking a literal in
+# would mint SSCCs that claim another company's prefix on every deployment that
+# never configured its own — undetectable locally, rejected or misattributed by
+# the receiving partner. The value lives in ir.config_parameter
+# 'mml_edi.gs1_company_prefix' (seeded from the deployment's existing value by
+# migrations/19.0.1.3.0/post-migration.py); a fresh install starts blank and
+# _get_gs1_prefix() fails closed. 7 digits -> 9 digits of serial headroom per
 # extension digit (see parsers/gs1_sscc.py for the full SSCC-18 layout).
-# Overridable via ir.config_parameter 'mml_edi.gs1_company_prefix' so a future
-# prefix change (e.g. GS1 reassigning a shorter/longer prefix) does not
-# require a code change.
-DEFAULT_GS1_PREFIX = "9419416"
+DEFAULT_GS1_PREFIX = ""
 
 # GS1 requires SSCCs to be unique for at least 12 months per company prefix
 # (Nimbrel_DESADV.pdf p.9). This model never reuses a (gs1_prefix,
@@ -116,12 +121,25 @@ class SSCCRegister(models.Model):
 
     @api.model
     def _get_gs1_prefix(self) -> str:
-        return (
+        """Return the configured GS1 company prefix, or fail closed.
+
+        There is deliberately no code default (see DEFAULT_GS1_PREFIX): an
+        unconfigured install must not mint SSCCs under someone else's prefix.
+        """
+        prefix = (
             self.env["ir.config_parameter"].sudo().get_param(
                 "mml_edi.gs1_company_prefix", DEFAULT_GS1_PREFIX
             )
             or DEFAULT_GS1_PREFIX
-        )
+        ).strip()
+        if not prefix:
+            raise UserError(_(
+                "SSCC register: no GS1 company prefix is configured. Set the "
+                "system parameter 'mml_edi.gs1_company_prefix' to the GS1 "
+                "company prefix allocated to this company before generating "
+                "SSCC labels or DESADV messages."
+            ))
+        return prefix
 
     @api.model
     def get_or_create(self, picking, unit_key: str, *, unit_type: str = "carton"):

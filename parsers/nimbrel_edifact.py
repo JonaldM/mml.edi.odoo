@@ -26,22 +26,33 @@ DEFAULT_UNA = "UNA:+.? '"
 #
 # WIRE-PROTOCOL ROUTING DATA — NOT fixture content, NOT a brand label.
 #
-# These are the counterparty's mailbox identities as provisioned on the VAN
-# (SPS Commerce). They populate the UNB recipient (S003 DE0010) of every
-# outbound interchange and are matched against the UNB sender of every inbound
-# one (models/edi_processor.py::_validate_inbound_envelope, fail-closed). A
-# fictionalised value here means: every inbound file is rejected, and every
-# outbound interchange is addressed to a mailbox that does not exist on the
-# VAN. They are therefore deliberately EXCLUDED from the fixture-name sweep
-# and registered instead in scripts/cadence_transform/rename_map.yaml as
-# `config_extract: van_counterparty_mailbox`, so the transform replaces them
-# with a placeholder and points at the supported override.
+# A counterparty's mailbox identity on the VAN (SPS Commerce) is ACCOUNT-SPECIFIC
+# data: it names ONE deployment's trading partner, never a product default. It
+# populates the UNB recipient (S003 DE0010) of every outbound interchange and is
+# matched against the UNB sender of every inbound one
+# (models/edi_processor.py::_validate_inbound_envelope, fail-closed).
 #
-# Per-deployment override: edi.trading.partner.unb_recipient_id /
-# unb_recipient_test_id (blank on an existing row => these defaults, so an
-# upgrade needs no reconfiguration).
-DEFAULT_RECIPIENT_ID = "ANIMATES"
-DEFAULT_RECIPIENT_TEST_ID = "TST1ANIMATES"
+# There is therefore NO built-in id here. A hardcoded one would address every
+# other deployment's interchanges to one customer's mailbox; a *fictionalised*
+# one would mean every inbound file rejected and every outbound interchange sent
+# to a mailbox that does not exist on the VAN. Registered in
+# scripts/cadence_transform/rename_map.yaml as
+# `config_extract: van_counterparty_mailbox`.
+#
+# Resolution order (models/edi_trading_partner.py::get_unb_recipient, the Odoo
+# adapter that owns all config reads):
+#   1. edi.trading.partner.unb_recipient_id / unb_recipient_test_id  (per partner)
+#   2. ir.config_parameter mml_edi.default_unb_recipient_id /
+#      mml_edi.default_unb_recipient_test_id                        (per install)
+# The upgrade seeds (2) with the deployment's existing values
+# (migrations/19.0.1.3.0/post-migration.py), so no row needs reconfiguring; a
+# fresh install starts blank and get_unb_recipient() fails closed.
+DEFAULT_RECIPIENT_ID = ""
+DEFAULT_RECIPIENT_TEST_ID = ""
+
+# NOT account-specific: 'ZZZ' is the UN/EDIFACT "mutually defined" identity
+# qualifier (DE 0007) and is the SPS-certified default for this dialect. It
+# stays a code constant.
 DEFAULT_RECIPIENT_QUALIFIER = "ZZZ"
 
 
@@ -184,14 +195,12 @@ def build_unb(sender_gln, ctrl_ref, date_yymmdd, time_hhmm, *, contrl=False,
               require_real=False):
     """UNB for an MML->Nimbrel interchange (or inverted for inbound/CONTRL parse).
 
-    Backward-compatible defaults: sender qualifies ``14`` (GLN) and recipient
-    defaults to ``DEFAULT_RECIPIENT_ID``:``ZZZ`` unless overridden — the real
-    counterparty production mailbox on the VAN (see the constant's comment: it
-    is routing data, not a name). Callers that HAVE a trading partner record
-    should instead go through ``build_unb_for_partner`` (or pass
-    ``sender_qualifier``/explicit ``recipient``/``recipient_qualifier``
-    themselves) so the partner's configured test-vs-production mailbox identity
-    is used rather than these defaults.
+    Backward-compatible defaults: sender qualifies ``14`` (GLN) and the
+    recipient qualifier defaults to ``ZZZ``. The recipient IDENTITY has no code
+    default (see ``DEFAULT_RECIPIENT_ID``) — it is account-specific and must be
+    supplied. Callers that HAVE a trading partner record should go through
+    ``build_unb_for_partner``, which resolves it from the partner row and then
+    the install-level ir.config_parameter fallback.
 
     sender_qualifier: DE0007 for the sender S002 (default ``"14"`` — GLN — for
         backward compatibility with the GLN-only call sites).
@@ -200,12 +209,21 @@ def build_unb(sender_gln, ctrl_ref, date_yymmdd, time_hhmm, *, contrl=False,
         — used for inbound parsing / test-fixture construction, never for
         production outbound payloads.
     require_real=True: raise EdifactError if sender id, control ref, or date/time
-        are one of the known placeholder/worked-example sentinel values. Set this
-        on every PRODUCTION payload path (never on pure tests) so a caller cannot
+        are one of the known placeholder/worked-example sentinel values, or if
+        the recipient mailbox identity is unconfigured. Set this on every
+        PRODUCTION payload path (never on pure tests) so a caller cannot
         silently ship the ``SUPPLIER_GLN`` / ``12341`` / frozen-2020-timestamp
-        defaults documented in AN-01.
+        defaults documented in AN-01, nor an interchange addressed to an empty
+        mailbox.
     """
     if require_real:
+        if not str(recipient or DEFAULT_RECIPIENT_ID).strip():
+            raise EdifactError(
+                "build_unb(require_real=True): no counterparty mailbox "
+                "identity — set edi.trading.partner.unb_recipient_id (or the "
+                "ir.config_parameter 'mml_edi.default_unb_recipient_id') to "
+                "the mailbox the VAN provisioned for this counterparty"
+            )
         if str(sender_gln) in _PLACEHOLDER_SENDER_IDS:
             raise EdifactError(
                 "build_unb(require_real=True): sender id %r is a placeholder "

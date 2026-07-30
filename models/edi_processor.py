@@ -1938,11 +1938,21 @@ class EDIProcessor(models.AbstractModel):
 
         Office365 denies 'send as' for the company/notifications address
         (SendAsDenied), so route EDI alerts and OOS summaries through the
-        noreply mailbox, which is the permitted relay. From-address is
-        overridable via ir.config_parameter ``mml_edi.notify_from``.
+        noreply mailbox, which is the permitted relay. The from-address is
+        ACCOUNT-SPECIFIC (it carries the deploying company's own mail domain)
+        and lives in ir.config_parameter ``mml_edi.notify_from`` with NO
+        hardcoded fallback — an upgrade seeds the deployment's existing value
+        (migrations/19.0.1.3.0/post-migration.py). When unset, fall back to the
+        company's own email and finally to Odoo's own default from-address, so
+        a fresh install never mails out under a foreign domain.
         """
         ICP = self.env['ir.config_parameter'].sudo()
-        from_addr = ICP.get_param('mml_edi.notify_from') or 'MML EDI <noreply@mml.co.nz>'
+        from_addr = (
+            ICP.get_param('mml_edi.notify_from')
+            or self.env.company.email
+            or ICP.get_param('mail.default.from')
+            or ''
+        )
         server = self.env['ir.mail_server'].sudo().search(
             [('name', 'ilike', 'noreply')], limit=1)
         return from_addr, server

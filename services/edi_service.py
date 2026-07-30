@@ -96,10 +96,17 @@ class EDIService:
             )
 
     def _build_despatch_dict_kestrelby(self, picking, sale_order, partner) -> dict:
-        """Extract despatch data from the stock.picking for the Kestrelby ASN generator."""
-        mml_edis_id = self.env['ir.config_parameter'].sudo().get_param(
-            'mml_edi.sender_id', 'MMLEDI'
-        )
+        """Extract despatch data from the stock.picking for the Kestrelby ASN generator.
+
+        The two routing identities below are ACCOUNT-SPECIFIC configuration, not
+        product defaults: they are read from ir.config_parameter with NO
+        hardcoded fallback. An upgrade seeds the deployment's existing values
+        (migrations/19.0.1.3.0/post-migration.py); a fresh install starts blank
+        and the generator fails closed until an operator configures them.
+        """
+        ICP = self.env['ir.config_parameter'].sudo()
+        van_sender_id = ICP.get_param('mml_edi.sender_id', '')
+        buyer_gln = ICP.get_param('mml_edi.kestrelby_buyer_gln', '')
         ctrl_ref = (
             self.env['ir.sequence'].sudo().next_by_code('edi.asn.ctrl.ref') or '1'
         )
@@ -144,7 +151,8 @@ class EDIService:
             'po_number': po_number,
             'despatch_ref': 'DASN-%s' % po_number,
             'despatch_date': datetime.now(timezone.utc).strftime('%Y%m%d'),
-            'mml_edis_id': mml_edis_id,
+            'van_sender_id': van_sender_id,
+            'buyer_gln': buyer_gln,
             'ctrl_ref': ctrl_ref,
             'deliveries': [
                 {'store_gln': gln, 'lines': lines}

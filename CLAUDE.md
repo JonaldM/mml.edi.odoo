@@ -103,8 +103,22 @@ Designed trigger: `mml.event` `3pl.despatch.confirmed`:
 | Key | Default | Purpose |
 |---|---|---|
 | `mml_edi.asn_enabled` | `'0'` | Enable outbound DESADV — set to `'1'` after legacy .NET retirement |
-| `mml_edi.sender_id` | `'MMLEDI'` | MML EDIS VAN sender ID used in DESADV UNB segment |
+| `mml_edi.sender_id` | (none) | Our own sender identity on the VAN — DESADV UNB S002 + NAD+SE |
+| `mml_edi.kestrelby_buyer_gln` | (none) | Counterparty GLN — DESADV UNB S003 + NAD+BY |
+| `mml_edi.default_unb_recipient_id` | (none) | Install-level fallback for the counterparty's VAN mailbox (production) |
+| `mml_edi.default_unb_recipient_test_id` | (none) | Same, for the partner's TEST portal mailbox (a distinct identity) |
+| `mml_edi.gs1_company_prefix` | (none) | GS1 company prefix SSCC-18 codes are minted under |
+| `mml_edi.notify_from` | (none) | From-address for EDI notification mail |
 | `mml.cron_alert_email` | (none) | Email address for cron failure alerts |
+
+**Account-specific by design (19.0.1.3.0).** Every key marked `(none)` above
+used to be a hardcoded code default. They are deployment identities — a VAN
+mailbox, a GS1 prefix allocated to one company, a counterparty GLN — so the
+module ships none of them: an unconfigured install fails closed with an explicit
+error rather than putting one deployment's identity on another's wire.
+`migrations/19.0.1.3.0/post-migration.py` backfills them on upgrade from the
+deployment-local `_legacy_deployment_values.py` overlay (present only in this
+repo, excluded from the productised tree), and only where the key is unset.
 
 ---
 

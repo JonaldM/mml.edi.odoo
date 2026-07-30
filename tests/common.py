@@ -175,7 +175,21 @@ class EDITestSetup:
     All records are rolled back after each test method (TransactionCase behaviour).
     """
 
+    #: Fictional GS1 company prefix in the GS1 restricted-circulation (02)
+    #: range, and fictional VAN routing identities. None of these has a code
+    #: default any more — they are account-specific configuration extracted to
+    #: ir.config_parameter (see migrations/19.0.1.3.0/post-migration.py), so a
+    #: test database must configure its own or the fail-closed guards fire.
+    TEST_GS1_PREFIX = "0200009"
+    TEST_VAN_SENDER_ID = "DEMOEDI"
+    TEST_BUYER_GLN = "0200099000008"
+
     def setup_edi_test_data(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("mml_edi.gs1_company_prefix", self.TEST_GS1_PREFIX)
+        ICP.set_param("mml_edi.sender_id", self.TEST_VAN_SENDER_ID)
+        ICP.set_param("mml_edi.kestrelby_buyer_gln", self.TEST_BUYER_GLN)
+
         test_partner = self.env["res.partner"].create({
             "name": "EDI Test Customer",
             "customer_rank": 1,

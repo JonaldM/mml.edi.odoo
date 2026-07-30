@@ -22,24 +22,50 @@ from mml_edi.parsers.nimbrel_edifact import (
 
 # --- fake partner (duck-typed; mirrors the real edi.trading.partner fields) ---
 
+class _FakeConfigParameter:
+    """Minimal ir.config_parameter stand-in backed by a plain dict."""
+
+    def __init__(self, params=None):
+        self._params = dict(params or {})
+
+    def sudo(self):
+        return self
+
+    def get_param(self, key, default=False):
+        return self._params.get(key, default)
+
+
+class _FakeEnv:
+    def __init__(self, params=None):
+        self._icp = _FakeConfigParameter(params)
+
+    def __getitem__(self, model):
+        assert model == "ir.config_parameter", model
+        return self._icp
+
+
 class _FakePartner:
     def __init__(self, edi_sender_id=None, edi_sender_qualifier="ZZZ",
                  supplier_gln=None, environment="production",
                  unb_recipient_id="NIMBREL",
                  unb_recipient_test_id="TST1NIMBREL",
-                 unb_recipient_qualifier=None):
+                 unb_recipient_qualifier=None,
+                 config_params=None):
         self.edi_sender_id = edi_sender_id
         self.edi_sender_qualifier = edi_sender_qualifier
         self.supplier_gln = supplier_gln
         self.environment = environment
         # Per-partner counterparty mailbox overrides. Set to fictional values
-        # here on purpose: the module DEFAULTS are the real VAN-provisioned
-        # mailbox ids (wire routing data), so fixtures configure their own
-        # rather than asserting on the shipped constants.
+        # here on purpose: there is no account-specific module default any more
+        # (see nimbrel_edifact.DEFAULT_RECIPIENT_ID), so a fixture supplies its
+        # own identity — on the row, or via the install-level config fallback.
         self.unb_recipient_id = unb_recipient_id
         self.unb_recipient_test_id = unb_recipient_test_id
         self.unb_recipient_qualifier = unb_recipient_qualifier
         self.name = "Nimbrel NZ"
+        # get_unb_recipient() is the adapter layer and reads
+        # ir.config_parameter for the install-level fallback.
+        self.env = _FakeEnv(config_params)
 
     def ensure_one(self):
         pass
@@ -86,24 +112,59 @@ def test_get_unb_recipient_test_uses_tst1nimbrel():
     assert p.get_unb_recipient() == ("TST1NIMBREL", "ZZZ")
 
 
-def test_get_unb_recipient_falls_back_to_module_defaults_when_unset():
-    """A partner row with blank mailbox fields (the state of every existing
-    row after upgrade) must fall back to the shipped VAN mailbox ids, NOT to
-    a blank/placeholder — a wrong value here is a total inbound EDI outage
-    plus an outbound misroute."""
-    from mml_edi.parsers.nimbrel_edifact import (
-        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER,
-        DEFAULT_RECIPIENT_TEST_ID,
-    )
+def test_get_unb_recipient_falls_back_to_configured_install_default():
+    """A partner row with blank mailbox fields (the state of every existing row
+    after upgrade) resolves through the install-level ir.config_parameter that
+    migrations/19.0.1.3.0 seeds with the value that used to be a code default.
+    This is the "MML value preserved on the upgrade path" contract: the wire
+    identity must not change when the hardcoded default is removed."""
+    from mml_edi.parsers.nimbrel_edifact import DEFAULT_RECIPIENT_QUALIFIER
+
+    seeded = {
+        "mml_edi.default_unb_recipient_id": "LEGACYMBX",
+        "mml_edi.default_unb_recipient_test_id": "TST1LEGACYMBX",
+    }
     prod = _FakePartner(environment="production", unb_recipient_id=None,
-                        unb_recipient_test_id=None)
-    assert prod.get_unb_recipient() == (
-        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_QUALIFIER)
+                        unb_recipient_test_id=None, config_params=seeded)
+    assert prod.get_unb_recipient() == ("LEGACYMBX", DEFAULT_RECIPIENT_QUALIFIER)
 
     test = _FakePartner(environment="test", unb_recipient_id=None,
-                        unb_recipient_test_id=None)
+                        unb_recipient_test_id=None, config_params=seeded)
     assert test.get_unb_recipient() == (
-        DEFAULT_RECIPIENT_TEST_ID, DEFAULT_RECIPIENT_QUALIFIER)
+        "TST1LEGACYMBX", DEFAULT_RECIPIENT_QUALIFIER)
+
+
+def test_get_unb_recipient_partner_row_wins_over_install_default():
+    """Per-partner configuration outranks the install-level fallback."""
+    p = _FakePartner(
+        environment="production",
+        unb_recipient_id="ONROW",
+        config_params={"mml_edi.default_unb_recipient_id": "LEGACYMBX"},
+    )
+    assert p.get_unb_recipient()[0] == "ONROW"
+
+
+def test_get_unb_recipient_is_blank_on_a_fresh_unconfigured_install():
+    """Fresh install: no partner override, no seeded parameter, and — the point
+    of this task — no account-specific code default either. The identity comes
+    back blank so the production envelope builder can fail closed."""
+    from mml_edi.parsers.nimbrel_edifact import (
+        DEFAULT_RECIPIENT_ID, DEFAULT_RECIPIENT_TEST_ID,
+    )
+    assert DEFAULT_RECIPIENT_ID == ""
+    assert DEFAULT_RECIPIENT_TEST_ID == ""
+
+    prod = _FakePartner(environment="production", unb_recipient_id=None,
+                        unb_recipient_test_id=None)
+    assert prod.get_unb_recipient()[0] == ""
+
+
+def test_build_unb_require_real_rejects_unconfigured_recipient():
+    """The fail-closed half: an unconfigured mailbox must never reach the wire
+    as an empty UNB recipient (a VAN accepts that syntactically, then black-holes
+    the interchange)."""
+    with pytest.raises(EdifactError):
+        build_unb("0200000000004T", 42, "260703", "0900", require_real=True)
 
 
 # --- build_unb(): backward-compatible defaults still work -------------------

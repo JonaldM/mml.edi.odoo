@@ -1,6 +1,6 @@
 {
     "name": "MML EDI",
-    "version": "19.0.1.2.2",
+    "version": "19.0.1.3.0",
     "summary": "Electronic Data Interchange for retail partners (Kestrelby Group and others)",
     "description": """
         Customer-agnostic EDI module for Odoo 19.

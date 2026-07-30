@@ -22,6 +22,11 @@ _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 @tagged("post_install", "-at_install")
 class TestSSCCRegister(EDITestSetup, TransactionCase):
 
+    # TEST_GS1_PREFIX comes from EDITestSetup and is applied by
+    # setup_edi_test_data(): sscc.register has no built-in prefix any more, it
+    # is account-specific configuration (ir.config_parameter
+    # mml_edi.gs1_company_prefix).
+
     def setUp(self):
         super().setUp()
         self.setup_edi_test_data()
@@ -61,8 +66,30 @@ class TestSSCCRegister(EDITestSetup, TransactionCase):
     def test_get_or_create_uses_configured_gs1_prefix(self):
         picking = self._make_picking("SSCC-PREFIX-1")
         row = self.env["sscc.register"].get_or_create(picking, "carton-1")
-        self.assertTrue(row.sscc.startswith("0" + "9419416"))
-        self.assertEqual(row.gs1_prefix, "9419416")
+        self.assertTrue(row.sscc.startswith("0" + self.TEST_GS1_PREFIX))
+        self.assertEqual(row.gs1_prefix, self.TEST_GS1_PREFIX)
+
+    def test_reconfigured_prefix_reaches_the_minted_sscc(self):
+        """The configured value — not a code constant — is what ends up on the
+        wire/label. Re-pointing the parameter re-points minting."""
+        other_prefix = "0200008"
+        self.env["ir.config_parameter"].sudo().set_param(
+            "mml_edi.gs1_company_prefix", other_prefix)
+        picking = self._make_picking("SSCC-PREFIX-2")
+        row = self.env["sscc.register"].get_or_create(picking, "carton-1")
+        self.assertEqual(row.gs1_prefix, other_prefix)
+        self.assertTrue(row.sscc.startswith("0" + other_prefix))
+
+    def test_unconfigured_prefix_fails_closed(self):
+        """Fresh-install neutrality: with no configured prefix there is no code
+        default to fall back on, so minting refuses rather than claiming another
+        company's GS1 prefix."""
+        from odoo.exceptions import UserError
+        picking = self._make_picking("SSCC-PREFIX-3")
+        self.env["ir.config_parameter"].sudo().set_param(
+            "mml_edi.gs1_company_prefix", "")
+        with self.assertRaises(UserError):
+            self.env["sscc.register"].get_or_create(picking, "carton-1")
 
     def test_get_or_create_persists_picking_and_unit_key(self):
         picking = self._make_picking("SSCC-PERSIST-1")

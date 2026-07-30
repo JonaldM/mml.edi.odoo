@@ -267,12 +267,18 @@ class EDITradingPartner(models.Model):
         sender against (fail-closed), so a wrong value here is a total inbound
         EDI outage as well as an outbound misroute.
 
-        Per-partner overrides live on unb_recipient_id / unb_recipient_test_id;
-        blank (the state of every pre-existing row after upgrade) falls back to
-        the VAN-provisioned defaults in parsers.nimbrel_edifact — see the
-        constants' comment: these are routing values, deliberately excluded
-        from the fixture-name sweep and carried as `config_extract` in
-        rename_map.yaml.
+        Resolution order (this model is the adapter layer, so it owns the config
+        reads — the parser constants carry no account-specific default):
+
+          1. per-partner: unb_recipient_id / unb_recipient_test_id
+          2. per-install: ir.config_parameter mml_edi.default_unb_recipient_id /
+             mml_edi.default_unb_recipient_test_id
+
+        Level 2 is what a pre-existing row (blank overrides) resolves through
+        after upgrade; migrations/19.0.1.3.0/post-migration.py seeds it with the
+        values that used to be hardcoded in parsers.nimbrel_edifact, so upgrade
+        behaviour is unchanged. A fresh install has neither, and the callers
+        that build a production payload fail closed (build_unb(require_real=True)).
         """
         # Deferred import: models/ is imported before parsers/ in the package
         # __init__, and this keeps the model free of a parser-package import
@@ -282,10 +288,19 @@ class EDITradingPartner(models.Model):
             DEFAULT_RECIPIENT_TEST_ID,
         )
         self.ensure_one()
+        ICP = self.env["ir.config_parameter"].sudo()
         if self.environment == "test":
-            recipient = getattr(self, "unb_recipient_test_id", None) or DEFAULT_RECIPIENT_TEST_ID
+            recipient = (
+                getattr(self, "unb_recipient_test_id", None)
+                or ICP.get_param("mml_edi.default_unb_recipient_test_id", "")
+                or DEFAULT_RECIPIENT_TEST_ID
+            )
         else:
-            recipient = getattr(self, "unb_recipient_id", None) or DEFAULT_RECIPIENT_ID
+            recipient = (
+                getattr(self, "unb_recipient_id", None)
+                or ICP.get_param("mml_edi.default_unb_recipient_id", "")
+                or DEFAULT_RECIPIENT_ID
+            )
         qualifier = (
             getattr(self, "unb_recipient_qualifier", None)
             or DEFAULT_RECIPIENT_QUALIFIER
