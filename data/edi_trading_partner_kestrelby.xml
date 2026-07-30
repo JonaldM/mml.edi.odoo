@@ -18,7 +18,7 @@
                                               # QUALF 002); the QUALF 003 GTIN is the
                                               # CARTON/shipper barcode, not Odoo's retail
                                               # product.barcode, so do NOT match on barcode
-          ftp_host: post.edis.co.nz
+          ftp_host: van.example.net
           ftp_port: 21
           ftp_protocol: ftp
           ftp_inbox_path: /FromEDIS
