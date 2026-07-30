@@ -301,7 +301,7 @@ class TestEdiReviewQueue(TransactionCase, EDITestSetup):
         d = self.svc.get_review_detail(r.id)
         self.assertEqual(len(d["so_lines"]), 1)
         line = d["so_lines"][0]
-        # test_product carries barcode 9780000000002 -> matched by barcode, OK.
+        # test_product carries barcode 0200000999995 -> matched by barcode, OK.
         self.assertEqual(line["match_by"], "barcode")
         self.assertEqual(line["match_cls"], "edi-chip-green")
         self.assertEqual(line["status"], "OK")

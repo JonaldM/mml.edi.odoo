@@ -31,7 +31,7 @@ class TestNimbrelInvoiceOdoo(EDITestSetup, TransactionCase):
         self.test_product.is_storable = True
         # Nimbrel matches on default_code (shared fixture only sets barcode) —
         # without it the order blocks product_not_found and never confirms.
-        self.test_product.default_code = "9780000000002"
+        self.test_product.default_code = "0200000999995"
         # Outbound INVOIC goes to a local dir (real transport, no network).
         # ISC (PIA+5:IN) is recovered by re-parsing the order raw_data below,
         # which carries PIA+5+ISC001:IN — no product-field dependency.
@@ -113,7 +113,7 @@ class TestNimbrelInvoiceOdoo(EDITestSetup, TransactionCase):
             "NAD+ST+%s::92'"
             "LIN+1'"
             "PIA+5+ISC001:IN'"
-            "PIA+1+9780000000002:SA'"
+            "PIA+1+0200000999995:SA'"
             "QTY+21:%d:EA'"
             "UNT+8+1'"
             "UNZ+1+1'"

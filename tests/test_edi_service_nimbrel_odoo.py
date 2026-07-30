@@ -30,7 +30,7 @@ class TestEDIServiceNimbrelDispatch(EDITestSetup, TransactionCase):
         # Nimbrel matches products on default_code (the shared fixture only
         # sets barcode) — without it the order blocks product_not_found and
         # never auto-confirms, so no picking is ever generated to dispatch.
-        self.test_product.default_code = "9780000000002"
+        self.test_product.default_code = "0200000999995"
         # Outbound DESADV/INVOIC go to a local dir (real transport, no network).
         # ISC (PIA+5:IN) is recovered by re-parsing the order raw_data, which
         # carries PIA+5+ISC001:IN — no product-field dependency.
@@ -100,7 +100,7 @@ class TestEDIServiceNimbrelDispatch(EDITestSetup, TransactionCase):
             "NAD+ST+%s::92'"
             "LIN+1'"
             "PIA+5+ISC001:IN'"
-            "PIA+1+9780000000002:SA'"
+            "PIA+1+0200000999995:SA'"
             "QTY+21:%d:EA'"
             "UNT+8+1'"
             "UNZ+1+1'"

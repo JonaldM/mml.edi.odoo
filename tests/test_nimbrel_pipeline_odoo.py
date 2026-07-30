@@ -33,7 +33,7 @@ _NIMBREL_ORDERS = (
     "NAD+ST+12345::92++Nimbrel Invercargill'"
     "LIN+1'"
     "PIA+5+ISC001:IN'"
-    "PIA+1+9780000000002:SA'"
+    "PIA+1+0200000999995:SA'"
     "IMD+F++:::Test Product'"
     "QTY+21:5:EA'"
     "PRI+AAA:9.99'"
@@ -79,7 +79,7 @@ class _NimbrelOdooTestBase(EDITestSetup, TransactionCase):
             "order_split_mode": "single",
         })
         # Match the barcode PIA+1 code used in the fixtures above.
-        self.test_product.barcode = "9780000000002"
+        self.test_product.barcode = "0200000999995"
 
         try:
             from odoo.addons.mml_edi.models import edi_ftp as edi_ftp_mod

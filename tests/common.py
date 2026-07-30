@@ -99,7 +99,7 @@ class RecordingFTPHandler:
 
 
 def make_parsed_line(
-    product_code="9780000000002",
+    product_code="0200000999995",
     description="Test Product",
     quantity=10.0,
     unit_price=9.99,
@@ -169,7 +169,7 @@ class EDITestSetup:
     Creates:
     - A test customer partner
     - A test pricelist with one item for the test product at 9.99
-    - A test product with barcode=9780000000002 (valid EAN-13) and list_price=9.99
+    - A test product with barcode=0200000999995 (valid EAN-13) and list_price=9.99
     - A test trading partner linked to the above
 
     All records are rolled back after each test method (TransactionCase behaviour).
@@ -193,7 +193,7 @@ class EDITestSetup:
             # to raise UserError whenever an ORDRSP was generated for an SO that
             # included this product (e.g. auto-approved new-order reviews and
             # TestKestrelbyOrdrspIntegration happy-path tests).
-            "barcode": "9780000000002",
+            "barcode": "0200000999995",
             "list_price": 9.99,
             "type": "consu",
             # EDI pricelists must resolve ex-GST (edi.trading.partner._validate_pricelist_gst).

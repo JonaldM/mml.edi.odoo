@@ -361,7 +361,7 @@ class TestEDIProcessor(EDITestSetup, TransactionCase):
             order_date=date.today(),
             lines=[
                 ParsedOrderLine(
-                    product_code="9780000000002",   # matches self.test_product.barcode
+                    product_code="0200000999995",   # matches self.test_product.barcode
                     description="Carton Test Product",
                     quantity=12.0,
                     unit_price=9.99,

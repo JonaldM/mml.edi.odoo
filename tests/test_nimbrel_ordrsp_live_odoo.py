@@ -31,7 +31,7 @@ _NIMBREL_ORDERS_TWO_LINES = (
     "NAD+ST+12345::92++Nimbrel Invercargill'"
     "LIN+1'"
     "PIA+5+ISC001:IN'"
-    "PIA+1+9780000000002:SA'"
+    "PIA+1+0200000999995:SA'"
     "IMD+F++:::Test Product'"
     "QTY+21:2:EA'"
     "QTY+59:1'"
@@ -67,7 +67,7 @@ class _NimbrelOrdrspLiveOdooBase(EDITestSetup, TransactionCase):
             "nimbrel_vendor_code": "V1058",
             "environment": "test",
         })
-        self.test_product.barcode = "9780000000002"
+        self.test_product.barcode = "0200000999995"
 
         from odoo.addons.mml_edi.parsers.nimbrel import NimbrelParser
         self.parser = NimbrelParser()
