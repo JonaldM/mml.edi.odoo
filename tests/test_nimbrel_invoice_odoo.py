@@ -16,7 +16,7 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
-from .common import EDITestSetup, make_clean_parsed_order
+from .common import EDITestSetup, make_clean_parsed_order, make_island_warehouse
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
@@ -48,8 +48,7 @@ class TestNimbrelInvoiceOdoo(EDITestSetup, TransactionCase):
         })
         self.test_product.taxes_id = [(6, 0, [self.gst_tax.id])]
 
-        self.wh = self.env["stock.warehouse"].create(
-            {"name": "Nimbrel Invoice DC", "code": "AIDC", "roq_island": "north"})
+        self.wh = make_island_warehouse(self.env, "Nimbrel Invoice DC", "AIDC")
         self.env["ir.config_parameter"].sudo().set_param("mml_edi.asn_enabled", "1")
 
         self.nimbrel_customer = self.env["res.partner"].create({

@@ -19,8 +19,11 @@ class TestEdiTradingPartnerSettings(TransactionCase, EDITestSetup):
         super().setUp()
         self.setup_edi_test_data()
 
-    def test_sender_qualifier_defaults_to_gln(self):
-        # Fresh partner (fixture didn't set it) -> qualifier default "14" (GLN).
+    def test_sender_qualifier_defaults_to_zzz(self):
+        # Fresh partner (fixture didn't set it) -> qualifier default "ZZZ"
+        # (mutually defined), per the SPS-certified Nimbrel identity build.
+        # This test originally asserted "14" — codifying a regression where a
+        # duplicate field declaration clobbered the certified default.
         p = self.env["edi.trading.partner"].create({
             "name": "Identity Partner",
             "code": "IDENTITY",
@@ -30,7 +33,7 @@ class TestEdiTradingPartnerSettings(TransactionCase, EDITestSetup):
             "ftp_protocol": "ftp",
             "environment": "test",
         })
-        self.assertEqual(p.edi_sender_qualifier, "14")
+        self.assertEqual(p.edi_sender_qualifier, "ZZZ")
 
     def test_identity_fields_writable(self):
         self.trading_partner.write({

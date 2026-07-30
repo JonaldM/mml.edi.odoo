@@ -10,7 +10,7 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
-from .common import EDITestSetup, make_clean_parsed_order
+from .common import EDITestSetup, make_clean_parsed_order, make_island_warehouse
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
@@ -23,8 +23,7 @@ class TestReservationVerify(EDITestSetup, TransactionCase):
         super().setUp()
         self.setup_edi_test_data()
         self.test_product.is_storable = True
-        self.wh = self.env["stock.warehouse"].create(
-            {"name": "Reserve DC", "code": "RVDC", "roq_island": "north"})
+        self.wh = make_island_warehouse(self.env, "Reserve DC", "RVDC")
         # backorder + auto-confirm: accept-in-full so a shortfall leaves a
         # genuinely under-reserved move to detect.
         self.trading_partner.write({

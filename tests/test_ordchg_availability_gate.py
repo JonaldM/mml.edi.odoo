@@ -14,6 +14,7 @@ from .common import (
     EDITestSetup,
     make_change_order_parsed_order,
     make_clean_parsed_order,
+    make_island_warehouse,
 )
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
@@ -27,8 +28,7 @@ class TestOrdchgAvailabilityGate(EDITestSetup, TransactionCase):
         super().setUp()
         self.setup_edi_test_data()
         self.test_product.is_storable = True
-        self.wh = self.env["stock.warehouse"].create(
-            {"name": "ORDCHG DC", "code": "OCDC", "roq_island": "north"})
+        self.wh = make_island_warehouse(self.env, "ORDCHG DC", "OCDC")
         self.trading_partner.write({
             "oos_policy": "short_ship",
             "warehouse_id": self.wh.id,
