@@ -3,10 +3,11 @@
 Odoo integration tests for Kestrelby EDIFACT EDI — all message types and ORDRSP scenarios.
 
 Tests process the actual EDIFACT sample fixtures end-to-end against a live Odoo DB.
-Run on Hetzner dev instance:
+Run against any development database (substitute your own container, database
+name and connection details — deliberately no site-specific values here):
 
-    docker exec mml-dev-odoo odoo --test-enable -d mml_dev \
-        --db_host=db --db_user=odoo --db_password=devpass123 \
+    docker exec <odoo-container> odoo --test-enable -d <database> \
+        --db_host=<host> --db_user=<user> --db_password=<password> \
         --test-tags /mml_edi --no-http --stop-after-init -u mml_edi
 
 Barcodes in sample files (must exist as products in setUp):
