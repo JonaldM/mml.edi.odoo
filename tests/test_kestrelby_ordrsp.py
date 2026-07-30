@@ -45,6 +45,13 @@ def _make_review(state="approved", store_code="1005", po_number="4500038166", so
     partner.partner_id.vat = None
     partner.partner_id.name = "Kestrelby Group Ltd"
     review.trading_partner_id = partner
+
+    # vendor_name in _generate_ordrsp() reads review.env.company.name (the
+    # deploying company's own res.company record) — never a hardcoded vendor
+    # brand. Set to a distinct fictional name here so tests can prove the
+    # NAD+SU segment actually carries it (see
+    # TestOrdrspGeneration.test_nad_su_uses_company_name below).
+    review.env.company.name = "Acme Trading Ltd"
     return review
 
 
@@ -61,6 +68,19 @@ class TestOrdrspGeneration:
         review = _make_review(state="approved", so=None)
         text = _generate_ordrsp(review).decode("utf-8")
         assert "ORDRSP" in text
+
+    def test_nad_su_uses_company_name(self):
+        # Regression guard for the carry-item fix at
+        # parsers/kestrelby.py:365 (vendor_name = review.env.company.name):
+        # the NAD+SU segment must carry the deploying company's own name,
+        # never a hardcoded vendor brand. _make_review() sets
+        # review.env.company.name = "Acme Trading Ltd" and vendor_code comes
+        # from partner.partner_id.ref ("300024"), so the segment must be
+        # exactly NAD+SU+300024::92++Acme Trading Ltd.
+        from mml_edi.parsers.kestrelby import _generate_ordrsp
+        review = _make_review(state="approved", so=None)
+        text = _generate_ordrsp(review).decode("utf-8")
+        assert "NAD+SU+300024::92++Acme Trading Ltd" in text
 
     def test_contains_bgm_231(self):
         from mml_edi.parsers.kestrelby import _generate_ordrsp
