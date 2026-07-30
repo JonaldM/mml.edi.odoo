@@ -12,6 +12,8 @@ import os
 import sys
 import types
 
+import pytest
+
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -278,3 +280,24 @@ _register_module(
     os.path.join(wizards_dir, "nimbrel_store_master_data.py"),
     mml_edi_wizards,
 )
+
+
+# ── Two-tier marking ─────────────────────────────────────────────────────────
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-mark TransactionCase-based tests as odoo_integration (requires odoo-bin).
+
+    Mirrors the monorepo root conftest.py. Required HERE too, not just at the
+    root: the odoo.tests stubs above make the Odoo-integration test modules
+    importable, so without this hook `-m "not odoo_integration"` no longer
+    excludes them and they RUN against the stub (no self.env) and fail. This
+    file is the only conftest in play under the module's own documented runner
+    (`cd mml_edi && pytest`, per its pytest.ini and CLAUDE.md).
+    """
+    from odoo.tests import TransactionCase
+    for item in items:
+        if isinstance(item, pytest.Class):
+            continue
+        cls = getattr(item, 'cls', None)
+        if cls is not None and issubclass(cls, TransactionCase):
+            item.add_marker(pytest.mark.odoo_integration)

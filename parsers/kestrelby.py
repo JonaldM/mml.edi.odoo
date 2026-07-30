@@ -362,7 +362,14 @@ def _generate_ordrsp(review) -> bytes:
     # NAD+SU segment for every installing customer, so it must be the
     # deploying company's own name (res.company), never a hardcoded vendor
     # brand. See rename_map.yaml config_extract:ordrsp_vendor_name.
-    vendor_name = review.env.company.name
+    # Scope it to the ORDER's company, not the acting user's active company:
+    # under the poll cron (run_scheduled_poll -> auto-approve) env.company is
+    # whatever company the cron user happens to be in, which on a multi-company
+    # install brands the wire message with the wrong legal entity. Same idiom as
+    # services/nimbrel_invoice.py and models/sscc_register.py. edi.order.review
+    # has no company_id of its own, so the sale order is the only order-scoped
+    # source; fall back to env.company when there is no linked SO.
+    vendor_name = (so.company_id if so else review.env.company).name
 
     if review.state == "rejected":
         purpose = _ORDRSP_CANCELLED
