@@ -1,8 +1,8 @@
 # mml_edi — Electronic Data Interchange for Odoo 19
 
-Odoo 19 module for automated EDI order exchange with retail partners. Replaces the legacy .NET Briscoes EDI bridge at the Odoo 15→19 cutover — see `docs/PROD_CUTOVER.md` for the authoritative go-live runbook (double-poll guard, test-mailbox sequencing, rollback).
+Odoo 19 module for automated EDI order exchange with retail partners. Replaces the legacy .NET Kestrelby EDI bridge at the Odoo 15→19 cutover — see `docs/PROD_CUTOVER.md` for the authoritative go-live runbook (double-poll guard, test-mailbox sequencing, rollback).
 
-**Company:** MML Consumer Products Ltd (NZ) · **Platform:** `mml_base`
+**Company:** Cadence Demo Trading Ltd (NZ) · **Platform:** `mml_base`
 
 ---
 
@@ -53,19 +53,19 @@ mml_edi/
 │   └── edi_service.py          ← EDIService (registered with mml.registry as 'edi')
 ├── parsers/
 │   ├── base_parser.py
-│   ├── briscoes_idoc.py        ← Briscoes iDOC XML parser + ORDRSP generator (PRODUCTION path)
-│   ├── briscoes.py             ← EDIFACT D96A parser — NOT allow-listed (ships carton qty
+│   ├── kestrelby_idoc.py       ← KestrelbyIDOCParser — iDOC XML parser + ORDRSP generator (PRODUCTION path)
+│   ├── kestrelby.py            ← KestrelbyParser — EDIFACT D96A parser — NOT allow-listed (ships carton qty
 │   │                             as eaches; re-enable only after CT→EA conversion is ported)
-│   └── briscoes_asn.py         ← ASN builder (unwired — see ASN status above)
+│   └── kestrelby_asn.py        ← KestrelbyASNGenerator — ASN builder (unwired — see ASN status above)
 ├── wizards/
 │   ├── edi_bulk_action.py      ← bulk approve / reprocess / reject wizard
-│   └── edi_seed_stores.py      ← seed Briscoes store partners
+│   └── edi_seed_stores.py      ← seed Kestrelby store partners
 ├── migrations/
 ├── security/
 ├── views/
 ├── tests/                      ← pure-Python parser/processor tests + Odoo integration tests
 └── data/
-    ├── edi_trading_partner_briscoes.xml  ← Briscoes seed record
+    ├── edi_trading_partner_kestrelby.xml  ← Kestrelby seed record
     ├── ir_cron.xml   ← "EDI: Poll Trading Partners" (15 min, ships INACTIVE — the runbook's
     │                    double-poll gate) + "EDI: Retry Pending ACKs" (30 min, active)
     ├── ir_sequence.xml                   ← EDI document reference sequence
@@ -91,10 +91,10 @@ Other modules can call EDI operations without a hard dependency — if `mml_edi`
 
 | Partner | Status | Format | Transport |
 |---------|--------|--------|-----------|
-| Briscoes Group (Briscoes, Rebel Sport, Living & Giving) | **Production-grade** — iDOC XML parser + per-PO/per-exchange ORDRSP, validated against real order fixtures (each-vs-carton and MML-code-vs-shipper-GTIN handling locked by tests). Cutover pending per `docs/PROD_CUTOVER.md`. | iDOC XML (EDIFACT D96A parser exists but is **de-listed** until CT→EA conversion is ported) | FTP/SFTP (EDIS VAN) |
-| Harvey Norman NZ | Scoped — awaiting partner spec | EDIFACT | SFTP / VAN |
-| Animates | Scoped — format TBC | CSV initially | TBC |
-| PetStock (AU/NZ) | Early scope | TBC | TBC |
+| Kestrelby Retail Group (Kestrelby, Vantekka Sports, Larkbury Living) | **Production-grade** — iDOC XML parser + per-PO/per-exchange ORDRSP, validated against real order fixtures (each-vs-carton and MML-code-vs-shipper-GTIN handling locked by tests). Cutover pending per `docs/PROD_CUTOVER.md`. | iDOC XML (EDIFACT D96A parser exists but is **de-listed** until CT→EA conversion is ported) | FTP/SFTP (EDIS VAN) |
+| Dovemarch Home & Living | Scoped — awaiting partner spec | EDIFACT | SFTP / VAN |
+| Nimbrel Pet Co | Scoped — format TBC | CSV initially | TBC |
+| Palisade Pet Co (AU/NZ) | Early scope | TBC | TBC |
 
 ---
 
@@ -110,9 +110,9 @@ odoo-bin -d <db> -i mml_edi --stop-after-init
 
 ### Post-install configuration
 
-1. Go to **EDI → Configuration → Trading Partners** and review the Briscoes seed record
-2. Set FTP/SFTP host, username, and password on the Briscoes trading partner record
-   (verify `BriscoeId` partner id and the exact pricelist name against production data)
+1. Go to **EDI → Configuration → Trading Partners** and review the Kestrelby seed record
+2. Set FTP/SFTP host, username, and password on the Kestrelby trading partner record
+   (verify `KestrelbyId` partner id and the exact pricelist name against production data)
 3. Run a manual poll (**Run Poll Now**) against the partner's *test* mailbox to verify
    connectivity and parsing
 4. Only at go-live, per `docs/PROD_CUTOVER.md`: stop the legacy .NET poller FIRST
