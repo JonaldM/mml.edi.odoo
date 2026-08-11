@@ -230,6 +230,20 @@ class EDIFTPHandler:
         ftp.set_pasv(True)
         self._ftp = ftp
 
+    _DEFAULT_SSH_PORT = 22
+
+    def _host_key_name(self):
+        """Return the known-hosts key paramiko will look up for this host.
+
+        Matches paramiko.SSHClient.connect: bare hostname on the default SSH
+        port, "[host]:port" everywhere else.
+        """
+        host = self.partner.ftp_host
+        port = self.partner.ftp_port or self._DEFAULT_SSH_PORT
+        if port == self._DEFAULT_SSH_PORT:
+            return host
+        return '[%s]:%d' % (host, port)
+
     def _connect_sftp(self):
         try:
             import base64
@@ -255,8 +269,14 @@ class EDIFTPHandler:
             )
 
         client = paramiko.SSHClient()
+        # Paramiko looks the host key up under the BARE hostname only on the
+        # default port; on any other port it uses the "[host]:port" form (see
+        # SSHClient.connect). Registering under the bare name on a non-22 port
+        # therefore misses, and RejectPolicy kills the connection. Mirror
+        # paramiko's own naming so the pin actually matches.
+        # (SPS Commerce serves SFTP on 10022 — this path is exercised there.)
         client.get_host_keys().add(
-            self.partner.ftp_host, 'ssh-rsa', server_key
+            self._host_key_name(), 'ssh-rsa', server_key
         )
         client.set_missing_host_key_policy(paramiko.RejectPolicy())
 

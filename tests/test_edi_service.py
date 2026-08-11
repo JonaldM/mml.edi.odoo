@@ -205,3 +205,75 @@ def test_shipment_status_no_order_lines_defaults_complete():
     partner = MagicMock()
     status = svc._animates_shipment_status(partner, so, 'PO0319555', {})
     assert status == 'complete_single_shipment'
+
+
+class TestAnimatesShipmentStatusAcrossPickings:
+    """Split-shipment completeness must be judged across the whole ORDER.
+
+    Regression: ``cnt_qty_by_line`` only covers the moves in the CURRENT
+    despatch. On the final shipment of a split it therefore saw only the
+    backordered line, decided the earlier lines were unshipped, and returned
+    'partial' — emitting ALI+++165 ("more to follow") on the very DESADV that
+    COMPLETED the order. Animates would wait indefinitely for stock already
+    sent. Scenario 5b requires ALI+++164.
+    """
+
+    def _service(self, prior_desadv):
+        from types import SimpleNamespace
+        from mml_edi.services.edi_service import EDIService
+
+        class _Log:
+            def search(self, domain):
+                return [object()] if prior_desadv else []
+
+        svc = EDIService.__new__(EDIService)
+        svc.env = {'edi.log': _Log()}
+        return svc
+
+    def _order(self, delivered_by_line):
+        from types import SimpleNamespace
+        return SimpleNamespace(id=42, order_line=[
+            SimpleNamespace(edi_line_number=1, product_uom_qty=8.0,
+                            qty_delivered=delivered_by_line.get(1, 0.0)),
+            SimpleNamespace(edi_line_number=2, product_uom_qty=10.0,
+                            qty_delivered=delivered_by_line.get(2, 0.0)),
+            SimpleNamespace(edi_line_number=3, product_uom_qty=8.0,
+                            qty_delivered=delivered_by_line.get(3, 0.0)),
+        ])
+        
+    def _partner(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(id=1)
+
+    def test_first_partial_despatch_is_partial(self):
+        """5a: lines 1+2 shipped, line 3 held back -> ALI 165."""
+        svc = self._service(prior_desadv=False)
+        status = svc._animates_shipment_status(
+            self._partner(), self._order({1: 8.0, 2: 10.0}), 'PO1',
+            {1: 8.0, 2: 10.0},
+        )
+        assert status == 'partial'
+
+    def test_final_backorder_despatch_completes_the_split(self):
+        """5b: backorder ships ONLY line 3, but the ORDER is now complete.
+
+        cnt_qty_by_line carries just line 3 — the bug. qty_delivered carries
+        all three, so the status must be complete_after_partial (ALI 164).
+        """
+        svc = self._service(prior_desadv=True)
+        status = svc._animates_shipment_status(
+            self._partner(), self._order({1: 8.0, 2: 10.0, 3: 8.0}), 'PO1',
+            {3: 8.0},          # <- only the backordered line in THIS despatch
+        )
+        assert status == 'complete_after_partial', (
+            "the despatch that completes a split must not be marked partial"
+        )
+
+    def test_single_complete_shipment_unchanged(self):
+        """No prior DESADV + everything shipped at once -> no ALI at all."""
+        svc = self._service(prior_desadv=False)
+        status = svc._animates_shipment_status(
+            self._partner(), self._order({1: 8.0, 2: 10.0, 3: 8.0}), 'PO1',
+            {1: 8.0, 2: 10.0, 3: 8.0},
+        )
+        assert status == 'complete_single_shipment'

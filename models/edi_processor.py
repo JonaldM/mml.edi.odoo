@@ -21,6 +21,13 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+# UN/EDIFACT DE 0083 (Action, coded) values that mean "accepted" on an inbound
+# CONTRL. Everything else — notably '2'/'4'/'5' (rejected) — fails closed.
+#   1 = this level and all lower levels acknowledged
+#   7 = this level acknowledged (SPS Commerce's acceptance code)
+#   8 = interchange received (the code our own outbound CONTRL emits)
+_CONTRL_ACCEPTED_ACTIONS = frozenset({"1", "7", "8"})
+
 
 def build_session_id() -> str:
     """Generate a short unique ID for correlating log messages within one poll run."""
@@ -653,9 +660,14 @@ class EDIProcessor(models.AbstractModel):
         not fall through to parser.parse_file, which would silently emit
         'parsed 0 orders' for a CONTRL body with no BGM/LIN.
 
-        A NEGATIVE CONTRL (action code other than '8' = interchange received)
-        must create a blocking review, not vanish — Animates uses only '8' by
-        spec, but the wire is not trusted to enforce that.
+        A NEGATIVE CONTRL must create a blocking review, not vanish. Acceptance
+        is any of the positive UNB/UCI/UCM action codes in
+        ``_CONTRL_ACCEPTED_ACTIONS`` (UN/EDIFACT DE 0083) — SPS Commerce
+        acknowledges with '7' ("this level acknowledged"), NOT the '8'
+        ("interchange received") that our own outbound CONTRL uses, so keying
+        acceptance to '8' alone raised a false "NOT accepted" alert on every
+        successfully certified interchange. Anything outside the positive set
+        still fails closed.
         """
         parser = partner.get_parser_instance()
         parse_contrl = getattr(parser, "parse_contrl", None)
@@ -686,7 +698,7 @@ class EDIProcessor(models.AbstractModel):
             ("filename", "like", "%%%s%%" % original_ref),
         ]))
 
-        if action != "8":
+        if action not in _CONTRL_ACCEPTED_ACTIONS:
             # NEGATIVE CONTRL (rejection) — fail closed: this must block, not
             # vanish. No review/issue infrastructure is owned by this file for
             # a standalone interchange-level rejection, so a high-severity
@@ -709,8 +721,8 @@ class EDIProcessor(models.AbstractModel):
 
         self.env["edi.log"].log(
             partner, "inbound", "contrl_received", "success",
-            "CONTRL received in %s: interchange %s acknowledged (action=8, "
-            "correlated=%s)" % (filename, original_ref, matched),
+            "CONTRL received in %s: interchange %s acknowledged (action=%s, "
+            "correlated=%s)" % (filename, original_ref, action, matched),
             filename=filename, file_hash=file_hash,
         )
         if not matched:
@@ -1458,10 +1470,22 @@ class EDIProcessor(models.AbstractModel):
                 # An approved ORDCHG redefines what the customer ORDERED: keep
                 # edi_ordered_qty (the basis for the availability re-clamp
                 # below and the ORDRSP shortfall) in sync with the new qty.
-                so_line.write({
+                vals = {
                     "product_uom_qty": line_change["new_qty"],
                     "edi_ordered_qty": line_change["new_qty"],
-                })
+                }
+                # edi_price is our record of what the BUYER asked for, so it
+                # must track the change document. price_unit (what we will
+                # actually charge) is deliberately NOT overwritten: if the new
+                # price differs from ours the line then correctly reports as
+                # CHANGED (1229=3) rather than silently accepting a price we
+                # never agreed. When the buyer adopts our corrected price — the
+                # replacement case — the two now match and the line is ACCEPTED
+                # (1229=5), which is what a full-acceptance replacement requires.
+                new_price = line_change.get("new_price")
+                if new_price is not None:
+                    vals["edi_price"] = new_price
+                so_line.write(vals)
 
         # Handle removed lines (ORDCHG action code 3)
         for removed_line_num in changes.get('removed_lines', []):
@@ -1879,8 +1903,18 @@ class EDIProcessor(models.AbstractModel):
                 order.requested_delivery_date.isoformat()
                 if order.requested_delivery_date else None
             ),
+            # new_price carries the price the buyer states on the CHANGE/
+            # replacement document. Without it apply_change_order cannot
+            # refresh sale.order.line.edi_price, so a replacement that corrects
+            # a price leaves the stale original price on the line and every
+            # later ORDRSP keeps reporting that line as CHANGED (1229=3) even
+            # though we are accepting the buyer's price verbatim.
             "line_changes": [
-                {"line_number": l.line_number, "new_qty": l.quantity}
+                {
+                    "line_number": l.line_number,
+                    "new_qty": l.quantity,
+                    "new_price": l.unit_price,
+                }
                 for l in order.lines
             ],
             "removed_lines": removed_line_nums,
