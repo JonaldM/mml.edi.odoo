@@ -446,11 +446,21 @@ class EDIService:
 
         payload = dict(payload, buyer=recipient_id)
 
-        # build_desadv's UNB is built inline (not via build_unb_for_partner),
-        # so pass the real identity through its supplier_gln kwarg (sender
-        # side of the envelope — see animates_desadv.build_desadv's
-        # supplier_gln/ctrl_ref kwargs, mirrored on build_ordrsp/build_contrl).
-        desadv_bytes = build_desadv(payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref))
+        # build_desadv's UNB is built inline (not via build_unb_for_partner), so
+        # BOTH sides of the envelope must be passed explicitly. Sending only
+        # supplier_gln leaves build_unb's backward-compatible defaults in place,
+        # which address the PRODUCTION mailbox (recipient ANIMATES, sender
+        # qualifier 14) and stamp the frozen worked-example time 0730 — so every
+        # TEST-environment DESADV was silently misrouted. See AN-01/C1.
+        desadv_bytes = build_desadv(
+            payload,
+            supplier_gln=sender_id,
+            ctrl_ref=int(ctrl_ref),
+            sender_qualifier=sender_qual,
+            recipient=recipient_id,
+            recipient_qualifier=recipient_qual,
+            time_hhmm=datetime.now(timezone.utc).strftime('%H%M'),
+        )
 
         po_for_filename = payload['po'].replace('/', '')
         filename = 'DESADV_ANIMATES_%s_%s.edi' % (
