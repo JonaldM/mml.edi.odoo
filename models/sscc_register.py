@@ -8,6 +8,7 @@ must NEVER mint a second SSCC — Animates rejects a re-used SSCC within a
 12-month window (Animates_DESADV.pdf p.9 "Validations"), and re-minting on
 every retry would burn through the serial range for nothing.
 """
+import base64
 import logging
 
 from odoo import _, api, fields, models
@@ -248,10 +249,46 @@ class SSCCRegister(models.Model):
 
         product = move.product_id if move else None
         sol = move.sale_line_id if move and move.sale_line_id else None
-        isc = sol.edi_line_number if sol else ""
+
+        # ISC is the BUYER's item number (Animates), the same value the DESADV
+        # carries in PIA+5+<isc>:IN — it is what Animates scans this label
+        # against. It is NOT the EDI line number: printing the line number here
+        # produced labels reading "ISC: 1" that could never be matched to the
+        # ASN. Per the H-ISC contract the buyer code lives on
+        # product.supplierinfo.product_code keyed to the buyer partner.
+        isc = ""
+        if product is not None and sale_order:
+            buyer = sale_order.partner_id.commercial_partner_id
+            info = self.env["product.supplierinfo"].search(
+                [
+                    ("partner_id", "=", buyer.id),
+                    "|",
+                    ("product_id", "=", product.id),
+                    ("product_tmpl_id", "=", product.product_tmpl_id.id),
+                ],
+                limit=1,
+            )
+            isc = info.product_code or ""
+
         vendor_part = product.default_code if product else ""
-        description = product.display_name if product else ""
-        carton_qty = move.quantity if move else 0.0
+        # product.name, not display_name — display_name prefixes "[CODE] ",
+        # which duplicates the Vendor Part # field printed alongside it.
+        description = product.name if product else ""
+        # Whole units: "8", never "8.0" (the spec's Carton Qty is a count).
+        raw_qty = move.quantity if move else 0.0
+        carton_qty = (
+            str(int(round(raw_qty))) if abs(raw_qty - round(raw_qty)) < 1e-6
+            else str(raw_qty)
+        )
+
+        # "n of N" — the spec requires a sequential number (mandatory on pallet
+        # labels, preferred on carton labels).
+        siblings = self.search([("picking_id", "=", picking.id)], order="id") if picking else self
+        total_units = len(siblings) or 1
+        try:
+            unit_index = list(siblings.ids).index(self.id) + 1
+        except ValueError:
+            unit_index = 1
 
         return {
             "sscc": self.sscc,
@@ -281,4 +318,30 @@ class SSCCRegister(models.Model):
             "carton_qty": carton_qty,
             "vendor_part_no": vendor_part or "",
             "description": description or "",
+            "unit_index": unit_index,
+            "total_units": total_units,
+            "unit_sequence": "%d of %d" % (unit_index, total_units),
+            # Barcodes are embedded as data: URIs rather than referenced via
+            # /report/barcode/?... — that route makes wkhtmltopdf fetch the
+            # image over HTTP, which silently yields NO barcode whenever the
+            # renderer cannot reach a listener serving THIS database (headless
+            # `odoo-bin shell`, cron, or any host whose report.url points at a
+            # different dbfilter). A shipping label with no barcode is useless,
+            # and it fails silently — so generate it in-process instead.
+            "sscc_barcode_src": self._barcode_data_uri("00%s" % self.sscc, 600, 200),
+            "postcode_barcode_src": (
+                self._barcode_data_uri("420%s" % ship_to.zip, 600, 150)
+                if ship_to.zip else ""
+            ),
         }
+
+    def _barcode_data_uri(self, value, width, height):
+        """Render a GS1-128 barcode in-process and return it as a data: URI."""
+        try:
+            png = self.env["ir.actions.report"].barcode(
+                "Code128", value, width=width, height=height, humanreadable=0,
+            )
+        except Exception:
+            _logger.exception("SSCC label: barcode generation failed for %s", value)
+            return ""
+        return "data:image/png;base64,%s" % base64.b64encode(png).decode()
