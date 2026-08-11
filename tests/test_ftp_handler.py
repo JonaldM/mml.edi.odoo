@@ -238,3 +238,46 @@ class TestEDIFTPHandlerSFTP:
             handler = EDIFTPHandler(partner)
             with pytest.raises(EDIFTPError, match="Invalid sftp_host_key format"):
                 handler._connect_sftp()
+
+    def test_sftp_host_key_registered_under_bracketed_name_on_custom_port(self):
+        """Non-default port must pin the key as "[host]:port".
+
+        Paramiko's SSHClient.connect looks the host key up under the bare
+        hostname ONLY on port 22; on any other port it uses "[host]:port".
+        Registering under the bare name on a custom port silently misses and
+        RejectPolicy aborts the connection. Regression: SPS Commerce serves
+        SFTP on 10022, which failed with "not found in known_hosts".
+        """
+        import sys
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+
+        partner = make_mock_partner(protocol="sftp", host="sftp.example.com",
+                                    port=10022)
+        partner.sftp_host_key = 'bm90YXZhbGlka2V5'
+
+        mock_paramiko = self._make_mock_paramiko()
+        with patch.dict(sys.modules, {'paramiko': mock_paramiko}):
+            handler = EDIFTPHandler(partner)
+            handler._connect_sftp()
+
+        client = mock_paramiko.SSHClient.return_value
+        registered_name = client.get_host_keys.return_value.add.call_args[0][0]
+        assert registered_name == '[sftp.example.com]:10022'
+
+    def test_sftp_host_key_registered_under_bare_host_on_default_port(self):
+        """Port 22 must keep the bare hostname — matches paramiko's lookup."""
+        import sys
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+
+        partner = make_mock_partner(protocol="sftp", host="sftp.example.com",
+                                    port=22)
+        partner.sftp_host_key = 'bm90YXZhbGlka2V5'
+
+        mock_paramiko = self._make_mock_paramiko()
+        with patch.dict(sys.modules, {'paramiko': mock_paramiko}):
+            handler = EDIFTPHandler(partner)
+            handler._connect_sftp()
+
+        client = mock_paramiko.SSHClient.return_value
+        registered_name = client.get_host_keys.return_value.add.call_args[0][0]
+        assert registered_name == 'sftp.example.com'
