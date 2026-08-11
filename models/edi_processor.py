@@ -1470,10 +1470,22 @@ class EDIProcessor(models.AbstractModel):
                 # An approved ORDCHG redefines what the customer ORDERED: keep
                 # edi_ordered_qty (the basis for the availability re-clamp
                 # below and the ORDRSP shortfall) in sync with the new qty.
-                so_line.write({
+                vals = {
                     "product_uom_qty": line_change["new_qty"],
                     "edi_ordered_qty": line_change["new_qty"],
-                })
+                }
+                # edi_price is our record of what the BUYER asked for, so it
+                # must track the change document. price_unit (what we will
+                # actually charge) is deliberately NOT overwritten: if the new
+                # price differs from ours the line then correctly reports as
+                # CHANGED (1229=3) rather than silently accepting a price we
+                # never agreed. When the buyer adopts our corrected price — the
+                # replacement case — the two now match and the line is ACCEPTED
+                # (1229=5), which is what a full-acceptance replacement requires.
+                new_price = line_change.get("new_price")
+                if new_price is not None:
+                    vals["edi_price"] = new_price
+                so_line.write(vals)
 
         # Handle removed lines (ORDCHG action code 3)
         for removed_line_num in changes.get('removed_lines', []):
@@ -1891,8 +1903,18 @@ class EDIProcessor(models.AbstractModel):
                 order.requested_delivery_date.isoformat()
                 if order.requested_delivery_date else None
             ),
+            # new_price carries the price the buyer states on the CHANGE/
+            # replacement document. Without it apply_change_order cannot
+            # refresh sale.order.line.edi_price, so a replacement that corrects
+            # a price leaves the stale original price on the line and every
+            # later ORDRSP keeps reporting that line as CHANGED (1229=3) even
+            # though we are accepting the buyer's price verbatim.
             "line_changes": [
-                {"line_number": l.line_number, "new_qty": l.quantity}
+                {
+                    "line_number": l.line_number,
+                    "new_qty": l.quantity,
+                    "new_price": l.unit_price,
+                }
                 for l in order.lines
             ],
             "removed_lines": removed_line_nums,
