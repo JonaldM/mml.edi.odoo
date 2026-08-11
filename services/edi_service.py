@@ -418,8 +418,26 @@ class EDIService:
             for sol in sale_order.order_line
             if sol.edi_line_number
         }
+        # Completeness is a property of the ORDER, not of this one picking.
+        # cnt_qty_by_line only covers the moves in the CURRENT despatch, so on
+        # the final shipment of a split it sees just the backordered line and
+        # concludes the earlier lines are unshipped — marking the shipment that
+        # COMPLETES the order as 'partial' (ALI+++165, "more to follow"). The
+        # buyer then waits forever for stock that has already been sent.
+        # qty_delivered is the cumulative done-move total across every picking
+        # on the order, which is exactly the "cumulative shipped" figure this
+        # comparison was always documented to use. cnt_qty_by_line is still
+        # unioned in as a floor so a line counted in this despatch is never
+        # treated as unshipped if qty_delivered has not yet recomputed.
+        shipped_by_line = {}
+        for sol in sale_order.order_line:
+            if sol.edi_line_number:
+                shipped_by_line[sol.edi_line_number] = max(
+                    float(sol.qty_delivered or 0.0),
+                    float(cnt_qty_by_line.get(sol.edi_line_number, 0.0)),
+                )
         all_lines_fully_shipped = all(
-            cnt_qty_by_line.get(line_no, 0.0) + 1e-6 >= ordered_qty
+            shipped_by_line.get(line_no, 0.0) + 1e-6 >= ordered_qty
             for line_no, ordered_qty in order_line_qty.items()
         ) if order_line_qty else True
 
