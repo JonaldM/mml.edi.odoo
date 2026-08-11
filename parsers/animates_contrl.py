@@ -59,6 +59,13 @@ from .animates_edifact import (
 #: DE0083 — only "interchange received" is used by Animates.
 ACTION_INTERCHANGE_RECEIVED = "8"
 
+# UN/EDIFACT DE 0083 values that mean "accepted" on an INBOUND CONTRL.
+# The CONTRL MIG only documents '8' for the ack WE send, but SPS Commerce
+# acknowledges our interchanges with '7' ("this level acknowledged") and
+# rejects with '4' — observed live during certification (ORDRSP ctrl 71,
+# DESADV 73, INVOIC 76 => 7; the two malformed INVOICs 74/75 => 4).
+ACCEPTED_ACTIONS = frozenset({"1", "7", ACTION_INTERCHANGE_RECEIVED})
+
 
 def _require(payload: dict, key: str) -> str:
     if key not in payload or payload[key] in (None, ""):
@@ -177,13 +184,13 @@ def parse_contrl(text) -> dict:
             "positive":               bool, # True iff action == ACTION_INTERCHANGE_RECEIVED
         }
 
-    Per the Animates CONTRL MIG, ``8`` (interchange received) is the ONLY
-    action code Animates uses — there is no documented negative/rejection
-    code for this trading partner. ``positive`` is still surfaced explicitly
-    (rather than leaving callers to compare the raw code themselves) so an
-    unexpected/non-"8" action — a syntax rejection, a code outside the
-    Animates-documented set, or a malformed UCI — is unambiguously flagged
-    for the processor to alert on rather than silently treated as success.
+    ``positive`` is True for any acceptance code in ``ACCEPTED_ACTIONS``.
+    The MIG documents only ``8`` (interchange received) — that is the code WE
+    emit — but SPS Commerce acknowledges with ``7`` and rejects with ``4`` in
+    practice, so acceptance must not be keyed to ``8`` alone. Anything outside
+    the accepted set (a syntax rejection, an undocumented code, a malformed
+    UCI) stays unambiguously negative for the processor to alert on rather
+    than being silently treated as success.
 
     Raises EdifactError if no UCI segment is present (not a CONTRL message).
     """
@@ -205,5 +212,5 @@ def parse_contrl(text) -> dict:
         "original_recipient_qual": uci.comp(2, 1),
         "action": action,
         "interchange_ref": unb.comp(4, 0) if unb is not None else "",
-        "positive": action == ACTION_INTERCHANGE_RECEIVED,
+        "positive": action in ACCEPTED_ACTIONS,
     }
