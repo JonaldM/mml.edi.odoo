@@ -21,6 +21,13 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+# UN/EDIFACT DE 0083 (Action, coded) values that mean "accepted" on an inbound
+# CONTRL. Everything else — notably '2'/'4'/'5' (rejected) — fails closed.
+#   1 = this level and all lower levels acknowledged
+#   7 = this level acknowledged (SPS Commerce's acceptance code)
+#   8 = interchange received (the code our own outbound CONTRL emits)
+_CONTRL_ACCEPTED_ACTIONS = frozenset({"1", "7", "8"})
+
 
 def build_session_id() -> str:
     """Generate a short unique ID for correlating log messages within one poll run."""
@@ -653,9 +660,14 @@ class EDIProcessor(models.AbstractModel):
         not fall through to parser.parse_file, which would silently emit
         'parsed 0 orders' for a CONTRL body with no BGM/LIN.
 
-        A NEGATIVE CONTRL (action code other than '8' = interchange received)
-        must create a blocking review, not vanish — Animates uses only '8' by
-        spec, but the wire is not trusted to enforce that.
+        A NEGATIVE CONTRL must create a blocking review, not vanish. Acceptance
+        is any of the positive UNB/UCI/UCM action codes in
+        ``_CONTRL_ACCEPTED_ACTIONS`` (UN/EDIFACT DE 0083) — SPS Commerce
+        acknowledges with '7' ("this level acknowledged"), NOT the '8'
+        ("interchange received") that our own outbound CONTRL uses, so keying
+        acceptance to '8' alone raised a false "NOT accepted" alert on every
+        successfully certified interchange. Anything outside the positive set
+        still fails closed.
         """
         parser = partner.get_parser_instance()
         parse_contrl = getattr(parser, "parse_contrl", None)
@@ -686,7 +698,7 @@ class EDIProcessor(models.AbstractModel):
             ("filename", "like", "%%%s%%" % original_ref),
         ]))
 
-        if action != "8":
+        if action not in _CONTRL_ACCEPTED_ACTIONS:
             # NEGATIVE CONTRL (rejection) — fail closed: this must block, not
             # vanish. No review/issue infrastructure is owned by this file for
             # a standalone interchange-level rejection, so a high-severity
@@ -709,8 +721,8 @@ class EDIProcessor(models.AbstractModel):
 
         self.env["edi.log"].log(
             partner, "inbound", "contrl_received", "success",
-            "CONTRL received in %s: interchange %s acknowledged (action=8, "
-            "correlated=%s)" % (filename, original_ref, matched),
+            "CONTRL received in %s: interchange %s acknowledged (action=%s, "
+            "correlated=%s)" % (filename, original_ref, action, matched),
             filename=filename, file_hash=file_hash,
         )
         if not matched:

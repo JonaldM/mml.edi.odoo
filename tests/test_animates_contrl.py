@@ -182,19 +182,24 @@ def test_parse_action_8_is_positive():
     assert parsed["positive"] is True
 
 
-def test_parse_non_8_action_is_not_positive():
-    """Animates only documents action 8, but any other/unexpected DE0083
-    value must be surfaced as NOT positive rather than silently accepted."""
+def test_parse_non_accepted_action_is_not_positive():
+    """Any DE0083 value outside ACCEPTED_ACTIONS must be surfaced as NOT
+    positive rather than silently accepted.
+
+    Previously this case used '7' — but '7' is "this level acknowledged" and
+    is the code SPS Commerce actually accepts with (confirmed live). '5'
+    ("this level rejected") is a genuine negative.
+    """
     text = (
         "UNA:+.? '"
         "UNB+UNOC:3+ANIMATES:ZZZ+SUPPLIER_GLN:14+200928:1030+99101'"
         "UNH+0001+CONTRL:D:3:UN:EAN004'"
-        "UCI+72+SUPPLIER_GLN:14+ANIMATES:ZZZ+7'"
+        "UCI+72+SUPPLIER_GLN:14+ANIMATES:ZZZ+5'"
         "UNT+3+0001'"
         "UNZ+1+99101'"
     )
     parsed = parse_contrl(text)
-    assert parsed["action"] == "7"
+    assert parsed["action"] == "5"
     assert parsed["positive"] is False
 
 
@@ -290,3 +295,54 @@ def test_build_then_parse_roundtrip_correlates():
     assert parsed["action"] == "8"
     assert parsed["original_sender_id"] == "ANIMATES"
     assert parsed["original_recipient_id"] == "SUPPLIER_GLN"
+
+
+class TestInboundContrlCapabilityAndCodes:
+    """The processor probes `parser.parse_contrl` by name; when it is missing
+    the inbound CONTRL is discarded with no log row (observed live: five SPS
+    acknowledgements silently dropped).
+    """
+
+    def test_parser_exposes_parse_contrl(self):
+        from mml_edi.parsers.animates import AnimatesParser
+        assert callable(getattr(AnimatesParser(), "parse_contrl", None)), (
+            "AnimatesParser must expose parse_contrl or the processor discards "
+            "every inbound acknowledgement"
+        )
+
+    def test_parser_method_matches_module_function(self):
+        from mml_edi.parsers.animates import AnimatesParser
+        from mml_edi.parsers.animates_contrl import parse_contrl as fn
+        raw = (
+            "UNA:+.? 'UNB+UNOA:3+TST1ANIMATES:ZZZ+9419416000008T:ZZZ+260803:1510"
+            "+110000001'UNH+11001+CONTRL:D:3:UN'"
+            "UCI+71+9419416000008T:ZZZ+TST1ANIMATES:ZZZ+7'"
+            "UNT+4+11001'UNZ+1+110000001'"
+        )
+        assert AnimatesParser().parse_contrl(raw) == fn(raw)
+
+    def test_sps_acceptance_code_7_is_positive(self):
+        """SPS acknowledges with '7', not the '8' our own CONTRL emits."""
+        from mml_edi.parsers.animates_contrl import parse_contrl
+        raw = (
+            "UNA:+.? 'UNB+UNOA:3+TST1ANIMATES:ZZZ+9419416000008T:ZZZ+260803:1510"
+            "+110000001'UNH+11001+CONTRL:D:3:UN'"
+            "UCI+71+9419416000008T:ZZZ+TST1ANIMATES:ZZZ+7'"
+            "UNT+4+11001'UNZ+1+110000001'"
+        )
+        parsed = parse_contrl(raw)
+        assert parsed["action"] == "7"
+        assert parsed["positive"] is True
+        assert parsed["original_ref"] == "71"
+
+    def test_rejection_code_4_is_negative(self):
+        from mml_edi.parsers.animates_contrl import parse_contrl
+        raw = (
+            "UNA:+.? 'UNB+UNOA:3+TST1ANIMATES:ZZZ+9419416000008T:ZZZ+260803:1522"
+            "+110000003'UNH+11003+CONTRL:D:3:UN'"
+            "UCI+74+9419416000008T:ZZZ+TST1ANIMATES:ZZZ+4'"
+            "UNT+4+11003'UNZ+1+110000003'"
+        )
+        parsed = parse_contrl(raw)
+        assert parsed["action"] == "4"
+        assert parsed["positive"] is False

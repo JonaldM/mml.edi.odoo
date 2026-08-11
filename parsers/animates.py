@@ -214,6 +214,21 @@ class AnimatesParser(BaseEDIParser):
             recipient_qualifier=recipient_qual, require_real=True,
         )
 
+    def parse_contrl(self, raw_text) -> dict:
+        """Parse an INBOUND CONTRL (SPS acknowledging an interchange we sent).
+
+        models/edi_processor.py::_handle_inbound_contrl probes for this method
+        by name (``getattr(parser, "parse_contrl", None)``) and, when it is
+        absent, treats the partner as having no CONTRL support and DISCARDS the
+        file — marking it .processed with no log row. The implementation has
+        always lived in parsers/animates_contrl.py, but it was never exposed
+        here, so every SPS acknowledgement was silently dropped. See the
+        module-level ACCEPTED_ACTIONS note for the 7-vs-8 action codes.
+        """
+        from .animates_contrl import parse_contrl as _parse_contrl
+
+        return _parse_contrl(raw_text)
+
     def build_outbound(self, msg_type, payload) -> bytes:
         """Partner-dispatched outbound builder for the non-ack messages.
 

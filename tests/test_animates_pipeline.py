@@ -437,9 +437,13 @@ class TestHandleInboundContrl:
         assert handled is True  # caller returns [] without calling parse_file
 
     def test_negative_contrl_creates_blocking_alert_not_silence(self):
+        # DE 0083 '4' = "this level and all lower levels rejected". NOTE: this
+        # case previously used '7', but '7' is "this level acknowledged" — a
+        # POSITIVE code, and the one SPS Commerce actually acknowledges with.
+        # See test_accepted_contrl_action_7_is_not_treated_as_negative.
         def parse_contrl(raw_text):
             return {
-                "action": "7", "original_ref": "72",
+                "action": "4", "original_ref": "72",
                 "original_sender_id": "SUPPLIER_GLN", "original_sender_qual": "14",
                 "original_recipient_id": "ANIMATES", "original_recipient_qual": "ZZZ",
             }
@@ -459,6 +463,37 @@ class TestHandleInboundContrl:
             "a NEGATIVE CONTRL must be logged as an error, not silently accepted"
         )
         assert alerts, "a negative CONTRL must fire a blocking alert, never vanish"
+
+    def test_accepted_contrl_action_7_is_not_treated_as_negative(self):
+        """SPS Commerce acknowledges with DE 0083 '7' ("this level
+        acknowledged"), not the '8' our own outbound CONTRL emits. Keying
+        acceptance to '8' alone raised a false "interchange NOT accepted"
+        error + cron alert on every successfully certified interchange
+        (observed live: ORDRSP ctrl 71, DESADV 73, INVOIC 76 all came back 7).
+        """
+        for action in ("1", "7", "8"):
+            def parse_contrl(raw_text, _a=action):
+                return {
+                    "action": _a, "original_ref": "71",
+                    "original_sender_id": "SUPPLIER_GLN", "original_sender_qual": "14",
+                    "original_recipient_id": "ANIMATES", "original_recipient_qual": "ZZZ",
+                }
+
+            proc, partner, log = self._proc_with_parser(parse_contrl)
+            alerts = []
+            proc._send_cron_alert = lambda module, subject, body: alerts.append(
+                (module, subject, body))
+
+            handled = proc._handle_inbound_contrl(
+                _NEGATIVE_CONTRL_RAW, "CONTRL_ok.edi", "h2", partner)
+
+            assert handled is True
+            received = [r for r in log.rows if r["event_type"] == "contrl_received"]
+            assert len(received) == 1
+            assert received[0]["status"] == "success", (
+                "action=%s is a POSITIVE acknowledgement" % action
+            )
+            assert not alerts, "action=%s must not raise an alert" % action
 
     def test_parse_contrl_exception_logged_not_raised(self):
         def parse_contrl(raw_text):
