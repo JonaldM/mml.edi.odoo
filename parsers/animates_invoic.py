@@ -175,11 +175,28 @@ _INVOIC_ASSOC = "EAN011"
 _PARTY_AGENCY = "92"
 
 
+# MIG maximum lengths for the NAD free-text sub-elements (EANCOM D.01B).
+_NAD_NAME_MAX = 35    # NAD040-010 Party name
+_NAD_STREET_MAX = 35  # NAD050-010 Street and number
+_NAD_CITY_MAX = 35    # NAD060 City name
+
+
+def _clip(value, limit):
+    """Trim a free-text element to the guideline's maximum length."""
+    text = str(value or "")
+    return text[:limit] if len(text) > limit else text
+
+
 def _nad(qualifier, party):
     """Build a NAD segment shaped like the Animates worked example.
 
     Layout: ``NAD+<qual>+<code>::92++<name>+<street>+<city>+<state>+<postcode>+<country>``
     The 4th element (C080 alt name) is intentionally empty (``++``).
+
+    Free-text party/address elements are clipped to the MIG's maximum lengths —
+    SPS rejects an over-length value outright ("The length of Sub-Element
+    NAD040-010 (Party name) is '38'. The maximum allowed length is '35'"), and an
+    Odoo partner name is not bounded by the guideline.
     """
     return Segment(
         "NAD",
@@ -187,9 +204,9 @@ def _nad(qualifier, party):
             [qualifier],
             [party.get("code", ""), "", _PARTY_AGENCY],
             [""],  # C080 party name (empty; structured name fields used instead)
-            [party.get("name", "")],
-            [party.get("street", "")],
-            [party.get("city", "")],
+            [_clip(party.get("name", ""), _NAD_NAME_MAX)],
+            [_clip(party.get("street", ""), _NAD_STREET_MAX)],
+            [_clip(party.get("city", ""), _NAD_CITY_MAX)],
             [party.get("state", "")],
             [party.get("postcode", "")],
             [party.get("country", "")],
@@ -237,12 +254,21 @@ def _line_segments(line):
 
 
 def build_invoic(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
-                 ctrl_ref: int = 12341, msg_ref: int = 1) -> bytes:
+                 ctrl_ref: int = 12341, msg_ref: int = 1,
+                 sender_qualifier: str | None = None,
+                 recipient: str | None = None,
+                 recipient_qualifier: str | None = None) -> bytes:
     """Build an outbound Animates INVOIC interchange from ``payload``.
 
     See the module docstring for the full payload schema. Returns the rendered
     interchange as latin-1 bytes (EDIFACT UNOC:3 is a Latin-1 superset; the
     Animates worked examples are ASCII).
+
+    ``sender_qualifier`` / ``recipient`` / ``recipient_qualifier`` forward to
+    :func:`build_unb`. Callers holding an ``edi.trading.partner`` MUST pass them
+    (from ``get_unb_sender``/``get_unb_recipient``), otherwise build_unb's
+    backward-compatible defaults address the PRODUCTION mailbox (``ANIMATES``,
+    sender qualifier ``14``) — silently misrouting TEST interchanges. See AN-01/C1.
     """
     delims = Delims()
     ref = pad_ref(msg_ref)
@@ -253,12 +279,21 @@ def build_invoic(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
     summary = payload["summary"]
     lines = payload["lines"]
 
+    unb_kwargs = {}
+    if recipient is not None:
+        unb_kwargs["recipient"] = recipient
+    if sender_qualifier is not None:
+        unb_kwargs["sender_qualifier"] = sender_qualifier
+    if recipient_qualifier is not None:
+        unb_kwargs["recipient_qualifier"] = recipient_qualifier
+
     segments = [
         build_unb(
             supplier_gln,
             ctrl_ref,
             payload["date_yymmdd"],
             payload["time_hhmm"],
+            **unb_kwargs,
         ),
         build_unh(ref, "INVOIC", version="D", release="01B", agency="UN",
                   assoc=_INVOIC_ASSOC),
@@ -277,18 +312,39 @@ def build_invoic(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
         Segment("RFF", [["AAK", str(payload["ref_aak"])]]),
         Segment("RFF", [["CN", str(payload["ref_cn"])]]),
         Segment("RFF", [["ON", str(payload["ref_on"])]]),
-        _nad("BY", buyer),
-        Segment("RFF", [["AMT", str(buyer["nzbn"])]]),
-        _nad("SU", supplier),
-        Segment("RFF", [["AMT", str(supplier["abn"])]]),
-        # CTA OC (information contact) with the contact name in C056 component 2.
-        Segment("CTA", [["OC"], ["", supplier.get("contact_name", "")]]),
-        Segment("COM", [[supplier.get("phone", ""), "TE"]]),
-        Segment("COM", [[supplier.get("email", ""), "EM"]]),
-        _nad("ST", ship_to),
-        # CUX 2 = reference currency, rate-precision qualifier 4.
-        Segment("CUX", [["2", payload.get("currency", "NZD"), "4"]]),
     ]
+
+    # A composite whose only value is blank still renders its separator, and SPS
+    # rejects that: "There are extra trailing Sub-Element separators at the end
+    # of Composite RFF010/CTA020". So every optional party detail below is
+    # emitted ONLY when it actually has a value, never as an empty shell.
+    def _val(mapping, key):
+        return str(mapping.get(key) or "").strip()
+
+    segments.append(_nad("BY", buyer))
+    if _val(buyer, "nzbn"):
+        segments.append(Segment("RFF", [["AMT", _val(buyer, "nzbn")]]))
+    segments.append(_nad("SU", supplier))
+    if _val(supplier, "abn"):
+        segments.append(Segment("RFF", [["AMT", _val(supplier, "abn")]]))
+
+    # CTA OC (information contact), contact name in C056 component 2. The COM
+    # segments belong to this CTA group, so when there is no name we still emit
+    # a bare CTA+OC (dropping it would orphan the COMs) — just without the
+    # empty composite that trips CTA020.
+    contact_name = _val(supplier, "contact_name")
+    if contact_name:
+        segments.append(Segment("CTA", [["OC"], ["", contact_name]]))
+    else:
+        segments.append(Segment("CTA", [["OC"]]))
+    if _val(supplier, "phone"):
+        segments.append(Segment("COM", [[_val(supplier, "phone"), "TE"]]))
+    if _val(supplier, "email"):
+        segments.append(Segment("COM", [[_val(supplier, "email"), "EM"]]))
+
+    segments.append(_nad("ST", ship_to))
+    # CUX 2 = reference currency, rate-precision qualifier 4.
+    segments.append(Segment("CUX", [["2", payload.get("currency", "NZD"), "4"]]))
 
     for line in lines:
         segments.extend(_line_segments(line))
