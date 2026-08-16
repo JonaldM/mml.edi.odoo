@@ -1,6 +1,6 @@
 {
     "name": "MML EDI",
-    "version": "19.0.1.2.1",
+    "version": "19.0.1.2.2",
     "summary": "Electronic Data Interchange for retail partners (Briscoes Group and others)",
     "description": """
         Customer-agnostic EDI module for Odoo 19.
@@ -100,7 +100,6 @@
     "installable": True,
     "application": True,
     "auto_install": False,
-    "web_icon": "mml_edi,static/description/icon.png",
     "post_init_hook": "post_init_hook",
     "uninstall_hook": "uninstall_hook",
 }
