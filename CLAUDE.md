@@ -80,7 +80,7 @@ BriscoesASNGenerator   (parsers/briscoes_asn.py)    — Generates EDIFACT DESADV
 ### EDIFACT / File Handling Notes
 
 - Briscoes files may use Windows-1252 encoding with `\x92` (right single quote) as an alternate segment terminator — `_split_segments()` normalises this before parsing
-- Processed files are renamed in-place on FTP: `{filename}.processed.{YYYYMMDDHHMMSS}` (not deleted)
+- Processed files are DELETED from the FTP inbox after the per-file commit (since 19.0.1.2.2 — the raw file is kept in `edi.order.review.edi_raw_data` and dedup is by SHA-256 hash in `edi.log`, so the VAN copy is redundant). Before 2026-08 they were renamed in-place to `{filename}.processed.{YYYYMMDDHHMMSS}`; `list_files()` still filters that marker so stray legacy archives are never re-ingested
 - File-level deduplication via SHA-256 hash checked against `edi.log` (`event_type=file_download, status=success`)
 - EAN-13 check digit validation is enforced before ORDRSP and DESADV generation — missing/invalid barcodes raise `UserError` to prevent silent partner rejection
 

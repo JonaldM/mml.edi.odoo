@@ -14,7 +14,6 @@ import os
 import re as _re
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
 
 from ..parsers.base_parser import EDIFTPError
 
@@ -58,7 +57,7 @@ class EDIFTPHandler:
         with handler.connection():
             files = handler.list_files()
             content = handler.download_file(files[0])
-            handler.move_to_processed(files[0])
+            handler.delete_file(files[0])
     """
 
     def __init__(self, trading_partner):
@@ -136,10 +135,11 @@ class EDIFTPHandler:
     def list_files(self) -> list:
         """List unprocessed files in the active inbox. Returns filenames only.
 
-        Files already archived by move_to_processed carry a '.processed.<ts>'
-        marker in their name; they are excluded so they are not re-downloaded
-        and re-renamed on every poll (move_to_processed renames in place, so an
-        un-filtered listing would re-surface them indefinitely).
+        Processed files are deleted from the inbox (delete_file), so normally
+        everything listed is new. The '.processed.' filter is kept to tolerate
+        legacy archives: before 2026-08 processed files were renamed in place
+        to '{name}.processed.{ts}' instead of deleted, and stray copies of
+        those must never be re-ingested.
         """
         inbox = self.partner.get_active_inbox_path()
 
@@ -204,21 +204,28 @@ class EDIFTPHandler:
         except Exception as exc:
             raise EDIFTPError("upload_file failed for %s: %s" % (filepath, exc)) from exc
 
-    def move_to_processed(self, filename: str) -> None:
+    def delete_file(self, filename: str) -> None:
         """
-        Rename a processed file in the inbox to prevent re-processing.
-        New name format: {filename}.processed.{YYYYMMDDHHMMSS}
+        Delete a processed file from the inbox to prevent re-processing.
+
+        The VAN inbox is a shared mailbox, not an archive: the raw file is
+        already persisted in Odoo (edi.order.review.edi_raw_data) and the
+        SHA-256 dedup in edi.log guards against genuine re-sends, so nothing
+        is lost by deleting. Replaces the pre-2026-08 rename-in-place
+        ('{name}.processed.{ts}'), which accumulated files on the VAN
+        indefinitely.
         """
         filename = _safe_filename(filename)
         inbox = self.partner.get_active_inbox_path()
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        old_path = "%s/%s" % (inbox, filename)
-        new_path = "%s/%s.processed.%s" % (inbox, filename, timestamp)
+        filepath = "%s/%s" % (inbox, filename)
         try:
-            self._ftp.rename(old_path, new_path)
+            if self.partner.ftp_protocol == "sftp":
+                self._ftp.remove(filepath)
+            else:
+                self._ftp.delete(filepath)
         except Exception as exc:
             raise EDIFTPError(
-                "move_to_processed failed for %s: %s" % (old_path, exc)
+                "delete_file failed for %s: %s" % (filepath, exc)
             ) from exc
 
     # ── Internal connection methods ───────────────────────────────────────
@@ -315,7 +322,7 @@ class LocalDirHandler:
         with handler.connection():
             files = handler.list_files()
             content = handler.download_file(files[0])
-            handler.move_to_processed(files[0])
+            handler.delete_file(files[0])
 
     In this mode get_active_inbox_path()/get_active_outbox_path() return
     absolute local directory paths (not remote paths on an FTP server).
@@ -362,9 +369,9 @@ class LocalDirHandler:
     def list_files(self) -> list:
         """List unprocessed files in the active inbox. Returns filenames only.
 
-        Mirrors EDIFTPHandler.list_files: files already archived by
-        move_to_processed carry a '.processed.<ts>' marker in their name and
-        dot-files are excluded, so they are not re-surfaced on every poll.
+        Mirrors EDIFTPHandler.list_files: processed files are deleted, and
+        the '.processed.' filter is kept so legacy rename-in-place archives
+        and dot-files are never re-surfaced.
         """
         inbox = self.partner.get_active_inbox_path()
 
@@ -424,24 +431,21 @@ class LocalDirHandler:
                 pass
             raise EDIFTPError("upload_file failed for %s: %s" % (filepath, exc)) from exc
 
-    def move_to_processed(self, filename: str) -> None:
+    def delete_file(self, filename: str) -> None:
         """
-        Rename a processed file in the inbox to prevent re-processing.
-        New name format: {filename}.processed.{YYYYMMDDHHMMSS}
+        Delete a processed file from the inbox to prevent re-processing.
 
-        Mirrors EDIFTPHandler.move_to_processed, including raising
-        EDIFTPError (not a bare OSError) when the source file is missing.
+        Mirrors EDIFTPHandler.delete_file, including raising EDIFTPError
+        (not a bare OSError) when the source file is missing.
         """
         filename = _safe_filename(filename)
         inbox = self.partner.get_active_inbox_path()
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        old_path = os.path.join(inbox, filename)
-        new_path = os.path.join(inbox, "%s.processed.%s" % (filename, timestamp))
+        filepath = os.path.join(inbox, filename)
         try:
-            os.rename(old_path, new_path)
+            os.remove(filepath)
         except Exception as exc:
             raise EDIFTPError(
-                "move_to_processed failed for %s: %s" % (old_path, exc)
+                "delete_file failed for %s: %s" % (filepath, exc)
             ) from exc
 
 

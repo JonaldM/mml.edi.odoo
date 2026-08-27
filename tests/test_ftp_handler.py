@@ -125,18 +125,40 @@ class TestEDIFTPHandlerFTP:
             # 1 initial attempt + 3 retry delays = 4 total attempts
             assert mock_ftp_cls.call_count == 4
 
-    def test_move_to_processed_renames_file(self):
-        """move_to_processed() renames the file with a .processed timestamp suffix."""
+    def test_delete_file_deletes_from_inbox(self):
+        """delete_file() deletes the file from the FTP inbox (no rename/archive)."""
         from mml_edi.models.edi_ftp import EDIFTPHandler
         partner = make_mock_partner()
         handler = EDIFTPHandler(partner)
         mock_ftp = MagicMock()
         handler._ftp = mock_ftp
-        handler.move_to_processed("order1.edi")
-        mock_ftp.rename.assert_called_once()
-        old_path, new_path = mock_ftp.rename.call_args[0]
-        assert "order1.edi" in old_path
-        assert "processed" in new_path.lower() or ".processed" in new_path
+        handler.delete_file("order1.edi")
+        mock_ftp.delete.assert_called_once()
+        (path,) = mock_ftp.delete.call_args[0]
+        assert path == "/inbox/order1.edi"
+        mock_ftp.rename.assert_not_called()
+
+    def test_delete_file_sftp_uses_remove(self):
+        """delete_file() on an SFTP partner uses the paramiko remove() call."""
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        partner = make_mock_partner(protocol="sftp")
+        handler = EDIFTPHandler(partner)
+        mock_sftp = MagicMock()
+        handler._ftp = mock_sftp
+        handler.delete_file("order1.edi")
+        mock_sftp.remove.assert_called_once_with("/inbox/order1.edi")
+
+    def test_delete_file_failure_raises_edi_ftp_error(self):
+        """A failed FTP delete surfaces as EDIFTPError, not a bare exception."""
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        from mml_edi.parsers.base_parser import EDIFTPError
+        partner = make_mock_partner()
+        handler = EDIFTPHandler(partner)
+        mock_ftp = MagicMock()
+        mock_ftp.delete.side_effect = Exception("550 No such file")
+        handler._ftp = mock_ftp
+        with pytest.raises(EDIFTPError):
+            handler.delete_file("order1.edi")
 
     def test_context_manager_connects_and_disconnects(self):
         """connection() context manager calls connect() and disconnect()."""

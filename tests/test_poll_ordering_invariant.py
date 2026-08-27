@@ -3,9 +3,9 @@
 Per file the poll loop MUST do, in this order:
 
     process -> write dedup marker (file_download/success) -> COMMIT ->
-    FTP rename to '.processed' -> queue ACK / OOS summary
+    FTP delete of the inbox file -> queue ACK / OOS summary
 
-The DB must be durable BEFORE the rename (a worker death after the rename but
+The DB must be durable BEFORE the delete (a worker death after the delete but
 before a commit would silently lose the PO forever), and the ACK must go LAST
 (Briscoes must never hold an ORDRSP for uncommitted state).
 
@@ -89,8 +89,8 @@ class _FakeHandler:
     def download_file(self, filename):
         return b"<xml/>"
 
-    def move_to_processed(self, filename):
-        self._events.append(("rename", filename))
+    def delete_file(self, filename):
+        self._events.append(("delete", filename))
 
 
 class _Processor(EDIProcessor):
@@ -142,15 +142,15 @@ def _run_poll(monkeypatch, partner, test_mode=False, failures=None,
 
 class TestPollOrderingInvariant:
 
-    def test_clean_file_marker_commit_rename_ack_order(self, monkeypatch, partner):
+    def test_clean_file_marker_commit_delete_ack_order(self, monkeypatch, partner):
         events, failed = _run_poll(monkeypatch, partner)
         assert failed == 0
         marker = events.index(("log", "file_download", "success"))
         commit = events.index(("commit",))
-        rename = next(i for i, e in enumerate(events) if e[0] == "rename")
+        delete = next(i for i, e in enumerate(events) if e[0] == "delete")
         ack = next(i for i, e in enumerate(events) if e[0] == "ack")
-        assert marker < commit < rename < ack, (
-            "ordering invariant violated: marker -> COMMIT -> rename -> ACK, "
+        assert marker < commit < delete < ack, (
+            "ordering invariant violated: marker -> COMMIT -> delete -> ACK, "
             "got %r" % events
         )
 
@@ -166,7 +166,7 @@ class TestPollOrderingInvariant:
             "advisory lock must be re-acquired after each per-file commit"
         )
 
-    def test_failed_file_commits_partial_progress_but_never_renames(
+    def test_failed_file_commits_partial_progress_but_never_deletes(
             self, monkeypatch, partner):
         events, failed = _run_poll(
             monkeypatch, partner, failures=[("1001", "boom")])
@@ -174,7 +174,7 @@ class TestPollOrderingInvariant:
         assert ("commit",) in events, (
             "succeeded stores must be committed even when siblings failed"
         )
-        assert not any(e[0] == "rename" for e in events), (
+        assert not any(e[0] == "delete" for e in events), (
             "a failed file must stay in the inbox for retry"
         )
         assert not any(e[0] == "ack" for e in events)
@@ -187,7 +187,7 @@ class TestPollOrderingInvariant:
         assert failed == 0
         assert ("commit",) not in events
         # the rest of the pipeline still runs
-        assert any(e[0] == "rename" for e in events)
+        assert any(e[0] == "delete" for e in events)
         assert any(e[0] == "ack" for e in events)
 
     def test_download_exception_counts_alerts_and_continues(
