@@ -3,6 +3,7 @@ from . import edi_log
 from . import edi_order_issue
 from . import edi_order_review
 from . import sale_order
+from . import sale_report
 from . import edi_ftp
 from . import edi_processor
 from . import stock_location_ext

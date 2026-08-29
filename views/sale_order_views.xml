@@ -56,6 +56,11 @@
                             domain="[('x_is_indent','=',True)]"
                             help="Forward commitments for future delivery windows"/>
                 </filter>
+                <filter name="order_month" position="after">
+                    <filter name="expected_revenue_date_groupby"
+                            string="Expected Revenue Month"
+                            context="{'group_by': 'x_expected_revenue_date:month'}"/>
+                </filter>
             </field>
         </record>
 
