@@ -313,38 +313,3 @@ def test_scenario_5a_then_5b_validate_independently():
         result = build_desadv(payload, ctrl_ref=ref, msg_ref=1)
         _, segs = tokenize(result.decode("latin-1"))
         assert validate_interchange(segs) is True
-
-
-class TestDesadvEnvelopeIdentity:
-    """AN-01/C1: the UNB must carry the PARTNER's identity, not build_unb's
-    production-shaped defaults.
-
-    Regression: the Odoo DESADV path passed only ``supplier_gln``, so every
-    TEST-environment DESADV went out addressed to the production mailbox
-    (``ANIMATES``) with sender qualifier ``14`` and the frozen worked-example
-    time ``0730`` — silently misrouted.
-    """
-
-    def _unb(self, raw):
-        return raw.decode("latin-1").split("'")[1]
-
-    def test_partner_identity_overrides_production_defaults(self):
-        raw = build_desadv(
-            PALLET_PAYLOAD, supplier_gln="9419416000008T", ctrl_ref=70,
-            sender_qualifier="ZZZ", recipient="TST1ANIMATES",
-            recipient_qualifier="ZZZ", time_hhmm="2004",
-        )
-        unb = self._unb(raw)
-        assert "9419416000008T:ZZZ" in unb, unb
-        assert "TST1ANIMATES:ZZZ" in unb, unb
-        # note: "+ANIMATES" (leading separator) — plain "ANIMATES" is a
-        # substring of "TST1ANIMATES" and would always match.
-        assert "+ANIMATES:ZZZ" not in unb, "must not address the production mailbox"
-        assert "9419416000008T:14" not in unb, "sender qualifier must be overridable"
-        assert ":2004" in unb, "must stamp the supplied time, not the frozen 0730"
-
-    def test_defaults_unchanged_when_not_supplied(self):
-        """Back-compat: existing callers/fixtures keep the documented defaults."""
-        unb = self._unb(build_desadv(PALLET_PAYLOAD, ctrl_ref=78401, msg_ref=1))
-        assert "ANIMATES:ZZZ" in unb
-        assert ":0730" in unb

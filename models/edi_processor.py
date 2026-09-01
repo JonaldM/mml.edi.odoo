@@ -353,7 +353,7 @@ class EDIProcessor(models.AbstractModel):
                                 "Duplicate file skipped (hash already processed): %s" % filename,
                                 filename=filename, file_hash=file_hash,
                             )
-                            handler.move_to_processed(filename)
+                            handler.delete_file(filename)
                             continue
 
                         # _process_file isolates each store-order in its own
@@ -394,14 +394,14 @@ class EDIProcessor(models.AbstractModel):
                         # ORDERING INVARIANT (IDEM-2) — do NOT reorder:
                         #   1. dedup marker (file_download/success) written
                         #   2. COMMIT — SOs/reviews/logs/marker become durable
-                        #   3. FTP rename to '.processed'
+                        #   3. FTP delete of the inbox file
                         #   4. ACK / OOS summary
-                        # The DB must be durable BEFORE the rename: a worker
-                        # death after the rename but before a commit would
-                        # archive the file while rolling back its SOs — the PO
+                        # The DB must be durable BEFORE the delete: a worker
+                        # death after the delete but before a commit would
+                        # discard the file while rolling back its SOs — the PO
                         # silently lost forever. A death between 2 and 3 leaves
                         # the file in the inbox; the next poll dup-skips it by
-                        # hash and just re-renames (existing self-heal). The
+                        # hash and just re-deletes (existing self-heal). The
                         # ACK goes LAST so the partner can never hold an ORDRSP
                         # for uncommitted state; a death before 4 is covered by
                         # the retry_pending_acks cron.
@@ -413,7 +413,7 @@ class EDIProcessor(models.AbstractModel):
 
                         self._poll_commit(partner)
 
-                        handler.move_to_processed(filename)
+                        handler.delete_file(filename)
 
                         self._send_file_responses(partner, file_hash)
 

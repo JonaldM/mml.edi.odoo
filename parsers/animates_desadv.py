@@ -153,34 +153,17 @@ def _unit_segments(unit):
     return out
 
 
-def build_desadv(payload, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=78401, msg_ref=1,
-                 sender_qualifier=None, recipient=None, recipient_qualifier=None,
-                 time_hhmm=None):
+def build_desadv(payload, *, supplier_gln="SUPPLIER_GLN", ctrl_ref=78401, msg_ref=1):
     """Build an outbound Animates DESADV interchange. Returns ``bytes``.
 
     See the module docstring for the payload schema. Handles both the pallet+carton
     hierarchy (p.57) and the split-shipment variance shape (p.58) from one function.
-
-    ``sender_qualifier`` / ``recipient`` / ``recipient_qualifier`` / ``time_hhmm``
-    forward to :func:`build_unb`. Callers holding an ``edi.trading.partner`` MUST
-    pass them (from ``get_unb_sender``/``get_unb_recipient``), otherwise build_unb's
-    backward-compatible defaults address the PRODUCTION mailbox (``ANIMATES``,
-    sender qualifier ``14``) and stamp the frozen worked-example time ``0730`` —
-    which silently misroutes every TEST-environment interchange. See AN-01/C1.
     """
     ref = pad_ref(msg_ref)
 
-    unb_kwargs = {}
-    if recipient is not None:
-        unb_kwargs["recipient"] = recipient
-    if sender_qualifier is not None:
-        unb_kwargs["sender_qualifier"] = sender_qualifier
-    if recipient_qualifier is not None:
-        unb_kwargs["recipient_qualifier"] = recipient_qualifier
-
     segs = [
         build_unb(supplier_gln, ctrl_ref, payload.get("doc_date", "")[2:8] or "000000",
-                  time_hhmm or "0730", **unb_kwargs),
+                  "0730"),
         build_unh(ref, "DESADV", version="D", release="01B", agency="UN",
                   assoc=_DESADV_ASSOC),
     ]
