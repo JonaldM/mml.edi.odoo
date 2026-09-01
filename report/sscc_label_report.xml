@@ -43,77 +43,69 @@
         <template id="report_sscc_label_document">
             <t t-foreach="docs" t-as="o">
                 <t t-set="data" t-value="o.get_label_data()"/>
-                <!-- TABLE layout, deliberately NOT flexbox. wkhtmltopdf runs Qt
-                     WebKit (~2012) which does not support display:flex: the
-                     previous flex layout silently dropped the RIGHT-HAND column
-                     of every zone, so Ship To, Carrier/Connote #, the carton
-                     sequence and Description were all absent from the PRINTED
-                     label — while still present in the PDF text layer, which is
-                     why text extraction looked correct. Animates rejected the
-                     label for missing mandatory fields. Fixed table-layout with
-                     explicit row heights keeps all four zones on the one A6
-                     page and anchors Zone G (the SSCC barcode). -->
-                <div style="width:105mm;height:148mm;box-sizing:border-box;border:0.3mm solid #000;
-                            font-family:Arial,Helvetica,sans-serif;font-size:8.5pt;
-                            page-break-after:always;">
-                    <table style="width:100%;height:100%;border-collapse:collapse;table-layout:fixed;">
+                <div class="sscc-label-page"
+                     style="width:105mm;height:148mm;box-sizing:border-box;border:0.3mm solid #000;
+                            font-family:Arial,Helvetica,sans-serif;font-size:9pt;page-break-after:always;
+                            display:flex;flex-direction:column;">
 
-                        <!-- Zone A | B: Ship From | Ship To -->
-                        <tr style="height:36mm;">
-                            <td style="width:50%;vertical-align:top;padding:1.5mm;border-right:0.3mm solid #000;border-bottom:0.3mm solid #000;">
-                                <div style="font-weight:bold;">Ship From:</div>
-                                <div t-esc="data['ship_from_name']"/>
-                                <div t-esc="data['ship_from_address']"/>
-                            </td>
-                            <td style="width:50%;vertical-align:top;padding:1.5mm;border-bottom:0.3mm solid #000;">
-                                <div style="font-weight:bold;">Ship To: <span t-esc="data['ship_to_code']"/></div>
-                                <div t-esc="data['ship_to_name']"/>
-                                <div t-esc="data['ship_to_address']"/>
-                            </td>
-                        </tr>
+                    <!-- Zone A / B: Ship From | Ship To -->
+                    <div style="display:flex;border-bottom:0.3mm solid #000;">
+                        <div style="width:50%;padding:2mm;border-right:0.3mm solid #000;">
+                            <div style="font-weight:bold;">Ship From:</div>
+                            <div t-esc="data['ship_from_name']"/>
+                            <div t-esc="data['ship_from_address']"/>
+                        </div>
+                        <div style="width:50%;padding:2mm;">
+                            <div style="font-weight:bold;">
+                                Ship To: <span t-esc="data['ship_to_code']"/>
+                            </div>
+                            <div t-esc="data['ship_to_name']"/>
+                            <div t-esc="data['ship_to_address']"/>
+                        </div>
+                    </div>
 
-                        <!-- Zone C | D: ship-to postcode barcode (AI 420) | carrier, connote, unit count -->
-                        <tr style="height:28mm;">
-                            <td style="vertical-align:top;padding:1.5mm;border-right:0.3mm solid #000;border-bottom:0.3mm solid #000;">
-                                <div t-esc="data['ship_to_postal_code']"/>
-                                <t t-if="data['postcode_barcode_src']">
-                                    <img style="width:44mm;height:11mm;" t-att-src="data['postcode_barcode_src']"/>
-                                </t>
-                            </td>
-                            <td style="vertical-align:top;padding:1.5mm;border-bottom:0.3mm solid #000;">
-                                <div><strong>Carrier:</strong> <span t-esc="data['carrier_name']"/></div>
-                                <div><strong>Connote #:</strong> <span t-esc="data['connote']"/></div>
-                                <div>
-                                    <strong><t t-if="data['unit_type'] == 'pallet'">Number of Pallets:</t><t t-else="">Number of Cartons:</t></strong>
-                                    <span t-esc="data['unit_sequence']"/>
-                                </div>
-                            </td>
-                        </tr>
+                    <!-- Zone C / D: postal-code barcode | carrier/connote/count -->
+                    <div style="display:flex;border-bottom:0.3mm solid #000;min-height:26mm;">
+                        <div style="width:50%;padding:2mm;border-right:0.3mm solid #000;">
+                            <div t-esc="data['ship_to_postal_code']"/>
+                            <t t-if="data['ship_to_postal_code']">
+                                <img style="width:100%;max-height:12mm;"
+                                     t-att-src="'/report/barcode/?type=Code128&amp;value=420%s&amp;width=300&amp;height=60&amp;humanreadable=0' % data['ship_to_postal_code']"/>
+                            </t>
+                        </div>
+                        <div style="width:50%;padding:2mm;">
+                            <div><strong>Carrier:</strong> <span t-esc="data['carrier_name']"/></div>
+                            <div><strong>Connote #:</strong> <span t-esc="data['connote']"/></div>
+                            <div>
+                                <strong>
+                                    <t t-if="data['unit_type'] == 'pallet'">Number of Pallets:</t>
+                                    <t t-else="">Number of Cartons:</t>
+                                </strong>
+                            </div>
+                        </div>
+                    </div>
 
-                        <!-- Zone E | F: SSCC/PO/ISC/qty | vendor part, description -->
-                        <tr style="height:36mm;">
-                            <td style="vertical-align:top;padding:1.5mm;border-right:0.3mm solid #000;border-bottom:0.3mm solid #000;">
-                                <div><strong>SSCC:</strong></div>
-                                <div t-esc="data['sscc']"/>
-                                <div><strong>PO #:</strong> <span t-esc="data['po_number']"/></div>
-                                <div><strong>ISC:</strong> <span t-esc="data['isc']"/></div>
-                                <div><strong>Carton Qty:</strong> <span t-esc="data['carton_qty']"/></div>
-                            </td>
-                            <td style="vertical-align:top;padding:1.5mm;border-bottom:0.3mm solid #000;">
-                                <div><strong>Vendor Part #:</strong> <span t-esc="data['vendor_part_no']"/></div>
-                                <div><strong>Description:</strong> <span t-esc="data['description']"/></div>
-                            </td>
-                        </tr>
+                    <!-- Zone E / F: SSCC/PO#/ISC/qty | vendor part/description -->
+                    <div style="display:flex;border-bottom:0.3mm solid #000;">
+                        <div style="width:50%;padding:2mm;border-right:0.3mm solid #000;">
+                            <div><strong>SSCC:</strong></div>
+                            <div t-esc="data['sscc']"/>
+                            <div><strong>PO #:</strong> <span t-esc="data['po_number']"/></div>
+                            <div><strong>ISC:</strong> <span t-esc="data['isc']"/></div>
+                            <div><strong>Carton Qty:</strong> <span t-esc="data['carton_qty']"/></div>
+                        </div>
+                        <div style="width:50%;padding:2mm;">
+                            <div><strong>Vendor Part #:</strong> <span t-esc="data['vendor_part_no']"/></div>
+                            <div><strong>Description:</strong> <span t-esc="data['description']"/></div>
+                        </div>
+                    </div>
 
-                        <!-- Zone G: SSCC GS1-128 barcode (AI 00) + human-readable -->
-                        <tr>
-                            <td colspan="2" style="vertical-align:middle;text-align:center;padding:2mm;">
-                                <img style="width:78mm;height:32mm;" t-att-src="data['sscc_barcode_src']"/>
-                                <div style="margin-top:1mm;" t-esc="'(00) %s' % data['sscc']"/>
-                            </td>
-                        </tr>
-
-                    </table>
+                    <!-- Zone G: SSCC GS1-128 barcode (AI 00), human-readable -->
+                    <div style="flex:1;padding:3mm;text-align:center;">
+                        <img style="width:78mm;height:32mm;"
+                             t-att-src="'/report/barcode/?type=Code128&amp;value=00%s&amp;width=400&amp;height=150&amp;humanreadable=0' % data['sscc']"/>
+                        <div t-esc="'(00) %s' % data['sscc']" style="margin-top:1mm;"/>
+                    </div>
                 </div>
             </t>
         </template>

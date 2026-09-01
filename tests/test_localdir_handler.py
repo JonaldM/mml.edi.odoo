@@ -207,31 +207,37 @@ class TestDownloadUpload:
         assert entries == []
 
 
-class TestMoveToProcessed:
-    def test_move_to_processed_renames_with_marker(self, tmp_path):
+class TestDeleteFile:
+    def test_delete_file_removes_from_inbox(self, tmp_path):
         partner = make_fake_partner(tmp_path)
         (tmp_path / "inbox" / "order1.edi").write_bytes(b"a")
         handler = LocalDirHandler(partner)
-        handler.move_to_processed("order1.edi")
-        entries = os.listdir(str(tmp_path / "inbox"))
-        assert len(entries) == 1
-        assert entries[0].startswith("order1.edi.processed.")
-        assert not (tmp_path / "inbox" / "order1.edi").exists()
+        handler.delete_file("order1.edi")
+        assert os.listdir(str(tmp_path / "inbox")) == []
 
-    def test_move_to_processed_missing_source_raises_edi_ftp_error(self, tmp_path):
+    def test_delete_file_missing_source_raises_edi_ftp_error(self, tmp_path):
         """Mirrors EDIFTPHandler: a missing source must surface as EDIFTPError,
         not a bare OSError/FileNotFoundError."""
         partner = make_fake_partner(tmp_path)
         handler = LocalDirHandler(partner)
         with pytest.raises(EDIFTPError):
-            handler.move_to_processed("nope.edi")
+            handler.delete_file("nope.edi")
 
-    def test_move_to_processed_result_excluded_from_list_files(self, tmp_path):
+    def test_deleted_file_absent_from_list_files(self, tmp_path):
         partner = make_fake_partner(tmp_path)
         (tmp_path / "inbox" / "order1.edi").write_bytes(b"a")
         handler = LocalDirHandler(partner)
-        handler.move_to_processed("order1.edi")
+        handler.delete_file("order1.edi")
         assert handler.list_files() == []
+
+    def test_legacy_processed_archives_still_hidden_from_list_files(self, tmp_path):
+        """Pre-2026-08 behaviour renamed processed files in place; any stray
+        legacy archive must never be re-surfaced by list_files."""
+        partner = make_fake_partner(tmp_path)
+        (tmp_path / "inbox" / "old.edi.processed.20260601000000").write_bytes(b"a")
+        (tmp_path / "inbox" / "new.edi").write_bytes(b"b")
+        handler = LocalDirHandler(partner)
+        assert handler.list_files() == ["new.edi"]
 
 
 class TestPathTraversalRejection:
@@ -272,11 +278,11 @@ class TestPathTraversalRejection:
         "a\\b",
         "/etc/passwd",
     ])
-    def test_move_to_processed_rejects_traversal(self, tmp_path, bad_name):
+    def test_delete_file_rejects_traversal(self, tmp_path, bad_name):
         partner = make_fake_partner(tmp_path)
         handler = LocalDirHandler(partner)
         with pytest.raises(EDIFTPError):
-            handler.move_to_processed(bad_name)
+            handler.delete_file(bad_name)
 
     def test_absolute_path_windows_style_rejected(self, tmp_path):
         partner = make_fake_partner(tmp_path)
