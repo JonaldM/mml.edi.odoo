@@ -1203,20 +1203,26 @@ class EDIProcessor(models.AbstractModel):
                     ),
                     "sale_order_line_id": sol.id,
                 })
-        else:
-            # Legacy backorder: accept in full, warn if short. warehouse_id is added
-            # by sale_stock; fall back to no warehouse context if absent.
-            wh_ctx = {}
-            if 'warehouse_id' in self.env['sale.order']._fields and so.warehouse_id:
-                wh_ctx = {'warehouse': so.warehouse_id.id}
-            qty_available = product.with_context(**wh_ctx).qty_available
+        elif not getattr(so, 'x_is_indent', False):
+            # Legacy backorder: accept in full, warn if short. Availability is read
+            # through the same DC-scoped helper as short_ship. The old code passed a
+            # 'warehouse' context key, which Odoo 19 stock never reads (it looks for
+            # 'warehouse_id'/'search_warehouse'), so qty_available came back
+            # company-wide and pulled in retired Auckland's phantom stock plus every
+            # other company the cron user belongs to.
+            # The line ships in full here, so edi_qty_shortfall stays at 0: that field
+            # is contractually ordered-minus-confirmed and drives the ORDRSP line
+            # action. The figure goes in the issue description instead.
+            # Indent orders skip the gate entirely: the stock is absent by design
+            # until the shipment lands, so every line would report short.
+            qty_available = self._dc_available_qty(product, so)
             if qty_available < ordered:
-                sol.edi_qty_shortfall = ordered - qty_available
                 self.env["edi.order.issue"].create({
                     "review_id": review.id,
                     "issue_type": "qty_shortfall",
                     "severity": "warning",
-                    "description": "%s — requested %.0f, available %.0f, shortfall %.0f" % (
+                    "description": "%s — requested %.0f, available %.0f, shortfall %.0f "
+                                   "(accepted in full, backorder policy)" % (
                         product.name, ordered, qty_available, ordered - qty_available,
                     ),
                     "sale_order_line_id": sol.id,
