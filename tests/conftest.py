@@ -89,6 +89,7 @@ def _ensure_odoo_test_stubs() -> None:
     odoo_tests = types.ModuleType("odoo.tests")
     odoo_tests.common = odoo_tests_common
     odoo_tests.tagged = tagged
+    odoo_tests.TransactionCase = TransactionCase
 
     # Also stub the bare 'odoo' package if not already present so that
     # 'from odoo import fields' in test files does not raise.
