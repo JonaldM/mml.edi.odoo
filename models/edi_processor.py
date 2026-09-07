@@ -814,8 +814,22 @@ class EDIProcessor(models.AbstractModel):
         # "parsed 0 orders" by the ORDERS parser. Checked before parse_file so
         # a CONTRL body (no BGM/LIN) never reaches the ORDERS code path at all.
         if partner.edi_format in self._EDIFACT_FORMATS and self._is_contrl_message(raw_text):
-            self._handle_inbound_contrl(raw_text, filename, file_hash, partner)
-            return []
+            if self._handle_inbound_contrl(raw_text, filename, file_hash, partner):
+                return []
+            # The parser exposes no parse_contrl, so we cannot tell an
+            # acceptance from a rejection. Reporting the file clean here would
+            # write the file_download/success dedup marker, commit and DELETE
+            # the interchange from the VAN with no edi.log row of any kind, so
+            # a negative CONTRL would vanish. Fail closed into the per-file
+            # failure path instead: the file stays in the inbox, an error row
+            # is logged and the failure alert fires.
+            from ..parsers.base_parser import EDIParseError
+
+            raise EDIParseError(
+                "Inbound CONTRL in %s cannot be handled: parser for partner %s "
+                "has no parse_contrl, refusing to discard the acknowledgement "
+                "(fail-closed)" % (filename, partner.code)
+            )
 
         # AN envelope validation: catches truncated/malformed interchanges and
         # sender/recipient mismatches (wrong mailbox, TST1ANIMATES vs ANIMATES)

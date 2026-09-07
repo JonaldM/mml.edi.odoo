@@ -290,3 +290,32 @@ def test_build_then_parse_roundtrip_correlates():
     assert parsed["action"] == "8"
     assert parsed["original_sender_id"] == "ANIMATES"
     assert parsed["original_recipient_id"] == "SUPPLIER_GLN"
+
+
+# --- the processor's entry point: the PARSER CLASS must expose parse_contrl ---
+def test_animates_parser_exposes_parse_contrl():
+    """models/edi_processor.py::_handle_inbound_contrl resolves the handler
+    with getattr(parser, "parse_contrl", None) on the PARSER INSTANCE. While
+    parse_contrl lived only as a module-level function here, that probe
+    returned None for every real poll and the inbound CONTRL was discarded
+    with no edi.log row at all (the negative-CONTRL block was dead code).
+    Assert the binding on the class so a future sweep cannot drop it again.
+    """
+    from mml_edi.parsers.animates import AnimatesParser
+
+    parser = AnimatesParser()
+    bound = getattr(parser, "parse_contrl", None)
+    assert callable(bound), (
+        "AnimatesParser must expose parse_contrl: the processor probes the "
+        "parser instance by name and silently discards the CONTRL without it"
+    )
+
+    raw = (
+        "UNA:+.? '"
+        "UNB+UNOC:3+ANIMATES:ZZZ+SUPPLIER_GLN:14+200928:1030+99101'"
+        "UNH+0001+CONTRL:D:3:UN:EAN004'"
+        "UCI+72+SUPPLIER_GLN:14+ANIMATES:ZZZ+8'"
+        "UNT+3+0001'"
+        "UNZ+1+99101'"
+    )
+    assert bound(raw) == parse_contrl(raw)
