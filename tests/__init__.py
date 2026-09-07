@@ -81,6 +81,7 @@ if _STUB:
             test_pricelist_gst_constraint,
             test_wall_format,
             test_mobile_triage_format,
+            test_reclamp_issue_sudo,
             test_reclamp_math,
             test_reject_line,
             test_short_ship,

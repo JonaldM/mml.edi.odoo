@@ -372,7 +372,12 @@ class EDIOrderReview(models.Model):
         )
         for c in changes:
             if c["new_qty"] == 0:
-                self.env["edi.order.issue"].create({
+                # sudo: this is system-generated audit data, not operator
+                # input. group_edi_user has create=0 on edi.order.issue (only
+                # group_edi_manager may hand-create issue rows), yet a plain
+                # EDI User is the expected approver, so without the elevation
+                # an AccessError here rolls the whole approval back.
+                self.env["edi.order.issue"].sudo().create({
                     "review_id": self.id,
                     "issue_type": "qty_shortfall",
                     "severity": "warning",
