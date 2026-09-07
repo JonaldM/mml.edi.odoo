@@ -64,6 +64,7 @@ if _STUB:
             test_briscoes_encoding,
             test_briscoes_idoc_multi_po_ack,
             test_briscoes_ordrsp,
+            test_bulk_approve_isolation,
             test_circuit_breaker,
             test_client_ref_template,
             test_correlation_logging,
