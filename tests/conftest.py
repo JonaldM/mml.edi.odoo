@@ -12,6 +12,8 @@ import os
 import sys
 import types
 
+import pytest
+
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
@@ -262,3 +264,14 @@ _register_module(
     os.path.join(wizards_dir, "animates_store_master_data.py"),
     mml_edi_wizards,
 )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-mark TransactionCase-based tests as odoo_integration (requires odoo-bin)."""
+    from odoo.tests import TransactionCase
+    for item in items:
+        if isinstance(item, pytest.Class):
+            continue
+        cls = getattr(item, 'cls', None)
+        if cls is not None and issubclass(cls, TransactionCase):
+            item.add_marker(pytest.mark.odoo_integration)
