@@ -104,8 +104,33 @@ class EDIOrderIssue(models.Model):
         })
 
     def action_reject_issue(self):
-        """Reject this line."""
+        """Reject the SO line this issue names.
+
+        The resolution flag alone is inert: nothing outside the display chip
+        reads it, so the line used to confirm at the EDI qty and the ORDRSP
+        acknowledged it as accepted in full. Zero the line and move the whole
+        ordered qty into edi_qty_shortfall, which IS what every ACK generator
+        reads (Briscoes EDIFACT action 7 / IDoc ACTION 003, Animates 7).
+        edi_ordered_qty is zeroed for the same reason the ORDCHG removed-line
+        path does it: otherwise the approve-time availability re-clamp
+        resurrects the line. Only a draft SO can be changed this way.
+        """
         for rec in self:
+            line = rec.sale_order_line_id
+            if line:
+                order = line.order_id
+                if order and order.state != "draft":
+                    raise UserError(_(
+                        "Order %s is already confirmed - its lines can no "
+                        "longer be rejected from the review. Reset the review "
+                        "or amend the order directly."
+                    ) % (order.name or ""))
+                ordered = line.edi_ordered_qty or line.product_uom_qty or 0.0
+                line.write({
+                    "product_uom_qty": 0.0,
+                    "edi_ordered_qty": 0.0,
+                    "edi_qty_shortfall": ordered,
+                })
             rec.write({
                 "resolution": "rejected",
                 "resolved_by": self.env.user.id,

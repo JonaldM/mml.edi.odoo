@@ -82,6 +82,7 @@ if _STUB:
             test_wall_format,
             test_mobile_triage_format,
             test_reclamp_math,
+            test_reject_line,
             test_short_ship,
             test_sscc_register_constraint_matching,
         )
