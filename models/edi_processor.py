@@ -170,6 +170,21 @@ class EDIProcessor(models.AbstractModel):
                 failed_files = self.poll_trading_partner(partner)
             except Exception as exc:
                 _logger.exception("[EDI] Poll failed for partner %s", partner.code)
+                # Aborted-cursor guard (the bug class already fixed in dsv and
+                # stock_3pl_rohlig). A Postgres-level failure - a statement
+                # timeout on the advisory lock, a deadlock, a serialization
+                # failure - leaves the cursor in InFailedSqlTransaction, and
+                # EVERY statement below is SQL: _record_poll_failure reads the
+                # breaker then writes it, edi.log.log() takes a sequence and
+                # INSERTs, _send_cron_alert reads two ir.config_parameter rows.
+                # Without this rollback the first of them raises again from
+                # inside the except block, where nothing catches it, so it
+                # escapes run_scheduled_poll: the remaining partners are never
+                # polled, the breaker is never incremented and no alert is
+                # sent. A savepoint around the poll itself is NOT usable here -
+                # poll_trading_partner commits per file (_poll_commit), which
+                # invalidates any savepoint taken around it.
+                self.env.cr.rollback()
                 self._record_poll_failure(partner)
                 self.env["edi.log"].log(
                     partner, "inbound", "error", "error",
@@ -421,6 +436,19 @@ class EDIProcessor(models.AbstractModel):
                         _logger.exception(
                             "%s Error processing file %s for %s", prefix, filename, partner.code
                         )
+                        # Same aborted-cursor guard as the partner loop above.
+                        # This block's first act is an edi.log INSERT, so a
+                        # Postgres-level error out of _process_file,
+                        # _poll_commit or _send_file_responses would raise
+                        # again here and abort the whole poll, skipping every
+                        # remaining file. Everything durable was already
+                        # committed by _poll_commit, so the rollback only
+                        # discards this file's partial work - which is exactly
+                        # what leaving it in the inbox for retry means. The
+                        # rollback releases the transaction-scoped advisory
+                        # lock, so re-take it just as _poll_commit does.
+                        self.env.cr.rollback()
+                        self._acquire_poll_lock(partner)
                         self.env["edi.log"].log(
                             partner, "inbound", "error", "error",
                             "Error processing %s: %s" % (filename, str(exc)),

@@ -77,6 +77,7 @@ if _STUB:
             test_gs1_sscc,
             test_localdir_handler,
             test_migration_dup_precheck,
+            test_poll_aborted_cursor,
             test_poll_ordering_invariant,
             test_pricelist_gst_constraint,
             test_wall_format,
