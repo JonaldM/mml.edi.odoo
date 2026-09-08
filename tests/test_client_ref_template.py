@@ -81,3 +81,55 @@ def test_render_client_ref_substitutes_with_underscore_separator():
     # single-order template (no store)
     assert EDITradingPartner.render_client_ref(
         _P('{po_number}'), '700123', None) == '700123'
+
+
+class _FakePartnerSet(list):
+    """Iterable stand-in for `self` in an @api.constrains method."""
+
+
+def _validate(template):
+    from mml_edi.models.edi_trading_partner import EDITradingPartner
+
+    class _P:
+        client_ref_template = template
+
+    EDITradingPartner._validate_client_ref_template(_FakePartnerSet([_P()]))
+
+
+def test_brace_style_unknown_variable_is_rejected():
+    """The field's own default and help document BRACE syntax
+    ('{po_number}', 'Variables: {po_number}, {store_code}'), so an unknown
+    brace token must fail validation. The regex required a literal '$', so
+    findall() returned [] and the constraint never fired - the template then
+    rendered as a literal, collapsing every store of a PO onto one client
+    reference."""
+    from odoo.exceptions import ValidationError
+
+    with pytest.raises(ValidationError):
+        _validate('{po_number}_{branch}')
+
+
+def test_brace_style_known_variables_are_accepted():
+    _validate('{po_number}_{store_code}')
+    _validate('{po_number}')
+
+
+def test_dollar_style_still_validated():
+    from odoo.exceptions import ValidationError
+
+    _validate('${po_number}')
+    _validate('$po_number')
+    with pytest.raises(ValidationError):
+        _validate('$branch')
+
+
+def test_literal_template_with_no_variables_is_accepted():
+    _validate('ORDER-REF-ONLY')
+
+
+def test_error_message_names_the_brace_syntax():
+    from odoo.exceptions import ValidationError
+
+    with pytest.raises(ValidationError) as exc:
+        _validate('{branch}')
+    assert '{po_number}' in str(exc.value)

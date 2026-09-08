@@ -98,6 +98,10 @@ class EDIFTPHandler:
                     "[EDI FTP] Connection attempt %d/%d failed for %s: %s",
                     attempt + 1, _RETRY_ATTEMPTS, self.partner.code, exc,
                 )
+                # Tear the half-open connection down before the next attempt,
+                # otherwise each retry overwrites (and leaks) the handles the
+                # failed attempt left behind.
+                self.disconnect()
 
         raise EDIFTPError(
             "Failed to connect to %s after %d attempts: %s"
@@ -105,20 +109,31 @@ class EDIFTPHandler:
         )
 
     def disconnect(self) -> None:
-        """Clean disconnect. Safe to call even if not connected."""
-        if self._ftp is None:
+        """Clean disconnect. Safe to call even if not connected.
+
+        Guards on BOTH handles: _connect_sftp assigns _transport before
+        open_sftp(), so a channel failure leaves a live SSH transport with
+        _ftp still None. Returning early on _ftp alone leaked that transport
+        and its socket on every failed attempt.
+        """
+        if self._ftp is None and not self._transport:
             return
         try:
-            if self.partner.ftp_protocol == "sftp":
-                self._ftp.close()
-            else:
-                self._ftp.quit()
-        except Exception:
-            pass  # Best-effort disconnect
+            if self._ftp is not None:
+                try:
+                    if self.partner.ftp_protocol == "sftp":
+                        self._ftp.close()
+                    else:
+                        self._ftp.quit()
+                except Exception:
+                    pass  # Best-effort disconnect
         finally:
             self._ftp = None
-            if hasattr(self, '_transport') and self._transport:
-                self._transport.close()
+            if self._transport:
+                try:
+                    self._transport.close()
+                except Exception:
+                    pass  # Best-effort disconnect
                 self._transport = None
 
     @contextmanager
@@ -140,11 +155,28 @@ class EDIFTPHandler:
         legacy archives: before 2026-08 processed files were renamed in place
         to '{name}.processed.{ts}' instead of deleted, and stray copies of
         those must never be re-ingested.
+
+        Names outside the _safe_filename whitelist are also dropped, with one
+        warning each. download_file and delete_file both run the name through
+        that whitelist, so listing such a file makes every poll fail on it AND
+        leaves it in the inbox (delete would reject the same name) - it
+        re-fails forever and eventually trips the circuit breaker on a file
+        that can never be processed.
         """
         inbox = self.partner.get_active_inbox_path()
 
         def _keep(name):
-            return bool(name) and not name.startswith('.') and '.processed.' not in name
+            if not name or name.startswith('.') or '.processed.' in name:
+                return False
+            if not _SAFE_FILENAME_RE.match(name):
+                _logger.warning(
+                    "[EDI FTP] Skipping unprocessable filename %r in %s (%s) - "
+                    "outside the safe-filename whitelist, so it can be neither "
+                    "downloaded nor deleted. Rename it on the VAN to ingest it.",
+                    name, inbox, self.partner.code,
+                )
+                return False
+            return True
 
         try:
             if self.partner.ftp_protocol == "sftp":

@@ -19,8 +19,10 @@ class TestEdiTradingPartnerSettings(TransactionCase, EDITestSetup):
         super().setUp()
         self.setup_edi_test_data()
 
-    def test_sender_qualifier_defaults_to_gln(self):
-        # Fresh partner (fixture didn't set it) -> qualifier default "14" (GLN).
+    def test_sender_qualifier_defaults_to_zzz(self):
+        # Fresh partner (fixture didn't set it) -> qualifier default "ZZZ".
+        # It read "14" only because edi_sender_qualifier was declared twice on
+        # the model and the second (GLN-defaulted) declaration won.
         p = self.env["edi.trading.partner"].create({
             "name": "Identity Partner",
             "code": "IDENTITY",
@@ -30,7 +32,7 @@ class TestEdiTradingPartnerSettings(TransactionCase, EDITestSetup):
             "ftp_protocol": "ftp",
             "environment": "test",
         })
-        self.assertEqual(p.edi_sender_qualifier, "14")
+        self.assertEqual(p.edi_sender_qualifier, "ZZZ")
 
     def test_identity_fields_writable(self):
         self.trading_partner.write({

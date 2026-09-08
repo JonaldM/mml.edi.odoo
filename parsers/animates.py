@@ -284,21 +284,54 @@ def _is_cancellation_review(review) -> bool:
     return summary.startswith("EDI-CANCELLATION:")
 
 
-def _contrl_now_yymmdd_hhmm():
-    """Return (YYMMDD, HHMM) for this CONTRL's own preparation timestamp.
+#: The Animates interchange is prepared in NZ, so every date we stamp on it is
+#: an NZ business date. The Odoo server runs UTC, which is 12-13 hours BEHIND
+#: NZ, so date.today()/fields.Datetime.now() name the previous calendar day for
+#: the whole NZ morning.
+_NZ_TZ_NAME = "Pacific/Auckland"
 
-    Uses odoo.fields.Datetime.now() (server/UTC-consistent with the rest of
-    Odoo) when the Odoo runtime is importable; falls back to the plain
-    datetime module otherwise (pure-test / no-Odoo-env path) so
-    generate_contrl always has a real, non-placeholder "now" — never the
-    original interchange's own (possibly worked-example-sentinel) date/time.
+
+def _utc_now():
+    """Current UTC instant, timezone-aware.
+
+    Uses odoo.fields.Datetime.now() (which returns naive UTC) when the Odoo
+    runtime is importable, falling back to the plain datetime module on the
+    pure-test / no-Odoo-env path.
     """
+    from datetime import datetime, timezone
+
     try:
         from odoo import fields as odoo_fields
         now = odoo_fields.Datetime.now()
     except Exception:
-        from datetime import datetime
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return now
+
+
+def _nz_now():
+    """``_utc_now()`` converted to the NZ business timezone. Falls back to the
+    UTC instant if no tz database is available."""
+    try:
+        from zoneinfo import ZoneInfo
+        return _utc_now().astimezone(ZoneInfo(_NZ_TZ_NAME))
+    except Exception:
+        try:
+            import pytz
+            return _utc_now().astimezone(pytz.timezone(_NZ_TZ_NAME))
+        except Exception:
+            return _utc_now()
+
+
+def _contrl_now_yymmdd_hhmm():
+    """Return (YYMMDD, HHMM) for this CONTRL's own preparation timestamp.
+
+    NZ local, not server UTC: the interchange is prepared here, and a UTC
+    stamp names yesterday for the whole NZ morning. Never the original
+    interchange's own (possibly worked-example-sentinel) date/time.
+    """
+    now = _nz_now()
     return now.strftime("%y%m%d"), now.strftime("%H%M")
 
 
@@ -372,9 +405,19 @@ _REASON_REJECTED_ON_REVIEW = "Rejected on review"
 _REASON_REJECTED_ZERO_QTY = "Item out of stock"
 
 
+def _sibling_order_key(rev):
+    """Oldest-first sort key for sibling reviews. Stringified so a missing or
+    string received_date never collides with a datetime one."""
+    return (
+        str(getattr(rev, "received_date", "") or ""),
+        getattr(rev, "id", 0) or 0,
+    )
+
+
 def _gather_sol_by_line(review) -> dict:
-    """Collect {edi_line_number: sale.order.line} across ALL sibling reviews of
-    the same PO (mirrors briscoes_idoc._gather_confirmations — finding #11).
+    """Collect {edi_line_number: sale.order.line} across the sibling reviews of
+    the same PO IN THIS INTERCHANGE (mirrors briscoes_idoc._gather_confirmations
+    — finding #11).
 
     A multi-store Animates interchange (or a partial-failure retry that split
     one PO across several review records) must not ACK another store's/
@@ -395,14 +438,25 @@ def _gather_sol_by_line(review) -> dict:
     partner = getattr(review, "trading_partner_id", None)
     po = getattr(review, "customer_po_number", None)
     if env is not None and partner is not None and po:
+        domain = [
+            ("trading_partner_id", "=", getattr(partner, "id", partner)),
+            ("customer_po_number", "=", po),
+        ]
+        # Scope to THIS inbound file: every store-review of one interchange
+        # shares edi_file_hash (see edi.order.review._queue_ack). Without it a
+        # superseded or cancelled review of the same PO number, which carries a
+        # DIFFERENT sale order, contributes its lines to this ACK.
+        file_hash = getattr(review, "edi_file_hash", None)
+        if file_hash:
+            domain.append(("edi_file_hash", "=", file_hash))
         try:
-            siblings = env["edi.order.review"].search([
-                ("trading_partner_id", "=", getattr(partner, "id", partner)),
-                ("customer_po_number", "=", po),
-            ]) or [review]
+            siblings = list(env["edi.order.review"].search(domain)) or [review]
         except Exception:
             siblings = [review]
-        for rev in siblings:
+        # _order is "received_date desc", so search() returns newest FIRST and
+        # the loop's last write (the OLDEST review) would win a line-number
+        # collision. Index oldest first so the newest review wins.
+        for rev in sorted(siblings, key=_sibling_order_key):
             _index(getattr(rev, "sale_order_id", None))
     else:
         _index(getattr(review, "sale_order_id", None))
@@ -486,23 +540,41 @@ def _review_to_ordrsp_payload(review) -> dict:
     the sibling-aggregation and real-envelope-identity paths additionally
     exercise review.env / trading_partner_id.get_unb_sender() when present.
     """
-    from datetime import date
-
     partner = review.trading_partner_id
     rejected = getattr(review, "state", None) == "rejected"
 
     # Original ORDERS lines (ISC / MML / ordered qty / price / description).
+    # edi_processor._process_file stores the WHOLE decoded interchange in
+    # edi_raw_data, and AnimatesParser yields one ParsedOrder per UNH message,
+    # so a batched multi-PO file must be filtered down to THIS review's PO
+    # before its lines are echoed (the ORDRSP header carries only this
+    # review's PO/ship-to). Mirrors briscoes_idoc.generate_ack.
+    review_po = (getattr(review, "customer_po_number", "") or "").strip()
     orig_lines = []
     requested = None
+    parsed_pos = []
     raw = getattr(review, "edi_raw_data", None)
     if raw:
         try:
             data = raw if isinstance(raw, (bytes, bytearray)) else raw.encode("iso-8859-1")
-            for order in AnimatesParser().parse_file(data, partner):
-                orig_lines.extend(order.lines)
-                requested = requested or order.requested_delivery_date
+            orders = list(AnimatesParser().parse_file(data, partner))
         except Exception:
-            orig_lines = []
+            orders = []
+        parsed_pos = [(o.po_number or "").strip() for o in orders]
+        for order, order_po in zip(orders, parsed_pos):
+            if review_po and order_po and order_po != review_po:
+                continue
+            orig_lines.extend(order.lines)
+            requested = requested or order.requested_delivery_date
+
+    if review_po and parsed_pos and not orig_lines:
+        # Fail CLOSED: an ORDRSP built from another PO's messages would
+        # confirm or reject lines the buyer never ordered on this PO.
+        raise EDIParseError(
+            "Stored raw file holds POs %s but none match review PO %r; "
+            "refusing to generate a cross-PO ORDRSP"
+            % (sorted(set(parsed_pos)), review_po)
+        )
 
     # SO lines keyed by EDI line number, aggregated across sibling reviews of
     # this PO (finding #11) — never just this review's own (possibly empty
@@ -538,7 +610,10 @@ def _review_to_ordrsp_payload(review) -> dict:
             "tax_rate": "15.00",  # NZ GST
         })
 
-    today = date.today().strftime("%Y%m%d")
+    # NZ business day, never the server's UTC day: DTM+137 is this ORDRSP's
+    # document date and DTM+2 (when the ORDERS carried no delivery date) is the
+    # date we are promising, and both were a day early all NZ morning.
+    today = _nz_now().strftime("%Y%m%d")
     req = requested.strftime("%Y%m%d") if requested else today
 
     # BGM 1225 selection from the live aggregate state (per the MIG + Testing
@@ -549,7 +624,7 @@ def _review_to_ordrsp_payload(review) -> dict:
 
     has_real_identity = callable(getattr(partner, "get_unb_recipient", None))
     buyer, _buyer_qual = partner.get_unb_recipient() if has_real_identity else ("ANIMATES", "ZZZ")
-    supplier = getattr(partner, "animates_vendor_code", None) or getattr(partner, "code", "") or ""
+    supplier = getattr(partner, "vendor_code", None) or getattr(partner, "code", "") or ""
 
     payload = {
         "po_response_no": getattr(review, "name", None) or getattr(review, "customer_po_number", "") or "",

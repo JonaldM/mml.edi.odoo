@@ -69,9 +69,16 @@ class FakeMove:
         self.picking_id = picking_id
 
 
+class FakePickingType:
+    def __init__(self, code="outgoing"):
+        self.code = code
+
+
 class FakePicking:
-    def __init__(self, name, date_done=None, carrier_tracking_ref=None):
+    def __init__(self, name, date_done=None, carrier_tracking_ref=None,
+                 picking_type_code="outgoing"):
         self.name = name
+        self.picking_type_id = FakePickingType(picking_type_code)
         self.date_done = date_done
         self.write_date = date_done
         self.create_date = date_done
@@ -172,8 +179,10 @@ class FakeMoveHeader:
 
     def __init__(self, name, invoice_line_ids, partner_id, company_id, currency_name="NZD",
                  invoice_date=None, date=None, ref=None, partner_shipping_id=None,
-                 env=None):
+                 env=None, state="posted", move_type="out_invoice"):
         self.name = name
+        self.state = state
+        self.move_type = move_type
         self.invoice_line_ids = FakeRecordset(invoice_line_ids)
         self.partner_id = partner_id
         self.company_id = company_id
@@ -231,8 +240,8 @@ def _basic_setup(qty_shipped=2.0, qty_invoiced=2.0):
 
 
 class FakeTradingPartner:
-    def __init__(self, animates_vendor_code="V1058", code="ANIMATES"):
-        self.animates_vendor_code = animates_vendor_code
+    def __init__(self, vendor_code="V1058", code="ANIMATES"):
+        self.vendor_code = vendor_code
         self.code = code
 
     def get_unb_sender(self):
@@ -333,13 +342,36 @@ def test_payload_qty_invoiced_matches_shipped_qty():
     assert payload["lines"][0]["qty_invoiced"] == "2"
 
 
-def test_payload_qty_invoiced_clamped_to_shipped_even_if_line_qty_higher():
-    """Invoice line quantity must never exceed what was actually shipped —
-    even if the invoice line itself carries a higher (e.g. SO-derived) qty."""
+def test_payload_refuses_a_line_invoiced_for_more_than_was_shipped():
+    """Invoice line quantity must never exceed what was actually shipped.
+
+    Clamping QTY+47 down to the shipped qty left the money elements untouched:
+    MOA 128/203 and PRI come straight from the un-clamped invoice line, so
+    QTY x PRI no longer equalled MOA 128 and the summary totals were the
+    un-clamped ones. Rescaling the money would put an amount on the wire that
+    disagrees with our own AR ledger, so this fails closed for review instead.
+    """
     move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
     move_line.quantity = 10.0  # simulate a line that (wrongly) carries ordered qty
+    with pytest.raises(AnimatesInvoiceError):
+        build_invoic_payload_from_move(move, FakeTradingPartner())
+
+
+def test_payload_allows_a_line_invoiced_for_less_than_was_shipped():
+    """Under-invoicing needs no clamp, so line money and QTY stay consistent."""
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=10.0, qty_invoiced=2.0)
     payload = build_invoic_payload_from_move(move, FakeTradingPartner())
     assert payload["lines"][0]["qty_invoiced"] == "2"
+
+
+def test_payload_line_money_matches_qty_times_price():
+    """The MIG invariant: QTY+47 x PRI == MOA 128 on every emitted line."""
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
+    payload = build_invoic_payload_from_move(move, FakeTradingPartner())
+    line = payload["lines"][0]
+    assert abs(
+        float(line["qty_invoiced"]) * float(line["price"]) - float(line["moa_128"])
+    ) < 0.01
 
 
 def test_payload_omits_lines_with_zero_shipped_qty():
@@ -408,16 +440,16 @@ def test_payload_raises_when_no_despatch_reference_resolvable():
         build_invoic_payload_from_move(move, FakeTradingPartner())
 
 
-def test_payload_supplier_code_uses_animates_vendor_code():
+def test_payload_supplier_code_uses_vendor_code():
     move, sol, order, picking, move_line = _basic_setup()
-    payload = build_invoic_payload_from_move(move, FakeTradingPartner(animates_vendor_code="V1058"))
+    payload = build_invoic_payload_from_move(move, FakeTradingPartner(vendor_code="V1058"))
     assert payload["supplier"]["code"] == "V1058"
 
 
 def test_payload_supplier_code_falls_back_to_partner_code():
     move, sol, order, picking, move_line = _basic_setup()
     payload = build_invoic_payload_from_move(
-        move, FakeTradingPartner(animates_vendor_code=None, code="ANIMATES"))
+        move, FakeTradingPartner(vendor_code=None, code="ANIMATES"))
     assert payload["supplier"]["code"] == "ANIMATES"
 
 
@@ -449,3 +481,96 @@ def test_payload_currency_defaults_from_move():
     move, sol, order, picking, move_line = _basic_setup()
     payload = build_invoic_payload_from_move(move, FakeTradingPartner())
     assert payload["currency"] == "NZD"
+
+
+def test_shipped_qty_by_sale_line_ignores_return_pickings():
+    """A customer return created from a delivery is an INCOMING picking on the
+    same sale order whose moves carry the same sale_line_id. Summing it as
+    shipped quantity inflated what we tell Animates was despatched."""
+    sol = FakeSOL(id=1, edi_line_number=1)
+    outgoing = FakePicking("WH/OUT/1")
+    outgoing.move_ids = FakeRecordset([FakeMove("done", 10.0, sol, picking_id=outgoing)])
+    ret = FakePicking("WH/IN/1", picking_type_code="incoming")
+    ret.move_ids = FakeRecordset([FakeMove("done", 4.0, sol, picking_id=ret)])
+    order = FakeSaleOrder("S1", picking_ids=[outgoing, ret])
+
+    totals = shipped_qty_by_sale_line(order)
+
+    assert totals[sol] == 10.0
+
+
+def test_shipped_qty_by_sale_line_ignores_internal_transfers():
+    sol = FakeSOL(id=1, edi_line_number=1)
+    outgoing = FakePicking("WH/OUT/1")
+    outgoing.move_ids = FakeRecordset([FakeMove("done", 6.0, sol, picking_id=outgoing)])
+    internal = FakePicking("WH/INT/1", picking_type_code="internal")
+    internal.move_ids = FakeRecordset([FakeMove("done", 6.0, sol, picking_id=internal)])
+    order = FakeSaleOrder("S1", picking_ids=[outgoing, internal])
+
+    totals = shipped_qty_by_sale_line(order)
+
+    assert totals[sol] == 6.0
+
+
+def test_payload_refuses_an_invoice_spanning_two_sale_orders():
+    """_resolve_sale_order returned the FIRST linked order, so the shipped map
+    was built from that one only: every line belonging to another order looked
+    unshipped and was silently dropped, and the PO/ship-to came from one order
+    while the money covered both."""
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
+
+    other_order = FakeSaleOrder("S00043", client_order_ref="POR169604")
+    other_picking = FakePicking("WH/OUT/00043")
+    sol2 = FakeSOL(id=2, edi_line_number=1)
+    other_move = FakeMove("done", 2.0, sol2, picking_id=other_picking)
+    sol2.move_ids = FakeRecordset([other_move])
+    other_picking.move_ids = FakeRecordset([other_move])
+    other_order.picking_ids = FakeRecordset([other_picking])
+    sol2.order_id = FakeRecordset([other_order])
+
+    move_line2 = FakeMoveLine(
+        name="Other Order Product",
+        quantity=2.0,
+        price_unit=50.0,
+        price_subtotal=100.0,
+        price_total=115.0,
+        tax_ids=[FakeTax()],
+        sale_line_ids=[sol2],
+        product_id=FakeProduct(default_code="5101999"),
+    )
+    move.invoice_line_ids = FakeRecordset([move_line, move_line2])
+
+    with pytest.raises(AnimatesInvoiceError):
+        build_invoic_payload_from_move(move, FakeTradingPartner())
+
+
+def test_payload_accepts_an_invoice_confined_to_one_sale_order():
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
+    payload = build_invoic_payload_from_move(move, FakeTradingPartner())
+    assert payload["ref_on"] == "POR169603"
+
+
+# -- generate_and_upload_invoic move-state guard ------------------------------
+
+def test_upload_refuses_a_draft_invoice():
+    """A draft move has no final number (move.name == '/') and may still be
+    edited, yet build_invoic stamps BGM 388 'TAX INVOICE' with message
+    function 9 (original)."""
+    from mml_edi.services.animates_invoice import generate_and_upload_invoic
+
+    move, sol, order, picking, move_line = _basic_setup()
+    move.state = "draft"
+    with pytest.raises(AnimatesInvoiceError):
+        generate_and_upload_invoic(move.env, move, FakeTradingPartner())
+
+
+def test_upload_refuses_a_credit_note():
+    """Odoo stores out_refund line amounts as POSITIVE price_subtotal, so a
+    credit note would render as a second positive original tax invoice for the
+    same goods."""
+    from mml_edi.services.animates_invoice import generate_and_upload_invoic
+
+    move, sol, order, picking, move_line = _basic_setup()
+    move.move_type = "out_refund"
+    with pytest.raises(AnimatesInvoiceError):
+        generate_and_upload_invoic(move.env, move, FakeTradingPartner())

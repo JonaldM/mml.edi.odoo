@@ -143,6 +143,12 @@ def _escape_ilike(value: str) -> str:
     )
 
 
+# retry_pending_acks scan bounds (both overridable via ir.config_parameter
+# mml_edi.ack_retry_window_days / mml_edi.ack_retry_limit; 0 disables).
+_ACK_RETRY_WINDOW_DAYS = 7
+_ACK_RETRY_LIMIT = 2000
+
+
 class EDIProcessor(models.AbstractModel):
     _name = "edi.processor"
     _description = "EDI Processing Engine"
@@ -246,10 +252,25 @@ class EDIProcessor(models.AbstractModel):
         # Candidate exchanges: resolved reviews (left pending_review) for active
         # partners. One ACK is sent per (partner, PO, inbound-file) exchange, so
         # group by that triple — mirrors _queue_ack's per-exchange idempotency key.
-        resolved = Review.search([
+        # Bound the scan. This cron runs every 30 minutes and the review table
+        # grows by one row per store per PO forever, so an unbounded search
+        # plus two search_counts per exchange gets slower every day while rows
+        # resolved long ago can no longer produce work. Both bounds are
+        # ir.config_parameter overridable; window 0 restores the full scan.
+        Param = self.env["ir.config_parameter"].sudo()
+        window_days = int(
+            Param.get_param("mml_edi.ack_retry_window_days", _ACK_RETRY_WINDOW_DAYS)
+            or 0
+        )
+        limit = int(Param.get_param("mml_edi.ack_retry_limit", _ACK_RETRY_LIMIT) or 0)
+        domain = [
             ("state", "in", ("approved", "rejected", "auto_approved")),
             ("trading_partner_id.active", "=", True),
-        ], order="id")
+        ]
+        if window_days > 0:
+            cutoff = fields.Datetime.now() - timedelta(days=window_days)
+            domain.append(("write_date", ">=", cutoff))
+        resolved = Review.search(domain, order="id", limit=limit)
 
         seen_exchanges = set()
         requeued = 0

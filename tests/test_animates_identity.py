@@ -24,11 +24,16 @@ from mml_edi.parsers.animates_edifact import (
 
 class _FakePartner:
     def __init__(self, edi_sender_id=None, edi_sender_qualifier="ZZZ",
-                 supplier_gln=None, environment="production"):
+                 supplier_gln=None, environment="production",
+                 edi_recipient_id=None, edi_recipient_test_id=None,
+                 edi_recipient_qualifier=None):
         self.edi_sender_id = edi_sender_id
         self.edi_sender_qualifier = edi_sender_qualifier
         self.supplier_gln = supplier_gln
         self.environment = environment
+        self.edi_recipient_id = edi_recipient_id
+        self.edi_recipient_test_id = edi_recipient_test_id
+        self.edi_recipient_qualifier = edi_recipient_qualifier
         self.name = "Animates NZ"
 
     def ensure_one(self):
@@ -166,3 +171,36 @@ def test_build_unb_for_partner_uses_require_real_guard():
     p = _FakePartner(edi_sender_id="9419416000008T", environment="test")
     with pytest.raises(EdifactError):
         build_unb_for_partner(p, 12341, "260703", "0900")  # 12341 is a sentinel
+
+
+# --- get_unb_recipient(): configured counterparty identity ------------------
+
+def test_get_unb_recipient_uses_the_configured_production_identity():
+    """The recipient was hardcoded to ANIMATES/TST1ANIMATES on a model whose
+    whole purpose is to be customer-agnostic, and _validate_inbound_envelope
+    fail-closes every inbound file against it - so a SECOND EDIFACT partner
+    could never be onboarded."""
+    p = _FakePartner(environment="production",
+                     edi_recipient_id="5412345000013",
+                     edi_recipient_qualifier="14")
+    assert p.get_unb_recipient() == ("5412345000013", "14")
+
+
+def test_get_unb_recipient_uses_the_configured_test_identity():
+    p = _FakePartner(environment="test",
+                     edi_recipient_id="5412345000013",
+                     edi_recipient_test_id="TST5412345000013",
+                     edi_recipient_qualifier="14")
+    assert p.get_unb_recipient() == ("TST5412345000013", "14")
+
+
+def test_get_unb_recipient_test_falls_back_to_the_production_identity():
+    p = _FakePartner(environment="test", edi_recipient_id="5412345000013")
+    assert p.get_unb_recipient() == ("5412345000013", "ZZZ")
+
+
+def test_get_unb_recipient_keeps_the_animates_pair_when_unconfigured():
+    assert _FakePartner(environment="production").get_unb_recipient() == (
+        "ANIMATES", "ZZZ")
+    assert _FakePartner(environment="test").get_unb_recipient() == (
+        "TST1ANIMATES", "ZZZ")

@@ -43,13 +43,33 @@
              globally-unique control ref — echoed verbatim in that interchange's own
              UNZ 0020. No date-range reset (Animates has no documented rollover rule
              and a reset risks colliding with an earlier control ref still open on
-             their side). -->
+             their side).
+
+             Starts at 1000000, ABOVE every placeholder sentinel in
+             animates_edifact._PLACEHOLDER_CTRL_REFS (12341, 78401, 99101).
+             Starting at 1 the sequence would eventually emit those exact
+             values and build_unb(require_real=True) would hard-fail the send.
+             See migrations/19.0.1.2.4/post-migration.py for the live bump. -->
         <record id="seq_animates_interchange_ref" model="ir.sequence">
             <field name="name">Animates EDIFACT Interchange Control Reference</field>
             <field name="code">mml_edi.animates.interchange.ref</field>
             <field name="prefix"></field>
             <field name="padding">1</field>
-            <field name="number_next">1</field>
+            <field name="number_next">1000000</field>
+            <field name="number_increment">1</field>
+        </record>
+
+        <!-- Briscoes EDIFACT ORDRSP UNB 0020 interchange control reference.
+             Replaces a random 5-digit draw, which had no uniqueness check and
+             collided (birthday bound) after roughly 350 ORDRSPs. Starts high
+             so it never collides with a legacy random reference already sent
+             (those are all 5 digits). -->
+        <record id="seq_briscoes_interchange_ref" model="ir.sequence">
+            <field name="name">Briscoes EDIFACT Interchange Control Reference</field>
+            <field name="code">mml_edi.briscoes.interchange.ref</field>
+            <field name="prefix"></field>
+            <field name="padding">1</field>
+            <field name="number_next">1000000</field>
             <field name="number_increment">1</field>
         </record>
 

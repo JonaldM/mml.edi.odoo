@@ -46,7 +46,7 @@ class TestAnimatesIdentityFields(TransactionCase):
             "edi_sender_id": "9419416000008T",
             "edi_sender_qualifier": "ZZZ",
             "supplier_gln": "9419416000008",
-            "animates_vendor_code": "V1058",
+            "vendor_code": "V1058",
         })
 
     # --- field persistence -----------------------------------------------
@@ -55,23 +55,12 @@ class TestAnimatesIdentityFields(TransactionCase):
         self.assertEqual(self.partner.edi_sender_id, "9419416000008T")
         self.assertEqual(self.partner.edi_sender_qualifier, "ZZZ")
         self.assertEqual(self.partner.supplier_gln, "9419416000008")
-        self.assertEqual(self.partner.animates_vendor_code, "V1058")
+        self.assertEqual(self.partner.vendor_code, "V1058")
 
     def test_edi_sender_qualifier_defaults_to_zzz(self):
-        # needs-fix-task (product, out of scope for the isolation task, recorded
-        # in docs/plans/stack-review-mediums/state/iso-edi.md): both
-        # edi_sender_qualifier and supplier_gln are declared TWICE on
-        # edi.trading.partner (models/edi_trading_partner.py:199 and :299, and
-        # :206 and :304). The later declaration wins, so the field defaults to
-        # "14", not the "ZZZ" the Animates MIG requires and this test asserts.
-        # The assertion is right and stays; correcting the default moves the
-        # outbound UNB envelope identity for every new partner, which needs a
-        # gated product fix rather than a test change.
-        self.skipTest(
-            "needs-fix-task: edi_sender_qualifier is declared twice on "
-            "edi.trading.partner (default ZZZ then default 14); the second "
-            "declaration wins, so the default is 14"
-        )
+        # The duplicate declaration that made this default "14" (a second
+        # edi_sender_qualifier field further down the class body) is gone, so
+        # the MIG-correct "ZZZ" default now applies.
         other = self.env["edi.trading.partner"].create({
             "name": "Animates No Qualifier",
             "code": unique_partner_code(self.env, "ANIMATESNQ"),

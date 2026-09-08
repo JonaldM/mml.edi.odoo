@@ -99,7 +99,7 @@ class TestAnimatesInvoiceOdoo(EDITestSetup, TransactionCase):
             "edi_sender_id": "9419416000008T",
             "edi_sender_qualifier": "ZZZ",
             "supplier_gln": "9419416000008",
-            "animates_vendor_code": "V1058",
+            "vendor_code": "V1058",
         })
         self.env["stock.quant"]._update_available_quantity(
             self.test_product, self.wh.lot_stock_id, 1000)

@@ -257,15 +257,18 @@ def build_invoic(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
                  ctrl_ref: int = 12341, msg_ref: int = 1,
                  sender_qualifier: str | None = None,
                  recipient: str | None = None,
-                 recipient_qualifier: str | None = None) -> bytes:
+                 recipient_qualifier: str | None = None,
+                 require_real: bool = False) -> bytes:
     """Build an outbound Animates INVOIC interchange from ``payload``.
 
     See the module docstring for the full payload schema. Returns the rendered
     interchange as latin-1 bytes (EDIFACT UNOC:3 is a Latin-1 superset; the
     Animates worked examples are ASCII).
 
-    ``sender_qualifier`` / ``recipient`` / ``recipient_qualifier`` forward to
-    :func:`build_unb`. Callers holding an ``edi.trading.partner`` MUST pass them
+    ``sender_qualifier`` / ``recipient`` / ``recipient_qualifier`` /
+    ``require_real`` forward to :func:`build_unb`. Production paths pass
+    ``require_real=True`` so the documentation sentinels (SUPPLIER_GLN, the
+    frozen worked-example control refs and timestamps) can never ship. Callers holding an ``edi.trading.partner`` MUST pass them
     (from ``get_unb_sender``/``get_unb_recipient``), otherwise build_unb's
     backward-compatible defaults address the PRODUCTION mailbox (``ANIMATES``,
     sender qualifier ``14``) — silently misrouting TEST interchanges. See AN-01/C1.
@@ -279,7 +282,7 @@ def build_invoic(payload: dict, *, supplier_gln: str = "SUPPLIER_GLN",
     summary = payload["summary"]
     lines = payload["lines"]
 
-    unb_kwargs = {}
+    unb_kwargs = {"require_real": require_real}
     if recipient is not None:
         unb_kwargs["recipient"] = recipient
     if sender_qualifier is not None:

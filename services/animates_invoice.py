@@ -58,6 +58,11 @@ _logger = logging.getLogger(__name__)
 _PERCENT_TAX_TYPES = frozenset({"percent"})
 
 
+# Tolerance for float quantity comparisons (binary noise must not look like a
+# real over-invoice).
+_QTY_EPS = 1e-6
+
+
 class AnimatesInvoiceError(Exception):
     """Raised when an account.move cannot be safely built into an Animates
     INVOIC -- fail-closed (house style): callers must review/alert, never
@@ -65,21 +70,37 @@ class AnimatesInvoiceError(Exception):
     pass
 
 
-def _resolve_sale_order(move):
-    """Return the (single) sale.order behind this invoice's product lines,
-    or None if the invoice has no sale-order-linked lines at all.
+def _resolve_sale_orders(move) -> list:
+    """Return the distinct sale.orders behind this invoice's product lines,
+    in first-seen order (empty when no line is linked to one).
 
     Explicit per-line walk (not the ORM's implicit ``recordset.field``
     flattening across ``invoice_line_ids.sale_line_ids.order_id``) so the
     resolution is obvious and independently unit-testable against plain
     fakes rather than relying on Odoo-specific recordset sugar.
     """
+    orders = []
+    seen = set()
     for move_line in move.invoice_line_ids:
         for sol in move_line.sale_line_ids:
             order = _first(sol.order_id)
-            if order:
-                return order
-    return None
+            if order is None:
+                continue
+            key = id(order) if getattr(order, "id", None) is None else order.id
+            if key in seen:
+                continue
+            seen.add(key)
+            orders.append(order)
+    return orders
+
+
+def _resolve_sale_order(move):
+    """Return the FIRST sale.order behind this invoice's product lines, or
+    None. Only for non-authoritative uses (the edi.log back-reference); the
+    payload builder uses _resolve_sale_orders and refuses a consolidated
+    invoice outright."""
+    orders = _resolve_sale_orders(move)
+    return orders[0] if orders else None
 
 
 def _first(recordset):
@@ -102,7 +123,10 @@ def shipped_qty_by_sale_line(sale_order) -> dict:
     Mirrors services.edi_service.EDIService._pack_units_for_animates's own
     quantity source (``move.quantity`` on ``state == 'done'`` moves) so the
     INVOIC and the DESADV that shipped it can never disagree about what was
-    actually shipped. Cancelled/draft/waiting moves contribute nothing.
+    actually shipped. Cancelled/draft/waiting moves contribute nothing, and
+    only OUTGOING pickings count -- a return or an internal transfer on the
+    same sale order carries the same ``sale_line_id`` and would otherwise be
+    added to, rather than netted out of, the despatched quantity.
 
     Keyed by the sale.order.line RECORD (not edi_line_number) so the caller
     can pair this directly against invoice lines via their own
@@ -111,6 +135,14 @@ def shipped_qty_by_sale_line(sale_order) -> dict:
     """
     totals = {}
     for picking in sale_order.picking_ids:
+        # OUTGOING pickings only. A customer return created from a delivery via
+        # stock.return.picking is an INCOMING picking on the same sale order
+        # whose moves carry the same sale_line_id, so summing every done move
+        # counted a return as extra despatched quantity (Odoo's own
+        # qty_delivered nets it out by sign). Internal transfers are excluded
+        # for the same reason.
+        if picking.picking_type_id.code != "outgoing":
+            continue
         for move in picking.move_ids:
             if move.state != "done":
                 continue
@@ -284,7 +316,22 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
     """
     move.ensure_one()
 
-    sale_order = _resolve_sale_order(move)
+    sale_orders = _resolve_sale_orders(move)
+    if len(sale_orders) > 1:
+        # A consolidated invoice cannot be expressed as one Animates INVOIC:
+        # the shipped map, RFF+ON, the buyer/ship-to and the store code all
+        # come from ONE sale order, so every line belonging to another order
+        # used to be silently dropped as "unshipped".
+        raise AnimatesInvoiceError(
+            "Animates INVOIC: invoice %s spans %d sale orders (%s) - refusing "
+            "to build a consolidated INVOIC, which would carry one order's PO "
+            "and ship-to while silently dropping the other order's lines. "
+            "Split the invoice per sale order and re-send." % (
+                move.name, len(sale_orders),
+                ", ".join(str(getattr(o, "name", o)) for o in sale_orders),
+            )
+        )
+    sale_order = sale_orders[0] if sale_orders else None
     # ISC (PIA+5:IN) comes from re-parsing the original ORDERS unless a caller
     # supplied the map — the authoritative source Animates sent, not persisted
     # on the SO line. _product_isc (x_articleno) is a per-line fallback below.
@@ -316,10 +363,27 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
             )
             continue
 
-        # Qty invoiced is clamped to what was actually shipped, never the
-        # invoice line's own (potentially SO-qty-derived) quantity — the
-        # hard AN-03 contract.
-        qty_invoiced = min(move_line.quantity, qty_shipped)
+        # Qty invoiced is what was actually shipped, never the invoice line's
+        # own (potentially SO-qty-derived) quantity — the hard AN-03 contract.
+        # A line invoiced for MORE than was shipped used to be silently clamped
+        # here, but the money elements are not clamped with it: _line_moa reads
+        # price_subtotal/price_total (computed from move_line.quantity) and the
+        # summary MOA 39/128/369 are summed from those same un-clamped amounts,
+        # so QTY+47 x PRI no longer equalled MOA 128/203. Rescaling the money
+        # would put an amount on the wire that disagrees with our own AR
+        # ledger, so fail CLOSED and let the mismatch be reviewed instead.
+        if move_line.quantity > qty_shipped + _QTY_EPS:
+            raise AnimatesInvoiceError(
+                "Animates INVOIC: invoice %s line '%s' (SO line %s) is "
+                "invoiced for %s but only %s was despatched — refusing to "
+                "build an INVOIC whose QTY and MOA amounts disagree. Correct "
+                "the invoice quantity (or invoice the delivered quantity) and "
+                "re-send." % (
+                    move.name, move_line.name, sol.id,
+                    _format_qty(move_line.quantity), _format_qty(qty_shipped),
+                )
+            )
+        qty_invoiced = move_line.quantity
 
         ship_ref = _shipping_reference(sol)
         if not ref_source["advice_no"] and not ref_source["connote"]:
@@ -415,7 +479,7 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
             "nzbn": _buyer_nzbn(move.env, partner_id),
         },
         "supplier": {
-            "code": partner.animates_vendor_code or partner.code,
+            "code": partner.vendor_code or partner.code,
             "name": company.name or "",
             "street": company.street or "",
             "city": company.city or "",
@@ -498,6 +562,26 @@ def generate_and_upload_invoic(env, move, partner) -> bytes:
     from ..parsers.animates_invoic import build_invoic
     from ..models.edi_ftp import get_transport_handler
 
+    # Fail CLOSED on anything that is not a posted customer invoice.
+    # build_invoic hardcodes BGM 388 with the free text "TAX INVOICE" and a
+    # default message_function of 9 (original), so a draft would ship an
+    # unnumbered original tax invoice and a credit note (whose line amounts
+    # Odoo stores POSITIVE) would ship as a SECOND positive original invoice
+    # for the same goods.
+    if move.state != "posted":
+        raise AnimatesInvoiceError(
+            "Animates INVOIC: refusing to send %s - the account.move is in "
+            "state %r, not 'posted'. Post the invoice before sending it."
+            % (move.name, move.state)
+        )
+    if move.move_type != "out_invoice":
+        raise AnimatesInvoiceError(
+            "Animates INVOIC: refusing to send %s - move_type is %r, not "
+            "'out_invoice'. Credit notes and vendor documents are not in "
+            "scope for the Animates INVOIC (BGM 388 original tax invoice)."
+            % (move.name, move.move_type)
+        )
+
     payload = build_invoic_payload_from_move(move, partner)
 
     recipient_id, recipient_qual = partner.get_unb_recipient()
@@ -523,6 +607,7 @@ def generate_and_upload_invoic(env, move, partner) -> bytes:
         sender_qualifier=sender_qual,
         recipient=recipient_id,
         recipient_qualifier=recipient_qual,
+        require_real=True,
     )
 
     po_for_filename = str(payload["ref_on"]).replace("/", "")
