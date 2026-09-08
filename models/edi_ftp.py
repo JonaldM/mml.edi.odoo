@@ -155,11 +155,28 @@ class EDIFTPHandler:
         legacy archives: before 2026-08 processed files were renamed in place
         to '{name}.processed.{ts}' instead of deleted, and stray copies of
         those must never be re-ingested.
+
+        Names outside the _safe_filename whitelist are also dropped, with one
+        warning each. download_file and delete_file both run the name through
+        that whitelist, so listing such a file makes every poll fail on it AND
+        leaves it in the inbox (delete would reject the same name) - it
+        re-fails forever and eventually trips the circuit breaker on a file
+        that can never be processed.
         """
         inbox = self.partner.get_active_inbox_path()
 
         def _keep(name):
-            return bool(name) and not name.startswith('.') and '.processed.' not in name
+            if not name or name.startswith('.') or '.processed.' in name:
+                return False
+            if not _SAFE_FILENAME_RE.match(name):
+                _logger.warning(
+                    "[EDI FTP] Skipping unprocessable filename %r in %s (%s) - "
+                    "outside the safe-filename whitelist, so it can be neither "
+                    "downloaded nor deleted. Rename it on the VAN to ingest it.",
+                    name, inbox, self.partner.code,
+                )
+                return False
+            return True
 
         try:
             if self.partner.ftp_protocol == "sftp":

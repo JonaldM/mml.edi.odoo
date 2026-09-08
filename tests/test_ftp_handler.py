@@ -366,3 +366,37 @@ class TestSftpTransportTeardown:
         for transport in transports:
             transport.close.assert_called_once()
         assert handler._transport is None
+
+
+class TestListFilesSkipsUnprocessableNames:
+    """A file whose name falls outside the _safe_filename whitelist can be
+    neither downloaded nor deleted, so listing it makes the poll fail on it
+    forever and count it toward the circuit breaker."""
+
+    def _handler_with_listing(self, names, protocol="ftp"):
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        handler = EDIFTPHandler(make_mock_partner(protocol=protocol))
+        ftp = MagicMock()
+        ftp.nlst.return_value = ['/inbox/' + n for n in names]
+        ftp.listdir_attr.return_value = [
+            MagicMock(filename=n) for n in names
+        ]
+        handler._ftp = ftp
+        return handler
+
+    def test_name_with_a_space_is_not_listed(self):
+        handler = self._handler_with_listing(['GOOD_1.edi', 'BAD NAME.edi'])
+        assert handler.list_files() == ['GOOD_1.edi']
+
+    def test_name_with_a_plus_or_hash_is_not_listed(self):
+        handler = self._handler_with_listing(['GOOD_1.edi', 'a+b.edi', 'c#d.edi'])
+        assert handler.list_files() == ['GOOD_1.edi']
+
+    def test_sftp_listing_is_filtered_too(self):
+        handler = self._handler_with_listing(
+            ['GOOD_1.edi', '(paren).edi'], protocol="sftp")
+        assert handler.list_files() == ['GOOD_1.edi']
+
+    def test_safe_names_are_still_listed(self):
+        handler = self._handler_with_listing(['A.edi', 'B-1_2.edi', '9x.EDI'])
+        assert handler.list_files() == ['A.edi', 'B-1_2.edi', '9x.EDI']
