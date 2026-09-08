@@ -59,6 +59,20 @@
             <field name="number_increment">1</field>
         </record>
 
+        <!-- Briscoes EDIFACT ORDRSP UNB 0020 interchange control reference.
+             Replaces a random 5-digit draw, which had no uniqueness check and
+             collided (birthday bound) after roughly 350 ORDRSPs. Starts high
+             so it never collides with a legacy random reference already sent
+             (those are all 5 digits). -->
+        <record id="seq_briscoes_interchange_ref" model="ir.sequence">
+            <field name="name">Briscoes EDIFACT Interchange Control Reference</field>
+            <field name="code">mml_edi.briscoes.interchange.ref</field>
+            <field name="prefix"></field>
+            <field name="padding">1</field>
+            <field name="number_next">1000000</field>
+            <field name="number_increment">1</field>
+        </record>
+
         <!-- SSCC (Serial Shipping Container Code) serial component for DESADV
              carton/pallet labels. Per GS1 the SSCC serial must be unique for at
              least 12 months against our GS1 company prefix; this sequence supplies

@@ -205,3 +205,61 @@ class TestOrdrspGeneration:
         text = _generate_ordrsp(review).decode("utf-8")
         assert any(l.startswith("UNB") for l in text.split("\r\n")), "UNB missing"
         assert any(l.startswith("UNZ") for l in text.split("\r\n")), "UNZ missing"
+
+
+class TestOrdrspControlReference:
+    """The interchange control reference used to be a random 5-digit number
+    reused as the BGM document number: a 90,000-wide space with no uniqueness
+    check, so by the birthday bound a collision was more likely than not after
+    roughly 350 ORDRSPs, and the BGM document number collided with it."""
+
+    def _text(self, review):
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        return _generate_ordrsp(review).decode("utf-8")
+
+    def _seg(self, text, tag):
+        return [l for l in text.split("\r\n") if l.startswith(tag + "+")]
+
+    def test_control_reference_comes_from_the_sequence(self):
+        review = _make_review(state="approved", so=None)
+        review.env.__getitem__.return_value.sudo.return_value \
+            .next_by_code.return_value = "1000042"
+
+        text = self._text(review)
+
+        assert self._seg(text, "UNZ")[0].rstrip("'").endswith("1000042")
+        assert "+1000042++ORDRSP" in text
+
+    def test_bgm_document_number_is_po_derived_not_the_control_reference(self):
+        review = _make_review(state="approved", so=None, po_number="4500038166")
+        review.env.__getitem__.return_value.sudo.return_value \
+            .next_by_code.return_value = "1000042"
+
+        bgm = self._seg(self._text(review), "BGM")[0]
+
+        assert "4500038166" in bgm
+        assert "1000042" not in bgm
+
+    def test_falls_back_to_a_random_reference_without_a_sequence(self):
+        """Pure/mock path: no usable sequence value, so the historical random
+        reference is still produced rather than crashing."""
+        review = _make_review(state="approved", so=None)
+        text = self._text(review)
+        assert self._seg(text, "UNZ")
+        assert self._seg(text, "UNB")
+
+
+def test_briscoes_interchange_sequence_is_declared():
+    """The control reference must be drawn from a persisted, monotonic
+    sequence, like every other builder in this module."""
+    import pathlib
+    import xml.etree.ElementTree as ET
+
+    path = pathlib.Path(__file__).parent.parent / "data" / "ir_sequence.xml"
+    codes = [
+        (f.text or "")
+        for record in ET.parse(path).getroot().iter("record")
+        for f in record.findall("field")
+        if f.get("name") == "code"
+    ]
+    assert "mml_edi.briscoes.interchange.ref" in codes

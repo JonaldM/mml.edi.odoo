@@ -339,12 +339,43 @@ def _validate_ean13_for_ordrsp(order_lines):
 
 # ── ORDRSP generator ───────────────────────────────────────────────────────────
 
+#: ir.sequence backing the ORDRSP interchange control reference (UNB DE0020).
+_INTERCHANGE_REF_SEQUENCE = "mml_edi.briscoes.interchange.ref"
+
+
+def _next_interchange_ref(review) -> str:
+    """Next ORDRSP interchange control reference, from the dedicated
+    ir.sequence.
+
+    EDIFACT requires DE0020 to be unique per sender for the retention period.
+    This used to be ``10000 + secrets.randbelow(90000)`` - a 90,000-wide space
+    with no persistence and no uniqueness check, so by the birthday bound a
+    collision was more likely than not after roughly 350 ORDRSPs.
+
+    Falls back to the historical random draw on the pure-test / no-env path,
+    where there is no ORM to take a sequence from.
+    """
+    env = getattr(review, "env", None)
+    if env is not None:
+        try:
+            ref = env["ir.sequence"].sudo().next_by_code(_INTERCHANGE_REF_SEQUENCE)
+        except Exception:
+            ref = None
+        if ref is not None and str(ref).isdigit():
+            return str(ref)
+    return str(10000 + secrets.randbelow(90000))
+
+
 def _generate_ordrsp(review) -> bytes:
     """Build EDIFACT ORDRSP segments and return as bytes."""
     now = datetime.now()
     date_str = now.strftime("%y%m%d")
     time_str = now.strftime("%H%M")
-    ref_num = str(10000 + secrets.randbelow(90000))
+    ref_num = _next_interchange_ref(review)
+    # BGM 1004 is this DOCUMENT's number, not the interchange control
+    # reference: reusing ref_num for both meant a control-ref collision also
+    # collided two ORDRSP document numbers. Derive it from the PO instead.
+    doc_number = _edifact_escape(review.customer_po_number or "") or ref_num
 
     partner = review.trading_partner_id
     so = review.sale_order_id
@@ -376,7 +407,7 @@ def _generate_ordrsp(review) -> bytes:
     segs.append("UNB+UNOA:3+%s:ZZ+%s:14+%s:%s+%s++ORDRSP" % (
         _edifact_escape(vendor_code), _edifact_escape(buyer_gln), date_str, time_str, ref_num))
     segs.append("UNH+1+ORDRSP:D:96A:UN:EAN005")
-    segs.append("BGM+231+%s+%s" % (ref_num, purpose))
+    segs.append("BGM+231+%s+%s" % (doc_number, purpose))
     segs.append("DTM+137:%s:102" % now.strftime("%Y%m%d"))
     segs.append("RFF+ON:%s" % _edifact_escape(review.customer_po_number or ""))
     segs.append("NAD+BY+%s::92++%s+%s" % (_edifact_escape(buyer_gln), _edifact_escape(buyer_name), ""))
