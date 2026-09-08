@@ -415,7 +415,7 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
             "nzbn": _buyer_nzbn(move.env, partner_id),
         },
         "supplier": {
-            "code": partner.animates_vendor_code or partner.code,
+            "code": partner.vendor_code or partner.code,
             "name": company.name or "",
             "street": company.street or "",
             "city": company.city or "",

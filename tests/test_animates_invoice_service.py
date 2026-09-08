@@ -231,8 +231,8 @@ def _basic_setup(qty_shipped=2.0, qty_invoiced=2.0):
 
 
 class FakeTradingPartner:
-    def __init__(self, animates_vendor_code="V1058", code="ANIMATES"):
-        self.animates_vendor_code = animates_vendor_code
+    def __init__(self, vendor_code="V1058", code="ANIMATES"):
+        self.vendor_code = vendor_code
         self.code = code
 
     def get_unb_sender(self):
@@ -408,16 +408,16 @@ def test_payload_raises_when_no_despatch_reference_resolvable():
         build_invoic_payload_from_move(move, FakeTradingPartner())
 
 
-def test_payload_supplier_code_uses_animates_vendor_code():
+def test_payload_supplier_code_uses_vendor_code():
     move, sol, order, picking, move_line = _basic_setup()
-    payload = build_invoic_payload_from_move(move, FakeTradingPartner(animates_vendor_code="V1058"))
+    payload = build_invoic_payload_from_move(move, FakeTradingPartner(vendor_code="V1058"))
     assert payload["supplier"]["code"] == "V1058"
 
 
 def test_payload_supplier_code_falls_back_to_partner_code():
     move, sol, order, picking, move_line = _basic_setup()
     payload = build_invoic_payload_from_move(
-        move, FakeTradingPartner(animates_vendor_code=None, code="ANIMATES"))
+        move, FakeTradingPartner(vendor_code=None, code="ANIMATES"))
     assert payload["supplier"]["code"] == "ANIMATES"
 
 

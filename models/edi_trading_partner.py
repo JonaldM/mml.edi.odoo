@@ -210,12 +210,6 @@ class EDITradingPartner(models.Model):
              "(as opposed to edi_sender_id/edi_sender_qualifier, which may be "
              "ZZZ-qualified for the interchange envelope itself).",
     )
-    animates_vendor_code = fields.Char(
-        string="Animates Vendor Code",
-        help="The supplier code Animates assigned us (e.g. 'V1058'), used for "
-             "NAD+SU and PIA+1:SA identity in outbound Animates messages "
-             "(ORDRSP/DESADV/INVOIC). Blank on non-Animates partners.",
-    )
 
     def get_unb_sender(self):
         """Return (id, qualifier) for OUR identity in an outbound UNB.
@@ -297,7 +291,10 @@ class EDITradingPartner(models.Model):
     vendor_code = fields.Char(
         string="Vendor Code",
         help="The supplier/vendor account code this partner identifies MML by "
-             "in their system (echoed on acknowledgements where required).",
+             "in their system (e.g. Animates' 'V1058'). Used for NAD+SU and "
+             "PIA+1:SA identity in outbound EDIFACT messages "
+             "(ORDRSP/DESADV/INVOIC) and echoed on acknowledgements where "
+             "required. Falls back to the partner code when blank.",
     )
 
     # ── Store map (read-only view of the customer's delivery children) ────

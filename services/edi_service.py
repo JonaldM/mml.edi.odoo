@@ -289,7 +289,7 @@ class EDIService:
             'connote': connote,
             'buyer': None,       # filled by get_unb_recipient() at build time
             'ship_to': store_code,
-            'supplier': partner.animates_vendor_code or partner.code,
+            'supplier': partner.vendor_code or partner.code,
             'shipment_totals': {
                 'units': len(units),
                 'unit_pac_type': 'CT',

@@ -46,7 +46,7 @@ class TestAnimatesIdentityFields(TransactionCase):
             "edi_sender_id": "9419416000008T",
             "edi_sender_qualifier": "ZZZ",
             "supplier_gln": "9419416000008",
-            "animates_vendor_code": "V1058",
+            "vendor_code": "V1058",
         })
 
     # --- field persistence -----------------------------------------------
@@ -55,7 +55,7 @@ class TestAnimatesIdentityFields(TransactionCase):
         self.assertEqual(self.partner.edi_sender_id, "9419416000008T")
         self.assertEqual(self.partner.edi_sender_qualifier, "ZZZ")
         self.assertEqual(self.partner.supplier_gln, "9419416000008")
-        self.assertEqual(self.partner.animates_vendor_code, "V1058")
+        self.assertEqual(self.partner.vendor_code, "V1058")
 
     def test_edi_sender_qualifier_defaults_to_zzz(self):
         # The duplicate declaration that made this default "14" (a second

@@ -59,7 +59,7 @@ class _AnimatesOrdrspLiveOdooBase(EDITestSetup, TransactionCase):
             "edi_sender_id": "9419416000008T",
             "edi_sender_qualifier": "ZZZ",
             "supplier_gln": "9419416000008",
-            "animates_vendor_code": "V1058",
+            "vendor_code": "V1058",
             "environment": "test",
         })
         self.test_product.barcode = "9780000000002"
@@ -213,7 +213,7 @@ class TestGenerateAckEnvelopeIdentityOdoo(_AnimatesOrdrspLiveOdooBase):
         self.assertEqual(unb.elements[2], ["TST1ANIMATES", "ZZZ"])
         self.assertNotIn(unb.comp(4, 0), ("12341", "99101", "78401"))
 
-    def test_supplier_nad_uses_animates_vendor_code(self):
+    def test_supplier_nad_uses_vendor_code(self):
         so = self._make_so()
         self._make_sol(so)
         review = self._make_review(so)

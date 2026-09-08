@@ -24,7 +24,7 @@ ORDERS = (FIXTURES / "animates_orders_PO169603.edi").read_text(encoding="iso-885
 def _partner(code="V1058", vendor_code="V1058", environment="test", sender_qual="ZZZ"):
     return NS(
         code=code,
-        animates_vendor_code=vendor_code,
+        vendor_code=vendor_code,
         get_unb_sender=lambda: ("9419416000008T", sender_qual),
         get_unb_recipient=lambda: (
             ("TST1ANIMATES", "ZZZ") if environment == "test" else ("ANIMATES", "ZZZ")
@@ -233,9 +233,9 @@ def test_generate_ack_prod_recipient_is_animates():
     assert unb.elements[2][0] == "ANIMATES"
 
 
-def test_generate_ack_supplier_nad_uses_animates_vendor_code_not_partner_code():
+def test_generate_ack_supplier_nad_uses_vendor_code_not_partner_code():
     """NAD+SU must carry the Animates-assigned vendor code (C1
-    animates_vendor_code), not our internal partner.code."""
+    vendor_code), not our internal partner.code."""
     review = _review(partner=_partner(code="INTERNAL-CODE-123", vendor_code="V1058"))
     out = AnimatesParser().generate_ack(review)
     segs = _segs_from_bytes(out)
@@ -414,3 +414,18 @@ def test_ordrsp_fails_closed_when_no_message_matches_the_review_po():
     review = _review(raw=_two_po_orders(), po="PO000000")
     with pytest.raises(EDIParseError):
         _review_to_ordrsp_payload(review)
+
+
+def test_generate_ack_supplier_nad_uses_the_form_vendor_code():
+    """NAD+SU must come from the vendor_code the Trading Partner form writes.
+    Two near-identical fields used to exist: the form exposed vendor_code
+    while every generator read vendor_code, so NAD+SU silently fell
+    back to our internal partner.code."""
+    partner = NS(
+        code="ANIMATES",
+        vendor_code="V1058",
+        get_unb_sender=lambda: ("9419416000008T", "ZZZ"),
+        get_unb_recipient=lambda: ("TST1ANIMATES", "ZZZ"),
+    )
+    payload = _review_to_ordrsp_payload(_review(partner=partner))
+    assert payload["supplier"] == "V1058"

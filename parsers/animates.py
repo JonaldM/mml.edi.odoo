@@ -590,7 +590,7 @@ def _review_to_ordrsp_payload(review) -> dict:
 
     has_real_identity = callable(getattr(partner, "get_unb_recipient", None))
     buyer, _buyer_qual = partner.get_unb_recipient() if has_real_identity else ("ANIMATES", "ZZZ")
-    supplier = getattr(partner, "animates_vendor_code", None) or getattr(partner, "code", "") or ""
+    supplier = getattr(partner, "vendor_code", None) or getattr(partner, "code", "") or ""
 
     payload = {
         "po_response_no": getattr(review, "name", None) or getattr(review, "customer_po_number", "") or "",
