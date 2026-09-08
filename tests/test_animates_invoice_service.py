@@ -333,13 +333,36 @@ def test_payload_qty_invoiced_matches_shipped_qty():
     assert payload["lines"][0]["qty_invoiced"] == "2"
 
 
-def test_payload_qty_invoiced_clamped_to_shipped_even_if_line_qty_higher():
-    """Invoice line quantity must never exceed what was actually shipped —
-    even if the invoice line itself carries a higher (e.g. SO-derived) qty."""
+def test_payload_refuses_a_line_invoiced_for_more_than_was_shipped():
+    """Invoice line quantity must never exceed what was actually shipped.
+
+    Clamping QTY+47 down to the shipped qty left the money elements untouched:
+    MOA 128/203 and PRI come straight from the un-clamped invoice line, so
+    QTY x PRI no longer equalled MOA 128 and the summary totals were the
+    un-clamped ones. Rescaling the money would put an amount on the wire that
+    disagrees with our own AR ledger, so this fails closed for review instead.
+    """
     move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
     move_line.quantity = 10.0  # simulate a line that (wrongly) carries ordered qty
+    with pytest.raises(AnimatesInvoiceError):
+        build_invoic_payload_from_move(move, FakeTradingPartner())
+
+
+def test_payload_allows_a_line_invoiced_for_less_than_was_shipped():
+    """Under-invoicing needs no clamp, so line money and QTY stay consistent."""
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=10.0, qty_invoiced=2.0)
     payload = build_invoic_payload_from_move(move, FakeTradingPartner())
     assert payload["lines"][0]["qty_invoiced"] == "2"
+
+
+def test_payload_line_money_matches_qty_times_price():
+    """The MIG invariant: QTY+47 x PRI == MOA 128 on every emitted line."""
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
+    payload = build_invoic_payload_from_move(move, FakeTradingPartner())
+    line = payload["lines"][0]
+    assert abs(
+        float(line["qty_invoiced"]) * float(line["price"]) - float(line["moa_128"])
+    ) < 0.01
 
 
 def test_payload_omits_lines_with_zero_shipped_qty():

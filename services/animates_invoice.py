@@ -58,6 +58,11 @@ _logger = logging.getLogger(__name__)
 _PERCENT_TAX_TYPES = frozenset({"percent"})
 
 
+# Tolerance for float quantity comparisons (binary noise must not look like a
+# real over-invoice).
+_QTY_EPS = 1e-6
+
+
 class AnimatesInvoiceError(Exception):
     """Raised when an account.move cannot be safely built into an Animates
     INVOIC -- fail-closed (house style): callers must review/alert, never
@@ -316,10 +321,27 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
             )
             continue
 
-        # Qty invoiced is clamped to what was actually shipped, never the
-        # invoice line's own (potentially SO-qty-derived) quantity — the
-        # hard AN-03 contract.
-        qty_invoiced = min(move_line.quantity, qty_shipped)
+        # Qty invoiced is what was actually shipped, never the invoice line's
+        # own (potentially SO-qty-derived) quantity — the hard AN-03 contract.
+        # A line invoiced for MORE than was shipped used to be silently clamped
+        # here, but the money elements are not clamped with it: _line_moa reads
+        # price_subtotal/price_total (computed from move_line.quantity) and the
+        # summary MOA 39/128/369 are summed from those same un-clamped amounts,
+        # so QTY+47 x PRI no longer equalled MOA 128/203. Rescaling the money
+        # would put an amount on the wire that disagrees with our own AR
+        # ledger, so fail CLOSED and let the mismatch be reviewed instead.
+        if move_line.quantity > qty_shipped + _QTY_EPS:
+            raise AnimatesInvoiceError(
+                "Animates INVOIC: invoice %s line '%s' (SO line %s) is "
+                "invoiced for %s but only %s was despatched — refusing to "
+                "build an INVOIC whose QTY and MOA amounts disagree. Correct "
+                "the invoice quantity (or invoice the delivered quantity) and "
+                "re-send." % (
+                    move.name, move_line.name, sol.id,
+                    _format_qty(move_line.quantity), _format_qty(qty_shipped),
+                )
+            )
+        qty_invoiced = move_line.quantity
 
         ship_ref = _shipping_reference(sol)
         if not ref_source["advice_no"] and not ref_source["connote"]:
