@@ -14,7 +14,7 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
-from .common import EDITestSetup, make_clean_parsed_order
+from .common import EDITestSetup, make_clean_parsed_order, unique_partner_code
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
@@ -60,9 +60,14 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
             "compute_price": "fixed",
             "fixed_price": 9.99,
         })
+        # Never the live "ANIMATES" code: edi.trading.partner.code is globally
+        # unique, so hardcoding it duplicate-keys against the real row every
+        # prod clone carries and the whole class errors in setUp. The outbound
+        # DESADV filename prefix is a literal in services/edi_service.py, not
+        # this code, so the assertions below are unaffected.
         self.animates_partner = self.env["edi.trading.partner"].create({
             "name": "Animates",
-            "code": "ANIMATES",
+            "code": unique_partner_code(self.env, "ANIMATES"),
             "partner_id": self.animates_customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.animates.AnimatesParser",
@@ -202,7 +207,11 @@ class TestEDIServiceAnimatesDispatch(EDITestSetup, TransactionCase):
             sscc_before, sscc_after,
             "Briscoes dispatch must never mint an SSCC (Animates-only concept)",
         )
+        # Scoped to this test's own partners: an unscoped search would also
+        # read whatever DESADV history a prod clone carries.
         animates_desadv_logs = self.env["edi.log"].search([
+            ("trading_partner_id", "in",
+             (self.animates_partner | self.trading_partner).ids),
             ("filename", "like", "DESADV_ANIMATES_%"),
         ])
         self.assertFalse(
