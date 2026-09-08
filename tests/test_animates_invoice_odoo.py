@@ -16,7 +16,7 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
-from .common import EDITestSetup, make_clean_parsed_order
+from .common import EDITestSetup, make_clean_parsed_order, unique_partner_code
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
@@ -74,9 +74,14 @@ class TestAnimatesInvoiceOdoo(EDITestSetup, TransactionCase):
             "compute_price": "fixed",
             "fixed_price": 9.99,
         })
+        # Never the live "ANIMATES" code: edi.trading.partner.code is globally
+        # unique, so hardcoding it duplicate-keys against the real row every
+        # prod clone carries and the whole class errors in setUp. The outbound
+        # INVOIC filename prefix is a literal in services/animates_invoice.py,
+        # not this code, so the assertions below are unaffected.
         self.animates_partner = self.env["edi.trading.partner"].create({
             "name": "Animates",
-            "code": "ANIMATES",
+            "code": unique_partner_code(self.env, "ANIMATES"),
             "partner_id": self.animates_customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.animates.AnimatesParser",
