@@ -246,3 +246,40 @@ class TestConfirmationScoping:
         confirmed, _ = BriscoesIDOCParser()._gather_confirmations(review)
 
         assert confirmed[10] == (6.0, False)
+
+
+# -- outbound XML escaping ---------------------------------------------------
+
+class TestOrdrspXmlEscaping:
+    """_build_ordrsp assembles the ORDRSP by string concatenation, and _text()
+    returns ElementTree-DECODED text, so an '&amp;' in the inbound iDOC comes
+    back as a bare '&' and produced a not-well-formed ACK. The module never
+    re-parses its own output, so nothing caught it before upload."""
+
+    def _raw_with(self, tag, value):
+        root = ET.fromstring(_load(SINGLE).decode("utf-8"))
+        idoc = root.find("IDOC")
+        node = idoc.find("E1EDK01/" + tag)
+        if node is None:
+            node = ET.SubElement(idoc.find("E1EDK01"), tag)
+        node.text = value
+        return '<?xml version="1.0" encoding="UTF-8"?>' + ET.tostring(
+            root, encoding="unicode")
+
+    def test_ampersand_in_an_echoed_field_stays_well_formed(self):
+        raw = self._raw_with("ZTERM", "NET 30 & EOM")
+        out = BriscoesIDOCParser().generate_ack(_review(PO_A, raw))
+        parsed = ET.fromstring(out)  # must not raise
+        assert parsed.find("IDOC/E1EDK01/ZTERM").text == "NET 30 & EOM"
+
+    def test_angle_brackets_in_an_echoed_field_stay_well_formed(self):
+        raw = self._raw_with("BSART", "<NB>")
+        out = BriscoesIDOCParser().generate_ack(_review(PO_A, raw))
+        parsed = ET.fromstring(out)
+        assert parsed.find("IDOC/E1EDK01/BSART").text == "<NB>"
+
+    def test_ampersand_in_the_po_reference_stays_well_formed(self):
+        # po_ref backfills E1EDK02/BELNR when the inbound iDOC carries none.
+        raw = self._raw_with("BELNR", "")
+        out = BriscoesIDOCParser().generate_ack(_review("PO&123", raw))
+        ET.fromstring(out)  # must not raise

@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape as _xml_escape
 from datetime import date, datetime
 from typing import Optional
 
@@ -82,6 +83,21 @@ def _text(elem: Optional[ET.Element], tag: str, default: str = "") -> str:
     if child is None or child.text is None:
         return default
     return child.text.strip()
+
+
+def _tag(name: str, value) -> str:
+    """Return ``<name>value</name>`` with the value XML-escaped.
+
+    _build_ordrsp assembles the outbound ORDRSP by string concatenation from
+    values _text() pulled out of the inbound iDOC, and _text() returns
+    ElementTree-DECODED text - an "&amp;" in the source is already a bare "&"
+    by then. Interpolating that raw produced a not-well-formed document, and
+    the module never re-parses its own output, so nothing caught it before
+    upload.
+    """
+    return "<%s>%s</%s>" % (
+        name, _xml_escape("" if value is None else str(value)), name,
+    )
 
 
 def _to_float(value: str) -> float:
@@ -423,7 +439,7 @@ class BriscoesIDOCParser(BaseEDIParser):
         seg.append('<EDI_DC40 SEGMENT="1">')
         seg.append("<TABNAM>EDI_DC40</TABNAM>")
         seg.append("<MANDT>300</MANDT>")
-        seg.append("<DOCNUM>%s</DOCNUM>" % docnum)
+        seg.append(_tag("DOCNUM", docnum))
         seg.append("<DOCREL>701</DOCREL>")
         seg.append("<STATUS>53</STATUS>")
         seg.append("<DIRECT>2</DIRECT>")
@@ -431,42 +447,42 @@ class BriscoesIDOCParser(BaseEDIParser):
         seg.append("<MESTYP>ORDRSP</MESTYP>")
         seg.append("<STD>E</STD>")
         seg.append("<STDMES>ORDRSP</STDMES>")
-        seg.append("<SNDPOR>%s</SNDPOR>" % sndpor)
+        seg.append(_tag("SNDPOR", sndpor))
         seg.append("<SNDPRT>LS</SNDPRT>")
-        seg.append("<SNDPRN>%s</SNDPRN>" % sndprn)
-        seg.append("<RCVPOR>%s</RCVPOR>" % sndpor)
+        seg.append(_tag("SNDPRN", sndprn))
+        seg.append(_tag("RCVPOR", sndpor))
         seg.append("<RCVPRT>LS</RCVPRT>")
-        seg.append("<RCVPRN>%s</RCVPRN>" % sndprn)
-        seg.append("<CREDAT>%s</CREDAT>" % _text(dc40, "CREDAT"))
-        seg.append("<CRETIM>%s</CRETIM>" % _text(dc40, "CRETIM"))
-        seg.append("<ARCKEY>%s</ARCKEY>" % docnum)
-        seg.append("<SERIAL>%s</SERIAL>" % serial)
+        seg.append(_tag("RCVPRN", sndprn))
+        seg.append(_tag("CREDAT", _text(dc40, "CREDAT")))
+        seg.append(_tag("CRETIM", _text(dc40, "CRETIM")))
+        seg.append(_tag("ARCKEY", docnum))
+        seg.append(_tag("SERIAL", serial))
         seg.append("</EDI_DC40>")
 
         # E1EDK01 (+ ACTION)
         seg.append('<E1EDK01 SEGMENT="1">')
         seg.append("<ACTION>001</ACTION>")
-        seg.append("<KZABS>%s</KZABS>" % _text(k01, "KZABS"))
-        seg.append("<CURCY>%s</CURCY>" % (_text(k01, "CURCY") or "NZD"))
-        seg.append("<HWAER>%s</HWAER>" % (_text(k01, "HWAER") or "NZD"))
+        seg.append(_tag("KZABS", _text(k01, "KZABS")))
+        seg.append(_tag("CURCY", _text(k01, "CURCY") or "NZD"))
+        seg.append(_tag("HWAER", _text(k01, "HWAER") or "NZD"))
         seg.append("<WKURS>1</WKURS>")
-        seg.append("<ZTERM>%s</ZTERM>" % _text(k01, "ZTERM"))
-        seg.append("<BSART>%s</BSART>" % _text(k01, "BSART"))
-        seg.append("<BELNR>%s</BELNR>" % belnr)
-        seg.append("<RECIPNT_NO>%s</RECIPNT_NO>" % _text(k01, "RECIPNT_NO"))
+        seg.append(_tag("ZTERM", _text(k01, "ZTERM")))
+        seg.append(_tag("BSART", _text(k01, "BSART")))
+        seg.append(_tag("BELNR", belnr))
+        seg.append(_tag("RECIPNT_NO", _text(k01, "RECIPNT_NO")))
         seg.append("</E1EDK01>")
 
         # E1EDK02 — echo PO ref (QUALF 001) then add response ref (QUALF 002)
         seg.append('<E1EDK02 SEGMENT="1">')
         seg.append("<QUALF>001</QUALF>")
-        seg.append("<BELNR>%s</BELNR>" % (belnr or po_ref))
-        seg.append("<DATUM>%s</DATUM>" % now.strftime("%Y%m%d"))
+        seg.append(_tag("BELNR", belnr or po_ref))
+        seg.append(_tag("DATUM", now.strftime("%Y%m%d")))
         seg.append("</E1EDK02>")
         seg.append('<E1EDK02 SEGMENT="1">')
         seg.append("<QUALF>002</QUALF>")
-        seg.append("<BELNR>%s</BELNR>" % serial)
-        seg.append("<DATUM>%s</DATUM>" % now.strftime("%Y%m%d"))
-        seg.append("<UZEIT>%s</UZEIT>" % now.strftime("%H%M%S"))
+        seg.append(_tag("BELNR", serial))
+        seg.append(_tag("DATUM", now.strftime("%Y%m%d")))
+        seg.append(_tag("UZEIT", now.strftime("%H%M%S")))
         seg.append("</E1EDK02>")
 
         # Lines — ALL stores echoed (per-PO ACK).
@@ -536,31 +552,31 @@ class BriscoesIDOCParser(BaseEDIParser):
                 any_shortfall = True
 
             seg.append('<E1EDP01 SEGMENT="1">')
-            seg.append("<POSEX>%s</POSEX>" % posex)
-            seg.append("<ACTION>%s</ACTION>" % ("003" if rejected else "001"))
-            seg.append("<PSTYP>%s</PSTYP>" % (_text(p01, "PSTYP") or "0"))
-            seg.append("<KZABS>%s</KZABS>" % _text(p01, "KZABS"))
+            seg.append(_tag("POSEX", posex))
+            seg.append(_tag("ACTION", "003" if rejected else "001"))
+            seg.append(_tag("PSTYP", _text(p01, "PSTYP") or "0"))
+            seg.append(_tag("KZABS", _text(p01, "KZABS")))
             seg.append("<MENGE>%.3f</MENGE>" % ordered_cartons)
-            seg.append("<MENEE>%s</MENEE>" % (_text(p01, "MENEE") or "CT"))
+            seg.append(_tag("MENEE", _text(p01, "MENEE") or "CT"))
             seg.append("<BMNG2>%.3f</BMNG2>" % ordered_each)
-            seg.append("<PMENE>%s</PMENE>" % (_text(p01, "PMENE") or "EA"))
-            seg.append("<VPREI>%s</VPREI>" % _text(p01, "VPREI"))
-            seg.append("<PEINH>%s</PEINH>" % (_text(p01, "PEINH") or "1"))
+            seg.append(_tag("PMENE", _text(p01, "PMENE") or "EA"))
+            seg.append(_tag("VPREI", _text(p01, "VPREI")))
+            seg.append(_tag("PEINH", _text(p01, "PEINH") or "1"))
             seg.append("<NETWR>%.2f</NETWR>" % netwr)
-            seg.append("<GEWEI>%s</GEWEI>" % _text(p01, "GEWEI"))
-            seg.append("<MATKL>%s</MATKL>" % _text(p01, "MATKL"))
-            seg.append("<BPUMN>%s</BPUMN>" % (_text(p01, "BPUMN") or "1"))
-            seg.append("<BPUMZ>%s</BPUMZ>" % (_text(p01, "BPUMZ") or "1"))
-            seg.append("<WERKS>%s</WERKS>" % _text(p01, "WERKS"))
-            seg.append("<LGORT>%s</LGORT>" % (_text(p01, "LGORT") or "0001"))
+            seg.append(_tag("GEWEI", _text(p01, "GEWEI")))
+            seg.append(_tag("MATKL", _text(p01, "MATKL")))
+            seg.append(_tag("BPUMN", _text(p01, "BPUMN") or "1"))
+            seg.append(_tag("BPUMZ", _text(p01, "BPUMZ") or "1"))
+            seg.append(_tag("WERKS", _text(p01, "WERKS")))
+            seg.append(_tag("LGORT", _text(p01, "LGORT") or "0001"))
             # ABGRU only accompanies a complete rejection (ACTION=003).
             if rejected:
-                seg.append("<ABGRU>%s</ABGRU>" % _ABGRU_UNAVAILABLE)
+                seg.append(_tag("ABGRU", _ABGRU_UNAVAILABLE))
             # E1EDP02 — link response line back to PO line (ZEILE = POSEX)
             seg.append('<E1EDP02 SEGMENT="1">')
             seg.append("<QUALF>001</QUALF>")
-            seg.append("<BELNR>%s</BELNR>" % belnr)
-            seg.append("<ZEILE>%s</ZEILE>" % posex)
+            seg.append(_tag("BELNR", belnr))
+            seg.append(_tag("ZEILE", posex))
             seg.append("</E1EDP02>")
             # E1EDP20 — schedule. WMENG is in the ORDER unit (MENEE = CT /
             # cartons), NOT the EA base qty — the proven .NET ACK and every
@@ -571,15 +587,15 @@ class BriscoesIDOCParser(BaseEDIParser):
             seg.append("<WMENG>%.3f</WMENG>"
                        % (ordered_cartons if rejected else conf_cartons))
             seg.append("<AMENG>0.000</AMENG>")
-            seg.append("<EDATU>%s</EDATU>" % (_text(p20, "EDATU") if p20 is not None else ""))
+            seg.append(_tag("EDATU", _text(p20, "EDATU") if p20 is not None else ""))
             seg.append("</E1EDP20>")
             # E1EDP19 — echo product ids 001 (article) and 003 (GTIN) only
             for p19 in p01.findall("E1EDP19"):
                 qualf = _text(p19, "QUALF")
                 if qualf in ("001", "003"):
                     seg.append('<E1EDP19 SEGMENT="1">')
-                    seg.append("<QUALF>%s</QUALF>" % qualf)
-                    seg.append("<IDTNR>%s</IDTNR>" % _text(p19, "IDTNR"))
+                    seg.append(_tag("QUALF", qualf))
+                    seg.append(_tag("IDTNR", _text(p19, "IDTNR")))
                     seg.append("</E1EDP19>")
             seg.append("</E1EDP01>")
             line_count += 1
@@ -593,14 +609,14 @@ class BriscoesIDOCParser(BaseEDIParser):
             seg.append('<E1EDS01 SEGMENT="1">')
             sumid = _text(s01, "SUMID")
             if sumid:
-                seg.append("<SUMID>%s</SUMID>" % sumid)
+                seg.append(_tag("SUMID", sumid))
             if any_shortfall:
                 seg.append("<SUMME>%.2f</SUMME>" % new_order_total)
             else:
-                seg.append("<SUMME>%s</SUMME>" % _text(s01, "SUMME"))
+                seg.append(_tag("SUMME", _text(s01, "SUMME")))
             sunit = _text(s01, "SUNIT")
             if sunit:
-                seg.append("<SUNIT>%s</SUNIT>" % sunit)
+                seg.append(_tag("SUNIT", sunit))
             seg.append("</E1EDS01>")
 
         seg.append("</IDOC>")
