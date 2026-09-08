@@ -429,3 +429,36 @@ def test_generate_ack_supplier_nad_uses_the_form_vendor_code():
     )
     payload = _review_to_ordrsp_payload(_review(partner=partner))
     assert payload["supplier"] == "V1058"
+
+
+# --- ORDRSP dates are stamped on the NZ business day, not the server's UTC day ---
+
+def _freeze_utc(monkeypatch, iso):
+    from datetime import datetime, timezone
+    from mml_edi.parsers import animates as animates_mod
+
+    frozen = datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
+    monkeypatch.setattr(animates_mod, "_utc_now", lambda: frozen)
+
+
+def test_ordrsp_message_date_uses_the_nz_day_not_the_utc_day(monkeypatch):
+    """At 21:30 UTC on 7 Sep it is already 09:30 on 8 Sep in NZ. Stamping
+    date.today() (the server's UTC day) dated every NZ-morning ORDRSP a day
+    before it was actually sent."""
+    _freeze_utc(monkeypatch, "2026-09-07T21:30:00")
+    payload = _review_to_ordrsp_payload(_review())
+    assert payload["message_date"] == "20260908"
+
+
+def test_ordrsp_requested_date_fallback_uses_the_nz_day(monkeypatch):
+    _freeze_utc(monkeypatch, "2026-09-07T21:30:00")
+    raw = ORDERS.replace("DTM+2:20200918:102'", "")
+    payload = _review_to_ordrsp_payload(_review(raw=raw))
+    assert payload["requested_date"] == "20260908"
+
+
+def test_contrl_timestamp_uses_the_nz_day(monkeypatch):
+    from mml_edi.parsers.animates import _contrl_now_yymmdd_hhmm
+
+    _freeze_utc(monkeypatch, "2026-09-07T21:30:00")
+    assert _contrl_now_yymmdd_hhmm() == ("260908", "0930")
