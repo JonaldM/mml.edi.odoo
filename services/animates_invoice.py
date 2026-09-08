@@ -562,6 +562,26 @@ def generate_and_upload_invoic(env, move, partner) -> bytes:
     from ..parsers.animates_invoic import build_invoic
     from ..models.edi_ftp import get_transport_handler
 
+    # Fail CLOSED on anything that is not a posted customer invoice.
+    # build_invoic hardcodes BGM 388 with the free text "TAX INVOICE" and a
+    # default message_function of 9 (original), so a draft would ship an
+    # unnumbered original tax invoice and a credit note (whose line amounts
+    # Odoo stores POSITIVE) would ship as a SECOND positive original invoice
+    # for the same goods.
+    if move.state != "posted":
+        raise AnimatesInvoiceError(
+            "Animates INVOIC: refusing to send %s - the account.move is in "
+            "state %r, not 'posted'. Post the invoice before sending it."
+            % (move.name, move.state)
+        )
+    if move.move_type != "out_invoice":
+        raise AnimatesInvoiceError(
+            "Animates INVOIC: refusing to send %s - move_type is %r, not "
+            "'out_invoice'. Credit notes and vendor documents are not in "
+            "scope for the Animates INVOIC (BGM 388 original tax invoice)."
+            % (move.name, move.move_type)
+        )
+
     payload = build_invoic_payload_from_move(move, partner)
 
     recipient_id, recipient_qual = partner.get_unb_recipient()

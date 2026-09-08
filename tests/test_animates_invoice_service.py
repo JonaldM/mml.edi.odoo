@@ -179,8 +179,10 @@ class FakeMoveHeader:
 
     def __init__(self, name, invoice_line_ids, partner_id, company_id, currency_name="NZD",
                  invoice_date=None, date=None, ref=None, partner_shipping_id=None,
-                 env=None):
+                 env=None, state="posted", move_type="out_invoice"):
         self.name = name
+        self.state = state
+        self.move_type = move_type
         self.invoice_line_ids = FakeRecordset(invoice_line_ids)
         self.partner_id = partner_id
         self.company_id = company_id
@@ -546,3 +548,29 @@ def test_payload_accepts_an_invoice_confined_to_one_sale_order():
     move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
     payload = build_invoic_payload_from_move(move, FakeTradingPartner())
     assert payload["ref_on"] == "POR169603"
+
+
+# -- generate_and_upload_invoic move-state guard ------------------------------
+
+def test_upload_refuses_a_draft_invoice():
+    """A draft move has no final number (move.name == '/') and may still be
+    edited, yet build_invoic stamps BGM 388 'TAX INVOICE' with message
+    function 9 (original)."""
+    from mml_edi.services.animates_invoice import generate_and_upload_invoic
+
+    move, sol, order, picking, move_line = _basic_setup()
+    move.state = "draft"
+    with pytest.raises(AnimatesInvoiceError):
+        generate_and_upload_invoic(move.env, move, FakeTradingPartner())
+
+
+def test_upload_refuses_a_credit_note():
+    """Odoo stores out_refund line amounts as POSITIVE price_subtotal, so a
+    credit note would render as a second positive original tax invoice for the
+    same goods."""
+    from mml_edi.services.animates_invoice import generate_and_upload_invoic
+
+    move, sol, order, picking, move_line = _basic_setup()
+    move.move_type = "out_refund"
+    with pytest.raises(AnimatesInvoiceError):
+        generate_and_upload_invoic(move.env, move, FakeTradingPartner())
