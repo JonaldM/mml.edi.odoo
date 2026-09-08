@@ -63,25 +63,31 @@ class TestRetryPendingAcksWindow(EDITestSetup, TransactionCase):
         """Backdate write_date past the retry window (it is ORM-managed)."""
         self.env.cr.execute(
             "UPDATE edi_order_review "
-            "SET write_date = (now() at time zone 'UTC') - interval '%s days' "
+            "SET write_date = (now() at time zone 'UTC') - (%s * interval '1 day') "
             "WHERE id = %s",
             (days, review.id),
         )
         review.invalidate_recordset(["write_date"])
 
+    def _was_acked(self, review):
+        """Whether THIS review's exchange was uploaded. Asserted by filename
+        rather than by upload count: the gate runs on a prod clone, where other
+        reviews may legitimately be re-queued in the same pass."""
+        return review._ack_exchange_filename() in RecordingFTPHandler.uploads
+
     def test_recent_unacked_review_is_still_retried(self):
-        self._make_resolved_review("PO-WINDOW-NEW", "windowhash000001")
+        review = self._make_resolved_review("PO-WINDOW-NEW", "windowhash000001")
         self.env["edi.processor"].retry_pending_acks()
-        self.assertEqual(
-            len(RecordingFTPHandler.uploads), 1,
+        self.assertTrue(
+            self._was_acked(review),
             "A resolved review inside the window must still be re-queued")
 
     def test_review_older_than_the_window_is_not_scanned(self):
         review = self._make_resolved_review("PO-WINDOW-OLD", "windowhash000002")
         self._age(review, 60)
         self.env["edi.processor"].retry_pending_acks()
-        self.assertEqual(
-            RecordingFTPHandler.uploads, [],
+        self.assertFalse(
+            self._was_acked(review),
             "A review resolved long ago must fall outside the retry window")
 
     def test_window_can_be_disabled_with_the_config_parameter(self):
@@ -90,6 +96,6 @@ class TestRetryPendingAcksWindow(EDITestSetup, TransactionCase):
         self.env["ir.config_parameter"].sudo().set_param(
             "mml_edi.ack_retry_window_days", "0")
         self.env["edi.processor"].retry_pending_acks()
-        self.assertEqual(
-            len(RecordingFTPHandler.uploads), 1,
+        self.assertTrue(
+            self._was_acked(review),
             "Setting the window to 0 must restore the unbounded scan")
