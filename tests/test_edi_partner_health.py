@@ -16,7 +16,12 @@ from datetime import timedelta
 from odoo import fields
 from odoo.tests import TransactionCase, tagged
 
-from .common import EDITestSetup
+from .common import (
+    EDITestSetup,
+    archive_foreign_trading_partners,
+    backdate_foreign_edi_logs,
+    unique_partner_code,
+)
 
 
 @tagged("post_install", "-at_install")
@@ -29,7 +34,7 @@ class TestEdiPartnerHealth(TransactionCase, EDITestSetup):
         # exercised. Dedicated config (never search([],limit=1)).
         self.partner_b = self.env["edi.trading.partner"].create({
             "name": "SFTP EDI Partner",
-            "code": "SFTPB",
+            "code": unique_partner_code(self.env, "SFTPB"),
             "partner_id": self.trading_partner.partner_id.id,
             "edi_format": "idoc_xml",
             "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
@@ -42,6 +47,16 @@ class TestEdiPartnerHealth(TransactionCase, EDITestSetup):
             "order_split_mode": "per_store",
             "pricelist_id": self.trading_partner.pricelist_id.id,
         })
+        # get_health_summary aggregates over EVERY trading partner and, for the
+        # 24h exchange-queue strip, over EVERY edi.log row. On a prod clone that
+        # means the real partners and their real poll history, so the rail, the
+        # "N active" subtitle and the queue counts all read foreign data.
+        # Archive the foreign partners and push their log rows out of the 24h
+        # window INSIDE this transaction, so the payload under test is built
+        # from this fixture's own records; TransactionCase rolls both back.
+        self.fixture_partners = self.trading_partner | self.partner_b
+        archive_foreign_trading_partners(self.env, self.fixture_partners)
+        backdate_foreign_edi_logs(self.env, self.fixture_partners)
 
     # ---- helpers ----
 
