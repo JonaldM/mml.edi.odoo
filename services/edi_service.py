@@ -418,8 +418,26 @@ class EDIService:
             for sol in sale_order.order_line
             if sol.edi_line_number
         }
+        # Completeness is a property of the ORDER, not of this one picking.
+        # cnt_qty_by_line only covers the moves in the CURRENT despatch, so on
+        # the final shipment of a split it sees just the backordered line and
+        # concludes the earlier lines are unshipped — marking the shipment that
+        # COMPLETES the order as 'partial' (ALI+++165, "more to follow"). The
+        # buyer then waits forever for stock that has already been sent.
+        # qty_delivered is the cumulative done-move total across every picking
+        # on the order, which is exactly the "cumulative shipped" figure this
+        # comparison was always documented to use. cnt_qty_by_line is still
+        # unioned in as a floor so a line counted in this despatch is never
+        # treated as unshipped if qty_delivered has not yet recomputed.
+        shipped_by_line = {}
+        for sol in sale_order.order_line:
+            if sol.edi_line_number:
+                shipped_by_line[sol.edi_line_number] = max(
+                    float(sol.qty_delivered or 0.0),
+                    float(cnt_qty_by_line.get(sol.edi_line_number, 0.0)),
+                )
         all_lines_fully_shipped = all(
-            cnt_qty_by_line.get(line_no, 0.0) + 1e-6 >= ordered_qty
+            shipped_by_line.get(line_no, 0.0) + 1e-6 >= ordered_qty
             for line_no, ordered_qty in order_line_qty.items()
         ) if order_line_qty else True
 
@@ -446,11 +464,21 @@ class EDIService:
 
         payload = dict(payload, buyer=recipient_id)
 
-        # build_desadv's UNB is built inline (not via build_unb_for_partner),
-        # so pass the real identity through its supplier_gln kwarg (sender
-        # side of the envelope — see animates_desadv.build_desadv's
-        # supplier_gln/ctrl_ref kwargs, mirrored on build_ordrsp/build_contrl).
-        desadv_bytes = build_desadv(payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref))
+        # build_desadv's UNB is built inline (not via build_unb_for_partner), so
+        # BOTH sides of the envelope must be passed explicitly. Sending only
+        # supplier_gln leaves build_unb's backward-compatible defaults in place,
+        # which address the PRODUCTION mailbox (recipient ANIMATES, sender
+        # qualifier 14) and stamp the frozen worked-example time 0730 — so every
+        # TEST-environment DESADV was silently misrouted. See AN-01/C1.
+        desadv_bytes = build_desadv(
+            payload,
+            supplier_gln=sender_id,
+            ctrl_ref=int(ctrl_ref),
+            sender_qualifier=sender_qual,
+            recipient=recipient_id,
+            recipient_qualifier=recipient_qual,
+            time_hhmm=datetime.now(timezone.utc).strftime('%H%M'),
+        )
 
         po_for_filename = payload['po'].replace('/', '')
         filename = 'DESADV_ANIMATES_%s_%s.edi' % (

@@ -24,17 +24,40 @@ from mml_edi.models.edi_processor import EDI_POLL_LOCK_CLASS, EDIProcessor
 
 # ── Fakes ─────────────────────────────────────────────────────────────────────
 
+class _AbortedTransaction(Exception):
+    """Stands in for psycopg2.errors.InFailedSqlTransaction."""
+
+
 class _FakeCr:
 
     def __init__(self, events):
         self._events = events
+        self.aborted = False
+
+    def abort(self):
+        """Model a Postgres-level error: every later statement is refused
+        until the transaction is rolled back."""
+        self.aborted = True
+
+    def _guard(self):
+        if self.aborted:
+            raise _AbortedTransaction(
+                "current transaction is aborted, commands ignored until end "
+                "of transaction block"
+            )
 
     def execute(self, query, params=None):
+        self._guard()
         if "pg_advisory_xact_lock" in query:
             self._events.append(("lock", params))
 
     def commit(self):
+        self._guard()
         self._events.append(("commit",))
+
+    def rollback(self):
+        self.aborted = False
+        self._events.append(("rollback",))
 
     @contextmanager
     def savepoint(self, flush=True):
@@ -52,10 +75,13 @@ class _FakeRegistry:
 
 class _FakeLog:
 
-    def __init__(self, events):
+    def __init__(self, events, cr=None):
         self._events = events
+        self._cr = cr
 
     def log(self, partner, direction, event_type, status, message, **kw):
+        if self._cr is not None:
+            self._cr._guard()
         self._events.append(("log", event_type, status))
 
 
@@ -69,7 +95,7 @@ class _FakeEnv:
 
     def __getitem__(self, name):
         if name == "edi.log":
-            return _FakeLog(self._events)
+            return _FakeLog(self._events, self.cr)
         raise KeyError(name)
 
 
@@ -209,3 +235,38 @@ class TestPollOrderingInvariant:
         assert any(e == ("alert", "A.xml") for e in events)
         # B.xml still processed cleanly
         assert ("process", "B.xml") in events
+
+    def test_db_level_file_failure_rolls_back_and_keeps_polling(
+            self, monkeypatch, partner):
+        """A Postgres-level error on one file poisons the cursor. The per-file
+        recovery path writes edi.log immediately, so without a rollback it
+        raises again from inside its own except block and aborts the whole
+        poll: every remaining file is skipped and the caller never learns the
+        file failed."""
+        events = []
+        handler = _FakeHandler(events, ["A.xml", "B.xml"])
+        proc = _Processor(events)
+        orig_process = proc._process_file
+
+        def _poison_once(content, file_hash, filename, partner_):
+            if filename == "A.xml":
+                proc.env.cr.abort()
+                raise _AbortedTransaction("deadlock detected")
+            return orig_process(content, file_hash, filename, partner_)
+
+        proc._process_file = _poison_once
+        monkeypatch.setattr(edi_ftp_mod, "EDIFTPHandler", lambda p: handler)
+
+        failed = proc.poll_trading_partner(partner)
+
+        assert failed == 1
+        assert ("rollback",) in events, (
+            "the recovery path must roll back before it writes edi.log"
+        )
+        assert ("process", "B.xml") in events, (
+            "one poisoned file must not skip the rest of the inbox"
+        )
+        rollback = events.index(("rollback",))
+        assert any(
+            e[0] == "lock" for e in events[rollback:]
+        ), "the rollback releases the advisory lock, so it must be re-taken"

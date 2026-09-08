@@ -437,9 +437,14 @@ class TestHandleInboundContrl:
         assert handled is True  # caller returns [] without calling parse_file
 
     def test_negative_contrl_creates_blocking_alert_not_silence(self):
+        # DE 0083 '4' = "this level and all lower levels rejected". This case
+        # previously used '7', but '7' is "this level acknowledged", a POSITIVE
+        # code and the one SPS Commerce actually acknowledges with, so it has
+        # been in _CONTRL_ACCEPTED_ACTIONS since the acceptance set widened to
+        # {1, 7, 8}. See test_accepted_contrl_action_7_is_not_treated_as_negative.
         def parse_contrl(raw_text):
             return {
-                "action": "7", "original_ref": "72",
+                "action": "4", "original_ref": "72",
                 "original_sender_id": "SUPPLIER_GLN", "original_sender_qual": "14",
                 "original_recipient_id": "ANIMATES", "original_recipient_qual": "ZZZ",
             }
@@ -459,6 +464,35 @@ class TestHandleInboundContrl:
             "a NEGATIVE CONTRL must be logged as an error, not silently accepted"
         )
         assert alerts, "a negative CONTRL must fire a blocking alert, never vanish"
+
+    def test_accepted_contrl_action_7_is_not_treated_as_negative(self):
+        """SPS Commerce acknowledges with DE 0083 '7' ("this level
+        acknowledged"), not the '8' our own outbound CONTRL emits. Keying
+        acceptance to '8' alone raises a false "interchange NOT accepted"
+        error plus a cron alert on every successfully certified interchange.
+        """
+        for action in ("1", "7", "8"):
+            def parse_contrl(raw_text, _a=action):
+                return {
+                    "action": _a, "original_ref": "72",
+                    "original_sender_id": "SUPPLIER_GLN", "original_sender_qual": "14",
+                    "original_recipient_id": "ANIMATES", "original_recipient_qual": "ZZZ",
+                }
+
+            proc, partner, log = self._proc_with_parser(parse_contrl)
+            alerts = []
+            proc._send_cron_alert = lambda module, subject, body: alerts.append(module)
+
+            handled = proc._handle_inbound_contrl(
+                _CONTRL_RAW, "CONTRL_1.edi", "h1", partner)
+
+            assert handled is True
+            received = [r for r in log.rows if r["event_type"] == "contrl_received"]
+            assert len(received) == 1
+            assert received[0]["status"] == "success", (
+                "DE 0083 action %s is a POSITIVE acknowledgement" % action)
+            assert alerts == [], (
+                "a positive CONTRL must not raise a negative-CONTRL alert")
 
     def test_parse_contrl_exception_logged_not_raised(self):
         def parse_contrl(raw_text):
@@ -482,6 +516,51 @@ class TestHandleInboundContrl:
 
         handled = proc._handle_inbound_contrl(_CONTRL_RAW, "f.edi", "h1", partner)
         assert handled is False
+
+
+class TestProcessFileContrlFailsClosed:
+    """_process_file must not report a CONTRL it could not handle as a clean
+    file. A clean return makes poll_trading_partner write the file_download/
+    success dedup marker, commit and DELETE the interchange from the VAN, so
+    an unhandled (possibly NEGATIVE) acknowledgement would leave zero edi.log
+    rows and no recoverable evidence.
+    """
+
+    def _proc(self, parser):
+        proc = EDIProcessor()
+        log = _FakeLog()
+        proc.env = _FakeEnv({"edi.log": log})
+        proc._send_cron_alert = lambda *a, **kw: None
+        partner = _make_partner(edi_format="edifact_d01b")
+        partner.get_parser_instance = lambda: parser
+        return proc, partner, log
+
+    def test_unhandled_contrl_is_not_reported_clean(self):
+        parser = SimpleNamespace(  # no parse_contrl
+            parse_file=lambda content, p: (_ for _ in ()).throw(
+                AssertionError("parse_file must never be called for a CONTRL")),
+        )
+        proc, partner, log = self._proc(parser)
+
+        with pytest.raises(EDIParseError) as exc:
+            proc._process_file(
+                _CONTRL_RAW.encode("iso-8859-1"), "h1", "CONTRL_1.edi", partner)
+
+        assert "CONTRL" in str(exc.value)
+
+    def test_handled_contrl_still_returns_clean(self):
+        parser = SimpleNamespace(
+            parse_contrl=lambda raw_text: {"action": "8", "original_ref": "72"},
+            parse_file=lambda content, p: (_ for _ in ()).throw(
+                AssertionError("parse_file must never be called for a CONTRL")),
+        )
+        proc, partner, log = self._proc(parser)
+
+        failures = proc._process_file(
+            _CONTRL_RAW.encode("iso-8859-1"), "h1", "CONTRL_1.edi", partner)
+
+        assert failures == []
+        assert [r["event_type"] for r in log.rows] == ["contrl_received"]
 
 
 # ── Latin-1 ingest ───────────────────────────────────────────────────────────

@@ -512,7 +512,18 @@ def generate_and_upload_invoic(env, move, partner) -> bytes:
 
     payload = dict(payload, buyer=dict(payload["buyer"], code=recipient_id))
 
-    invoic_bytes = build_invoic(payload, supplier_gln=sender_id, ctrl_ref=int(ctrl_ref))
+    # Both envelope sides must be passed: build_invoic's UNB is built inline, so
+    # omitting them leaves build_unb's PRODUCTION defaults (recipient ANIMATES,
+    # sender qualifier 14) in place and silently misroutes TEST interchanges.
+    # See AN-01/C1 and the matching DESADV call in services/edi_service.py.
+    invoic_bytes = build_invoic(
+        payload,
+        supplier_gln=sender_id,
+        ctrl_ref=int(ctrl_ref),
+        sender_qualifier=sender_qual,
+        recipient=recipient_id,
+        recipient_qualifier=recipient_qual,
+    )
 
     po_for_filename = str(payload["ref_on"]).replace("/", "")
     filename = "INVOIC_ANIMATES_%s_%s.edi" % (po_for_filename, payload["invoice_date"])

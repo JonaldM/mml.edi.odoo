@@ -170,6 +170,21 @@ class EDIProcessor(models.AbstractModel):
                 failed_files = self.poll_trading_partner(partner)
             except Exception as exc:
                 _logger.exception("[EDI] Poll failed for partner %s", partner.code)
+                # Aborted-cursor guard (the bug class already fixed in dsv and
+                # stock_3pl_rohlig). A Postgres-level failure - a statement
+                # timeout on the advisory lock, a deadlock, a serialization
+                # failure - leaves the cursor in InFailedSqlTransaction, and
+                # EVERY statement below is SQL: _record_poll_failure reads the
+                # breaker then writes it, edi.log.log() takes a sequence and
+                # INSERTs, _send_cron_alert reads two ir.config_parameter rows.
+                # Without this rollback the first of them raises again from
+                # inside the except block, where nothing catches it, so it
+                # escapes run_scheduled_poll: the remaining partners are never
+                # polled, the breaker is never incremented and no alert is
+                # sent. A savepoint around the poll itself is NOT usable here -
+                # poll_trading_partner commits per file (_poll_commit), which
+                # invalidates any savepoint taken around it.
+                self.env.cr.rollback()
                 self._record_poll_failure(partner)
                 self.env["edi.log"].log(
                     partner, "inbound", "error", "error",
@@ -421,6 +436,19 @@ class EDIProcessor(models.AbstractModel):
                         _logger.exception(
                             "%s Error processing file %s for %s", prefix, filename, partner.code
                         )
+                        # Same aborted-cursor guard as the partner loop above.
+                        # This block's first act is an edi.log INSERT, so a
+                        # Postgres-level error out of _process_file,
+                        # _poll_commit or _send_file_responses would raise
+                        # again here and abort the whole poll, skipping every
+                        # remaining file. Everything durable was already
+                        # committed by _poll_commit, so the rollback only
+                        # discards this file's partial work - which is exactly
+                        # what leaving it in the inbox for retry means. The
+                        # rollback releases the transaction-scoped advisory
+                        # lock, so re-take it just as _poll_commit does.
+                        self.env.cr.rollback()
+                        self._acquire_poll_lock(partner)
                         self.env["edi.log"].log(
                             partner, "inbound", "error", "error",
                             "Error processing %s: %s" % (filename, str(exc)),
@@ -814,8 +842,22 @@ class EDIProcessor(models.AbstractModel):
         # "parsed 0 orders" by the ORDERS parser. Checked before parse_file so
         # a CONTRL body (no BGM/LIN) never reaches the ORDERS code path at all.
         if partner.edi_format in self._EDIFACT_FORMATS and self._is_contrl_message(raw_text):
-            self._handle_inbound_contrl(raw_text, filename, file_hash, partner)
-            return []
+            if self._handle_inbound_contrl(raw_text, filename, file_hash, partner):
+                return []
+            # The parser exposes no parse_contrl, so we cannot tell an
+            # acceptance from a rejection. Reporting the file clean here would
+            # write the file_download/success dedup marker, commit and DELETE
+            # the interchange from the VAN with no edi.log row of any kind, so
+            # a negative CONTRL would vanish. Fail closed into the per-file
+            # failure path instead: the file stays in the inbox, an error row
+            # is logged and the failure alert fires.
+            from ..parsers.base_parser import EDIParseError
+
+            raise EDIParseError(
+                "Inbound CONTRL in %s cannot be handled: parser for partner %s "
+                "has no parse_contrl, refusing to discard the acknowledgement "
+                "(fail-closed)" % (filename, partner.code)
+            )
 
         # AN envelope validation: catches truncated/malformed interchanges and
         # sender/recipient mismatches (wrong mailbox, TST1ANIMATES vs ANIMATES)
@@ -1203,20 +1245,26 @@ class EDIProcessor(models.AbstractModel):
                     ),
                     "sale_order_line_id": sol.id,
                 })
-        else:
-            # Legacy backorder: accept in full, warn if short. warehouse_id is added
-            # by sale_stock; fall back to no warehouse context if absent.
-            wh_ctx = {}
-            if 'warehouse_id' in self.env['sale.order']._fields and so.warehouse_id:
-                wh_ctx = {'warehouse': so.warehouse_id.id}
-            qty_available = product.with_context(**wh_ctx).qty_available
+        elif not getattr(so, 'x_is_indent', False):
+            # Legacy backorder: accept in full, warn if short. Availability is read
+            # through the same DC-scoped helper as short_ship. The old code passed a
+            # 'warehouse' context key, which Odoo 19 stock never reads (it looks for
+            # 'warehouse_id'/'search_warehouse'), so qty_available came back
+            # company-wide and pulled in retired Auckland's phantom stock plus every
+            # other company the cron user belongs to.
+            # The line ships in full here, so edi_qty_shortfall stays at 0: that field
+            # is contractually ordered-minus-confirmed and drives the ORDRSP line
+            # action. The figure goes in the issue description instead.
+            # Indent orders skip the gate entirely: the stock is absent by design
+            # until the shipment lands, so every line would report short.
+            qty_available = self._dc_available_qty(product, so)
             if qty_available < ordered:
-                sol.edi_qty_shortfall = ordered - qty_available
                 self.env["edi.order.issue"].create({
                     "review_id": review.id,
                     "issue_type": "qty_shortfall",
                     "severity": "warning",
-                    "description": "%s — requested %.0f, available %.0f, shortfall %.0f" % (
+                    "description": "%s — requested %.0f, available %.0f, shortfall %.0f "
+                                   "(accepted in full, backorder policy)" % (
                         product.name, ordered, qty_available, ordered - qty_available,
                     ),
                     "sale_order_line_id": sol.id,

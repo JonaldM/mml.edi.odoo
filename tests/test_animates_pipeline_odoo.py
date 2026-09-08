@@ -218,7 +218,6 @@ class TestInboundContrlRoutingOdoo(_AnimatesOdooTestBase):
         patcher = mock.patch.object(
             AnimatesParser, "parse_contrl",
             staticmethod(lambda raw_text: real_parse_contrl(raw_text)),
-            create=True,
         )
         patcher.start()
         self.addCleanup(patcher.stop)

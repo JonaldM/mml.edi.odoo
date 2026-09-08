@@ -204,6 +204,51 @@ class TestPOChangeWorkflow(EDITestSetup, TransactionCase):
             "SO line qty must be updated to 15 by apply_change_order()",
         )
 
+    def test_change_order_approve_refreshes_edi_price(self):
+        """
+        apply_change_order() must refresh edi_price from the change document.
+
+        Regression: only qty was applied, so a replacement that corrected a
+        price left the stale edi_price on the line. The ORDRSP then compared
+        our (already-correct) price_unit against the OLD edi_price and reported
+        the line as CHANGED (1229=3) forever — breaking scenario 4b, which
+        requires a full-acceptance replacement (BGM 29 / all lines 1229=5).
+
+        price_unit is intentionally NOT overwritten: if the buyer states a
+        price we do not accept, the line must still report as changed.
+        """
+        so = self._make_so_with_line(qty=10.0, price=8.10, line_number=1)
+        so_line = so.order_line[0]
+        so_line.edi_price = 12.10          # what the ORIGINAL order asked
+        so_line.edi_ordered_qty = 10.0
+
+        original_review = self._make_review(so=so, document_type="new_order", state="approved")
+        change_review = self._make_review(
+            so=so,
+            document_type="change_order",
+            state="pending_review",
+            original_review_id=original_review.id,
+            change_summary="Line 1 price: 12.10 -> 8.10",
+        )
+        self._attach_pending_changes(
+            change_review,
+            new_delivery_date=None,
+            line_changes=[{"line_number": 1, "new_qty": 10.0, "new_price": 8.10}],
+        )
+
+        self.env["edi.processor"].apply_change_order(change_review)
+
+        so_line.invalidate_recordset()
+        self.assertEqual(
+            so_line.edi_price, 8.10,
+            "edi_price must track the change document so the line is no longer "
+            "reported as CHANGED once the buyer adopts our price",
+        )
+        self.assertEqual(
+            so_line.price_unit, 8.10,
+            "price_unit must be left as our own price, not overwritten",
+        )
+
     def test_change_order_approve_updates_delivery_date(self):
         """
         apply_change_order() must update commitment_date when a new delivery
@@ -359,3 +404,51 @@ def test_pending_changes_attachment_name_not_fixed_literal():
         "The ir.attachment create() call must use a timestamped name; "
         "only the search in apply_change_order may reference the bare name." % bare_literal_count
     )
+
+
+# ── Pure (no Odoo env): change-diff must carry price ────────────────────────
+
+class TestPendingChangesCarriesPrice:
+    """Regression: a replacement/ORDCHG that corrects a PRICE was silently
+    dropping it.
+
+    ``_encode_pending_changes`` recorded only ``new_qty``, so
+    ``apply_change_order`` could never refresh ``sale.order.line.edi_price``.
+    The stale original price then made every later ORDRSP report that line as
+    CHANGED (1229=3) even when we were accepting the buyer's price verbatim —
+    which breaks a full-acceptance replacement (it must be BGM 29 / all 1229=5).
+    """
+
+    def _order(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            requested_delivery_date=None,
+            lines=[
+                SimpleNamespace(line_number=1, quantity=8.0, unit_price=19.30),
+                SimpleNamespace(line_number=2, quantity=10.0, unit_price=8.10),
+            ],
+        )
+
+    def _existing_so(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(order_line=[
+            SimpleNamespace(edi_line_number=1),
+            SimpleNamespace(edi_line_number=2),
+        ])
+
+    def _decode(self, encoded):
+        import base64, json
+        return json.loads(base64.b64decode(encoded).decode())
+
+    def test_new_price_is_encoded_for_every_line(self):
+        from mml_edi.models.edi_processor import EDIProcessor
+
+        changes = self._decode(
+            EDIProcessor()._encode_pending_changes(self._order(), self._existing_so())
+        )
+        by_line = {c["line_number"]: c for c in changes["line_changes"]}
+        assert by_line[1]["new_price"] == 19.30
+        assert by_line[2]["new_price"] == 8.10
+        # qty must still be carried (no regression on the original behaviour)
+        assert by_line[1]["new_qty"] == 8.0
+        assert by_line[2]["new_qty"] == 10.0

@@ -103,7 +103,7 @@ class SaleOrderLine(models.Model):
     edi_qty_shortfall = fields.Float(
         string="Stock Shortfall",
         digits="Product Unit of Measure",
-        help="Qty requested minus qty available at time of EDI processing (0 if sufficient)",
+        help="Qty ordered minus qty confirmed on this line, and the value the ORDRSP acknowledges (0 when the line ships in full)",
     )
     edi_ordered_qty = fields.Float(
         string="EDI Ordered Qty",

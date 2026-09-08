@@ -28,9 +28,23 @@ class _FakeLog:
         self._rows.append(args)
 
 
+class _FakeCr:
+    """Minimal cursor: the poll's recovery path rolls back before it writes.
+
+    The aborted-cursor behaviour itself is covered in test_poll_aborted_cursor.
+    """
+
+    def __init__(self):
+        self.rollbacks = 0
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
 class _FakeEnv:
 
     def __init__(self, partners, log_rows):
+        self.cr = _FakeCr()
         self._models = {
             "edi.trading.partner": _FakePartnerModel(partners),
             "edi.log": _FakeLog(log_rows),
