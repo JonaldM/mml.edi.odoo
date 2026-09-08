@@ -23,7 +23,7 @@ from pathlib import Path
 from odoo.tests.common import TransactionCase, tagged
 from odoo.tools import mute_logger
 
-from .common import EDITestSetup
+from .common import EDITestSetup, unique_partner_code
 try:
     from odoo.addons.mml_edi.parsers.base_parser import ParsedOrder, ParsedOrderLine
 except ImportError:
@@ -85,10 +85,13 @@ class EDIBriscoesSetup(EDITestSetup):
             "ref": "1007",
         })
 
-        # Override the generic trading_partner with Briscoes-specific config
+        # Override the generic trading_partner with Briscoes-specific config.
+        # Never the live "BRISCOES" code: edi.trading.partner.code is globally
+        # unique, so writing it duplicate-keys against the real Briscoes row
+        # every prod clone carries. Nothing here asserts on the code.
         self.trading_partner.write({
             "name": "Briscoe Group Ltd",
-            "code": "BRISCOES",
+            "code": unique_partner_code(self.env, "BRISCOES"),
             "partner_id": briscoes_partner.id,
             "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
             "product_match_field": "barcode",
