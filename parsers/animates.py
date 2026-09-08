@@ -513,17 +513,37 @@ def _review_to_ordrsp_payload(review) -> dict:
     rejected = getattr(review, "state", None) == "rejected"
 
     # Original ORDERS lines (ISC / MML / ordered qty / price / description).
+    # edi_processor._process_file stores the WHOLE decoded interchange in
+    # edi_raw_data, and AnimatesParser yields one ParsedOrder per UNH message,
+    # so a batched multi-PO file must be filtered down to THIS review's PO
+    # before its lines are echoed (the ORDRSP header carries only this
+    # review's PO/ship-to). Mirrors briscoes_idoc.generate_ack.
+    review_po = (getattr(review, "customer_po_number", "") or "").strip()
     orig_lines = []
     requested = None
+    parsed_pos = []
     raw = getattr(review, "edi_raw_data", None)
     if raw:
         try:
             data = raw if isinstance(raw, (bytes, bytearray)) else raw.encode("iso-8859-1")
-            for order in AnimatesParser().parse_file(data, partner):
-                orig_lines.extend(order.lines)
-                requested = requested or order.requested_delivery_date
+            orders = list(AnimatesParser().parse_file(data, partner))
         except Exception:
-            orig_lines = []
+            orders = []
+        parsed_pos = [(o.po_number or "").strip() for o in orders]
+        for order, order_po in zip(orders, parsed_pos):
+            if review_po and order_po and order_po != review_po:
+                continue
+            orig_lines.extend(order.lines)
+            requested = requested or order.requested_delivery_date
+
+    if review_po and parsed_pos and not orig_lines:
+        # Fail CLOSED: an ORDRSP built from another PO's messages would
+        # confirm or reject lines the buyer never ordered on this PO.
+        raise EDIParseError(
+            "Stored raw file holds POs %s but none match review PO %r; "
+            "refusing to generate a cross-PO ORDRSP"
+            % (sorted(set(parsed_pos)), review_po)
+        )
 
     # SO lines keyed by EDI line number, aggregated across sibling reviews of
     # this PO (finding #11) — never just this review's own (possibly empty

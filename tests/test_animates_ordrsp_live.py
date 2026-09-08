@@ -14,6 +14,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from mml_edi.parsers.animates import AnimatesParser, _review_to_ordrsp_payload
+from mml_edi.parsers.base_parser import EDIParseError
 from mml_edi.parsers import animates_edifact as edifact
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -368,3 +369,48 @@ def test_sibling_aggregation_newest_review_wins_without_file_hash():
     payload = _review_to_ordrsp_payload(review)
     assert payload["lines"][0]["action"] == "5"
     assert payload["lines"][0]["qty_committed"] == "2"
+
+
+# --- multi-PO interchange isolation (edi_raw_data holds the WHOLE file) ---
+
+def _two_po_orders() -> str:
+    """The single-PO fixture plus a second UNH message for a different PO,
+    mimicking a batched SPS interchange. edi_processor stores the WHOLE
+    decoded file on every review of that file."""
+    second = (
+        "UNH+2+ORDERS:D:01B:UN:EAN011'"
+        "BGM+220+PO999999+9'"
+        "DTM+137:20200916:102'"
+        "NAD+BY+ANIMATES::92++Animates NZ Holding LTD'"
+        "NAD+SU+V1058::92++M&M Pty Ltd'"
+        "NAD+ST+54321::92++Animates Otherstore'"
+        "LIN+1'"
+        "PIA+5+999999:IN'"
+        "PIA+1+9999999:SA'"
+        "IMD+F++:::Other PO Product'"
+        "QTY+21:7:EA'"
+        "PRI+AAA:11.11'"
+        "UNS+S'"
+        "CNT+2:1'"
+        "UNT+14+2'"
+    )
+    head, _, tail = ORDERS.rpartition("UNZ")
+    return head + second + "UNZ" + tail
+
+
+def test_ordrsp_echoes_only_this_reviews_po():
+    """A batched multi-PO interchange must not put the other PO's lines into
+    this review's ORDRSP: the header carries only THIS review's PO/ship-to."""
+    review = _review(raw=_two_po_orders())
+    payload = _review_to_ordrsp_payload(review)
+    assert payload["po_number"] == "PO169603"
+    assert all(l["buyer_item"] != "999999" for l in payload["lines"])
+    assert len(payload["lines"]) == 1
+
+
+def test_ordrsp_fails_closed_when_no_message_matches_the_review_po():
+    """If the stored interchange holds no message for this review's PO the
+    ACK must abort, never be built from another PO's lines."""
+    review = _review(raw=_two_po_orders(), po="PO000000")
+    with pytest.raises(EDIParseError):
+        _review_to_ordrsp_payload(review)
