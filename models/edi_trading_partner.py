@@ -286,25 +286,14 @@ class EDITradingPartner(models.Model):
     )
 
     # ── EDI Interchange Identity ──────────────────────────────────────────
-    # Used to build the EDIFACT UNB interchange envelope for VAN partners
-    # (e.g. Animates via SPS Commerce). iDOC partners (Briscoes) route by GLN
-    # in the iDOC header rather than a UNB envelope, so these may be blank for
-    # them. Stored config consumed when the EDIFACT sender path is enabled.
+    # edi_sender_id / edi_sender_qualifier / supplier_gln used to be declared
+    # a SECOND time here, with default="14". Python keeps only the last
+    # assignment, so Odoo registered that one and every partner created
+    # without an explicit qualifier got "14" instead of the "ZZZ" the Animates
+    # MIG requires and the EDI Identity block above documents. The single
+    # declaration now lives in that block; only vendor_code, which was never a
+    # duplicate, remains here.
 
-    edi_sender_id = fields.Char(
-        string="EDI Sender ID",
-        help="Interchange sender identification (typically the supplier GLN) "
-             "placed in the EDIFACT UNB segment.",
-    )
-    edi_sender_qualifier = fields.Char(
-        string="Sender Qualifier",
-        default="14",
-        help="UNB sender qualifier (14 = GLN / GS1 Global Location Number).",
-    )
-    supplier_gln = fields.Char(
-        string="Supplier GLN",
-        help="MML's GS1 Global Location Number for this trading relationship.",
-    )
     vendor_code = fields.Char(
         string="Vendor Code",
         help="The supplier/vendor account code this partner identifies MML by "
