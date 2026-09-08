@@ -303,3 +303,66 @@ class TestEDIFTPHandlerSFTP:
         client = mock_paramiko.SSHClient.return_value
         registered_name = client.get_host_keys.return_value.add.call_args[0][0]
         assert registered_name == 'sftp.example.com'
+
+
+class TestSftpTransportTeardown:
+    """The SSH transport must never be leaked when open_sftp() fails.
+
+    _connect_sftp assigns self._transport BEFORE calling open_sftp() so that
+    disconnect() can clean up on failure, but disconnect() returned early on
+    `self._ftp is None` and so never reached the transport close.
+    """
+
+    def test_disconnect_closes_transport_when_sftp_channel_never_opened(self):
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        handler = EDIFTPHandler(make_mock_partner(protocol="sftp"))
+        transport = MagicMock()
+        handler._transport = transport
+        handler._ftp = None  # open_sftp() raised, so no channel was assigned
+
+        handler.disconnect()
+
+        transport.close.assert_called_once()
+        assert handler._transport is None
+
+    def test_disconnect_on_a_bare_handler_is_still_a_no_op(self):
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        handler = EDIFTPHandler(make_mock_partner(protocol="sftp"))
+        handler.disconnect()  # must not raise
+        assert handler._ftp is None
+        assert handler._transport is None
+
+    def test_disconnect_closes_transport_even_when_channel_close_raises(self):
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        handler = EDIFTPHandler(make_mock_partner(protocol="sftp"))
+        transport = MagicMock()
+        channel = MagicMock()
+        channel.close.side_effect = OSError("socket already gone")
+        handler._transport = transport
+        handler._ftp = channel
+
+        handler.disconnect()
+
+        transport.close.assert_called_once()
+
+    def test_failed_connect_attempts_do_not_leak_transports(self):
+        from mml_edi.models.edi_ftp import EDIFTPHandler
+        from mml_edi.parsers.base_parser import EDIFTPError
+        handler = EDIFTPHandler(make_mock_partner(protocol="sftp"))
+        transports = []
+
+        def _fail(*_args, **_kwargs):
+            transport = MagicMock()
+            transports.append(transport)
+            handler._transport = transport  # assigned before open_sftp() raises
+            raise OSError("sftp subsystem refused")
+
+        with patch.object(EDIFTPHandler, "_connect_sftp", side_effect=_fail), \
+                patch("mml_edi.models.edi_ftp.time.sleep"):
+            with pytest.raises(EDIFTPError):
+                handler.connect()
+
+        assert len(transports) == 4
+        for transport in transports:
+            transport.close.assert_called_once()
+        assert handler._transport is None
