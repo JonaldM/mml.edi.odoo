@@ -107,7 +107,10 @@ def shipped_qty_by_sale_line(sale_order) -> dict:
     Mirrors services.edi_service.EDIService._pack_units_for_animates's own
     quantity source (``move.quantity`` on ``state == 'done'`` moves) so the
     INVOIC and the DESADV that shipped it can never disagree about what was
-    actually shipped. Cancelled/draft/waiting moves contribute nothing.
+    actually shipped. Cancelled/draft/waiting moves contribute nothing, and
+    only OUTGOING pickings count -- a return or an internal transfer on the
+    same sale order carries the same ``sale_line_id`` and would otherwise be
+    added to, rather than netted out of, the despatched quantity.
 
     Keyed by the sale.order.line RECORD (not edi_line_number) so the caller
     can pair this directly against invoice lines via their own
@@ -116,6 +119,14 @@ def shipped_qty_by_sale_line(sale_order) -> dict:
     """
     totals = {}
     for picking in sale_order.picking_ids:
+        # OUTGOING pickings only. A customer return created from a delivery via
+        # stock.return.picking is an INCOMING picking on the same sale order
+        # whose moves carry the same sale_line_id, so summing every done move
+        # counted a return as extra despatched quantity (Odoo's own
+        # qty_delivered nets it out by sign). Internal transfers are excluded
+        # for the same reason.
+        if picking.picking_type_id.code != "outgoing":
+            continue
         for move in picking.move_ids:
             if move.state != "done":
                 continue

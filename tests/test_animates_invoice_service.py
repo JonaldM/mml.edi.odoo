@@ -69,9 +69,16 @@ class FakeMove:
         self.picking_id = picking_id
 
 
+class FakePickingType:
+    def __init__(self, code="outgoing"):
+        self.code = code
+
+
 class FakePicking:
-    def __init__(self, name, date_done=None, carrier_tracking_ref=None):
+    def __init__(self, name, date_done=None, carrier_tracking_ref=None,
+                 picking_type_code="outgoing"):
         self.name = name
+        self.picking_type_id = FakePickingType(picking_type_code)
         self.date_done = date_done
         self.write_date = date_done
         self.create_date = date_done
@@ -472,3 +479,32 @@ def test_payload_currency_defaults_from_move():
     move, sol, order, picking, move_line = _basic_setup()
     payload = build_invoic_payload_from_move(move, FakeTradingPartner())
     assert payload["currency"] == "NZD"
+
+
+def test_shipped_qty_by_sale_line_ignores_return_pickings():
+    """A customer return created from a delivery is an INCOMING picking on the
+    same sale order whose moves carry the same sale_line_id. Summing it as
+    shipped quantity inflated what we tell Animates was despatched."""
+    sol = FakeSOL(id=1, edi_line_number=1)
+    outgoing = FakePicking("WH/OUT/1")
+    outgoing.move_ids = FakeRecordset([FakeMove("done", 10.0, sol, picking_id=outgoing)])
+    ret = FakePicking("WH/IN/1", picking_type_code="incoming")
+    ret.move_ids = FakeRecordset([FakeMove("done", 4.0, sol, picking_id=ret)])
+    order = FakeSaleOrder("S1", picking_ids=[outgoing, ret])
+
+    totals = shipped_qty_by_sale_line(order)
+
+    assert totals[sol] == 10.0
+
+
+def test_shipped_qty_by_sale_line_ignores_internal_transfers():
+    sol = FakeSOL(id=1, edi_line_number=1)
+    outgoing = FakePicking("WH/OUT/1")
+    outgoing.move_ids = FakeRecordset([FakeMove("done", 6.0, sol, picking_id=outgoing)])
+    internal = FakePicking("WH/INT/1", picking_type_code="internal")
+    internal.move_ids = FakeRecordset([FakeMove("done", 6.0, sol, picking_id=internal)])
+    order = FakeSaleOrder("S1", picking_ids=[outgoing, internal])
+
+    totals = shipped_qty_by_sale_line(order)
+
+    assert totals[sol] == 6.0
