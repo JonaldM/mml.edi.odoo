@@ -213,6 +213,25 @@ class EDITradingPartner(models.Model):
              "(as opposed to edi_sender_id/edi_sender_qualifier, which may be "
              "ZZZ-qualified for the interchange envelope itself).",
     )
+    edi_recipient_id = fields.Char(
+        string="EDI Recipient ID",
+        help="The counterparty's identity in the UNB interchange header "
+             "(S003 DE0004), e.g. 'ANIMATES'. Also the value the inbound "
+             "envelope validator requires an inbound UNB sender to match. "
+             "Leave blank to keep the historical Animates default.",
+    )
+    edi_recipient_test_id = fields.Char(
+        string="EDI Recipient ID (test)",
+        help="The counterparty's TEST-mailbox identity, e.g. 'TST1ANIMATES'. "
+             "A test mailbox is usually a DISTINCT recipient id, not the "
+             "production id with a flag - sending to the wrong one silently "
+             "misroutes the interchange. Falls back to EDI Recipient ID.",
+    )
+    edi_recipient_qualifier = fields.Char(
+        string="EDI Recipient Qualifier",
+        help="UNB S003 qualifier (DE0007) for the recipient identity, e.g. "
+             "'ZZZ' (mutually defined) or '14' (GLN). Defaults to ZZZ.",
+    )
 
     def get_unb_sender(self):
         """Return (id, qualifier) for OUR identity in an outbound UNB.
@@ -235,16 +254,30 @@ class EDITradingPartner(models.Model):
         )
 
     def get_unb_recipient(self):
-        """Return (id, qualifier) for the Animates side of an outbound UNB.
+        """Return (id, qualifier) for the counterparty side of an outbound UNB.
 
-        Switches on ``environment``: the TEST portal mailbox is a DISTINCT
-        recipient identity 'TST1ANIMATES' (per the ORDRSP/ORDERS MIG worked
-        examples), not the production 'ANIMATES' id with a flag — sending to
-        the wrong one silently misroutes the interchange in SPS Commerce.
+        Reads the per-partner edi_recipient_id / edi_recipient_test_id /
+        edi_recipient_qualifier fields, so a second EDIFACT partner can be
+        onboarded without the identity being hardcoded to Animates. Falls back
+        to the historical ANIMATES / TST1ANIMATES / ZZZ triple when they are
+        blank, which is what the live Animates row relies on.
+
+        Switches on ``environment``: a TEST portal mailbox is usually a
+        DISTINCT recipient identity (Animates' is 'TST1ANIMATES', per the
+        ORDRSP/ORDERS MIG worked examples), not the production id with a flag
+        — sending to the wrong one silently misroutes the interchange.
         """
         self.ensure_one()
-        recipient = "TST1ANIMATES" if self.environment == "test" else "ANIMATES"
-        return recipient, "ZZZ"
+        production_id = self.edi_recipient_id or "ANIMATES"
+        if self.environment == "test":
+            recipient = (
+                self.edi_recipient_test_id
+                or (self.edi_recipient_id and production_id)
+                or "TST1ANIMATES"
+            )
+        else:
+            recipient = production_id
+        return recipient, (self.edi_recipient_qualifier or "ZZZ")
 
     # ── Notifications ─────────────────────────────────────────────────────
 
