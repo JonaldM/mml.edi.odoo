@@ -309,3 +309,40 @@ def test_nz_day_defaults_to_now():
     from mml_edi.services.edi_service import _nz_day
 
     assert len(_nz_day()) == 8
+
+
+# -- DESADV filenames carry a per-despatch discriminator ----------------------
+
+def test_desadv_filename_includes_the_picking_reference():
+    """Two despatches of the same PO on the same day produced the IDENTICAL
+    filename, and both FTP STOR and LocalDirHandler's os.replace overwrite -
+    so the first shipment's advice was destroyed before the VAN collected it."""
+    from mml_edi.services.edi_service import _desadv_filename
+
+    first = _desadv_filename('DESADV_ANIMATES', 'PO123', '20260908', 'WH/OUT/00042')
+    second = _desadv_filename('DESADV_ANIMATES', 'PO123', '20260908', 'WH/OUT/00043')
+    assert first != second
+    assert first == 'DESADV_ANIMATES_PO123_20260908_WHOUT00042.edi'
+
+
+def test_desadv_filename_keeps_the_prefix_the_prior_desadv_lookup_matches():
+    """_animates_shipment_status finds prior DESADVs with
+    filename LIKE 'DESADV_ANIMATES_%', so the prefix must not move."""
+    from mml_edi.services.edi_service import _desadv_filename
+
+    name = _desadv_filename('DESADV_ANIMATES', 'PO123', '20260908', 'WH/OUT/00042')
+    assert name.startswith('DESADV_ANIMATES_PO123_')
+
+
+def test_desadv_filename_strips_separators_from_every_component():
+    from mml_edi.services.edi_service import _desadv_filename
+
+    name = _desadv_filename('DESADV', 'PO/123', '20260908', 'WH/OUT/00042')
+    assert '/' not in name
+
+
+def test_desadv_filename_without_a_picking_reference_is_still_valid():
+    from mml_edi.services.edi_service import _desadv_filename
+
+    assert _desadv_filename('DESADV', 'PO123', '20260908', None) == (
+        'DESADV_PO123_20260908.edi')

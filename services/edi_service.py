@@ -42,6 +42,30 @@ def _nz_day(value=None) -> str:
     return value.strftime('%Y%m%d')
 
 
+def _filename_token(value) -> str:
+    """Strip the separators an EDI VAN filename cannot carry."""
+    return str(value or '').replace('/', '').replace('\\', '')
+
+
+def _desadv_filename(prefix, po, date, picking_name) -> str:
+    """Outbound despatch-advice filename.
+
+    The picking reference is the per-despatch discriminator. Without it a PO
+    picked in two waves on the same day produced the IDENTICAL name twice, and
+    both FTP STOR and LocalDirHandler's os.replace overwrite - so the first
+    shipment's advice was destroyed before the VAN collected it, even though
+    the split-shipment feature (ALI 164/165) explicitly expects several
+    despatches per PO. The prefix is unchanged so
+    _animates_shipment_status's `filename LIKE 'DESADV_ANIMATES_%'` prior-DESADV
+    lookup still matches.
+    """
+    parts = [prefix, _filename_token(po), _filename_token(date)]
+    picking_ref = _filename_token(picking_name)
+    if picking_ref:
+        parts.append(picking_ref)
+    return '_'.join(parts) + '.edi'
+
+
 class EDIService:
     """Public API for mml_edi. Retrieved via mml.registry.service('edi')."""
 
@@ -189,9 +213,9 @@ class EDIService:
         gen = BriscoesASNGenerator()
         asn_content = gen.generate(despatch).encode('ascii')
 
-        filename = 'DESADV_{po}_{date}.edi'.format(
-            po=despatch['po_number'],
-            date=despatch['despatch_date'],
+        filename = _desadv_filename(
+            'DESADV', despatch['po_number'], despatch['despatch_date'],
+            getattr(picking, 'name', None),
         )
 
         handler = get_transport_handler(partner)
@@ -509,9 +533,9 @@ class EDIService:
             require_real=True,
         )
 
-        po_for_filename = payload['po'].replace('/', '')
-        filename = 'DESADV_ANIMATES_%s_%s.edi' % (
-            po_for_filename, payload['doc_date'],
+        filename = _desadv_filename(
+            'DESADV_ANIMATES', payload['po'], payload['doc_date'],
+            getattr(picking, 'name', None),
         )
 
         handler = get_transport_handler(partner)
