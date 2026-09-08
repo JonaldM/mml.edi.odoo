@@ -508,3 +508,41 @@ def test_shipped_qty_by_sale_line_ignores_internal_transfers():
     totals = shipped_qty_by_sale_line(order)
 
     assert totals[sol] == 6.0
+
+
+def test_payload_refuses_an_invoice_spanning_two_sale_orders():
+    """_resolve_sale_order returned the FIRST linked order, so the shipped map
+    was built from that one only: every line belonging to another order looked
+    unshipped and was silently dropped, and the PO/ship-to came from one order
+    while the money covered both."""
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
+
+    other_order = FakeSaleOrder("S00043", client_order_ref="POR169604")
+    other_picking = FakePicking("WH/OUT/00043")
+    sol2 = FakeSOL(id=2, edi_line_number=1)
+    other_move = FakeMove("done", 2.0, sol2, picking_id=other_picking)
+    sol2.move_ids = FakeRecordset([other_move])
+    other_picking.move_ids = FakeRecordset([other_move])
+    other_order.picking_ids = FakeRecordset([other_picking])
+    sol2.order_id = FakeRecordset([other_order])
+
+    move_line2 = FakeMoveLine(
+        name="Other Order Product",
+        quantity=2.0,
+        price_unit=50.0,
+        price_subtotal=100.0,
+        price_total=115.0,
+        tax_ids=[FakeTax()],
+        sale_line_ids=[sol2],
+        product_id=FakeProduct(default_code="5101999"),
+    )
+    move.invoice_line_ids = FakeRecordset([move_line, move_line2])
+
+    with pytest.raises(AnimatesInvoiceError):
+        build_invoic_payload_from_move(move, FakeTradingPartner())
+
+
+def test_payload_accepts_an_invoice_confined_to_one_sale_order():
+    move, sol, order, picking, move_line = _basic_setup(qty_shipped=2.0, qty_invoiced=2.0)
+    payload = build_invoic_payload_from_move(move, FakeTradingPartner())
+    assert payload["ref_on"] == "POR169603"

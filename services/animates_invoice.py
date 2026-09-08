@@ -70,21 +70,37 @@ class AnimatesInvoiceError(Exception):
     pass
 
 
-def _resolve_sale_order(move):
-    """Return the (single) sale.order behind this invoice's product lines,
-    or None if the invoice has no sale-order-linked lines at all.
+def _resolve_sale_orders(move) -> list:
+    """Return the distinct sale.orders behind this invoice's product lines,
+    in first-seen order (empty when no line is linked to one).
 
     Explicit per-line walk (not the ORM's implicit ``recordset.field``
     flattening across ``invoice_line_ids.sale_line_ids.order_id``) so the
     resolution is obvious and independently unit-testable against plain
     fakes rather than relying on Odoo-specific recordset sugar.
     """
+    orders = []
+    seen = set()
     for move_line in move.invoice_line_ids:
         for sol in move_line.sale_line_ids:
             order = _first(sol.order_id)
-            if order:
-                return order
-    return None
+            if order is None:
+                continue
+            key = id(order) if getattr(order, "id", None) is None else order.id
+            if key in seen:
+                continue
+            seen.add(key)
+            orders.append(order)
+    return orders
+
+
+def _resolve_sale_order(move):
+    """Return the FIRST sale.order behind this invoice's product lines, or
+    None. Only for non-authoritative uses (the edi.log back-reference); the
+    payload builder uses _resolve_sale_orders and refuses a consolidated
+    invoice outright."""
+    orders = _resolve_sale_orders(move)
+    return orders[0] if orders else None
 
 
 def _first(recordset):
@@ -300,7 +316,22 @@ def build_invoic_payload_from_move(move, partner, *, isc_by_line=None) -> dict:
     """
     move.ensure_one()
 
-    sale_order = _resolve_sale_order(move)
+    sale_orders = _resolve_sale_orders(move)
+    if len(sale_orders) > 1:
+        # A consolidated invoice cannot be expressed as one Animates INVOIC:
+        # the shipped map, RFF+ON, the buyer/ship-to and the store code all
+        # come from ONE sale order, so every line belonging to another order
+        # used to be silently dropped as "unshipped".
+        raise AnimatesInvoiceError(
+            "Animates INVOIC: invoice %s spans %d sale orders (%s) - refusing "
+            "to build a consolidated INVOIC, which would carry one order's PO "
+            "and ship-to while silently dropping the other order's lines. "
+            "Split the invoice per sale order and re-send." % (
+                move.name, len(sale_orders),
+                ", ".join(str(getattr(o, "name", o)) for o in sale_orders),
+            )
+        )
+    sale_order = sale_orders[0] if sale_orders else None
     # ISC (PIA+5:IN) comes from re-parsing the original ORDERS unless a caller
     # supplied the map — the authoritative source Animates sent, not persisted
     # on the SO line. _product_isc (x_articleno) is a per-line fallback below.
