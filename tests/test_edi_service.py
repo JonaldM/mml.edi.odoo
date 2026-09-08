@@ -277,3 +277,35 @@ class TestAnimatesShipmentStatusAcrossPickings:
             {1: 8.0, 2: 10.0, 3: 8.0},
         )
         assert status == 'complete_single_shipment'
+
+
+# -- ASN/DESADV dates are stamped on the NZ business day ----------------------
+
+def test_nz_day_converts_a_utc_evening_to_the_next_nz_day():
+    """Despatch confirmations land in NZ business hours. At 21:30 UTC on
+    7 Sep it is already 09:30 on 8 Sep in NZ, so a UTC stamp dated every
+    morning ASN a day before the goods left."""
+    from datetime import datetime
+    from mml_edi.services.edi_service import _nz_day
+
+    assert _nz_day(datetime(2026, 9, 7, 21, 30)) == '20260908'
+
+
+def test_nz_day_keeps_a_utc_morning_on_the_same_nz_day():
+    from datetime import datetime
+    from mml_edi.services.edi_service import _nz_day
+
+    assert _nz_day(datetime(2026, 9, 7, 5, 0)) == '20260907'
+
+
+def test_nz_day_accepts_an_aware_datetime():
+    from datetime import datetime, timezone
+    from mml_edi.services.edi_service import _nz_day
+
+    assert _nz_day(datetime(2026, 9, 7, 21, 30, tzinfo=timezone.utc)) == '20260908'
+
+
+def test_nz_day_defaults_to_now():
+    from mml_edi.services.edi_service import _nz_day
+
+    assert len(_nz_day()) == 8

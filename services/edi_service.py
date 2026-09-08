@@ -12,6 +12,35 @@ _ANIMATES_PARSER_CLASSES = frozenset({
     "mml_edi.parsers.animates.AnimatesParser",
 })
 
+#: Despatch advices are stamped with the NZ business date. The Odoo server runs
+#: UTC, which is 12-13 hours BEHIND NZ, so a UTC stamp names the PREVIOUS
+#: calendar day for the whole NZ morning - and 3PL despatch confirmations land
+#: in NZ business hours, so every morning ASN reported a date one day before
+#: the goods actually left.
+_NZ_TZ_NAME = 'Pacific/Auckland'
+
+
+def _nz_day(value=None) -> str:
+    """Return ``value`` as an NZ-local YYYYMMDD date string.
+
+    ``value`` is a datetime (naive values are read as UTC, which is what Odoo
+    stores) and defaults to now.
+    """
+    if value is None:
+        value = datetime.now(timezone.utc)
+    elif value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    try:
+        import pytz
+        value = value.astimezone(pytz.timezone(_NZ_TZ_NAME))
+    except Exception:
+        try:
+            from zoneinfo import ZoneInfo
+            value = value.astimezone(ZoneInfo(_NZ_TZ_NAME))
+        except Exception:
+            pass  # no tz database available - fall back to the UTC day
+    return value.strftime('%Y%m%d')
+
 
 class EDIService:
     """Public API for mml_edi. Retrieved via mml.registry.service('edi')."""
@@ -143,7 +172,7 @@ class EDIService:
         return {
             'po_number': po_number,
             'despatch_ref': 'DASN-%s' % po_number,
-            'despatch_date': datetime.now(timezone.utc).strftime('%Y%m%d'),
+            'despatch_date': _nz_day(),
             'mml_edis_id': mml_edis_id,
             'ctrl_ref': ctrl_ref,
             'deliveries': [
@@ -282,9 +311,8 @@ class EDIService:
         now = datetime.now(timezone.utc)
         payload = {
             'advice_no': 'DESADV-%s' % picking.name.replace('/', ''),
-            'doc_date': now.strftime('%Y%m%d'),
-            'despatch_date': (picking.date_done or now).strftime('%Y%m%d')
-            if hasattr(picking, 'date_done') else now.strftime('%Y%m%d'),
+            'doc_date': _nz_day(now),
+            'despatch_date': _nz_day(getattr(picking, 'date_done', None) or now),
             'po': po_number,
             'connote': connote,
             'buyer': None,       # filled by get_unb_recipient() at build time
