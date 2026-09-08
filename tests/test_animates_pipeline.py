@@ -121,10 +121,21 @@ class _RecordSet(list):
             "single-record set proxies field access)" % (len(self), name))
 
 
+class _FakeConfigParam:
+    """ir.config_parameter stand-in: every key falls through to its default."""
+
+    def sudo(self):
+        return self
+
+    def get_param(self, key, default=None):
+        return default
+
+
 class _FakeEnv:
 
     def __init__(self, models):
-        self._models = models
+        self._models = dict(models)
+        self._models.setdefault("ir.config_parameter", _FakeConfigParam())
 
     def __getitem__(self, name):
         return self._models[name]
@@ -910,7 +921,7 @@ class TestRetryPendingAcksSkipsCancellations:
         cancel_review._ack_exchange_filename = lambda: "ACK_X.edi"
 
         class _ReviewModel:
-            def search(self, domain, order=None):
+            def search(self, domain, order=None, limit=None):
                 return _RecordSet([cancel_review])
 
             def search_count(self, domain):
@@ -937,7 +948,7 @@ class TestRetryPendingAcksSkipsCancellations:
         review._ack_exchange_filename = lambda: "ACK_Y.edi"
 
         class _ReviewModel:
-            def search(self, domain, order=None):
+            def search(self, domain, order=None, limit=None):
                 return _RecordSet([review])
 
             def search_count(self, domain):
