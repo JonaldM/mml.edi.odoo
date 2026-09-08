@@ -177,24 +177,47 @@ class TestGenerateAckSS6FailClosedOdoo(_AnimatesOrdrspLiveOdooBase):
 
 
 class TestGenerateAckSiblingAggregationOdoo(_AnimatesOrdrspLiveOdooBase):
-    """Finding #11: sol_by_line must aggregate across ALL sibling reviews of
-    the same PO — a real edi.order.review.search, not just this review's own
-    sale_order_id."""
+    """Finding #11: sol_by_line must aggregate across the sibling reviews of
+    the same PO IN THIS INTERCHANGE - a real edi.order.review.search, not just
+    this review's own sale_order_id, and not reviews of another inbound file.
+
+    Every store-review of one interchange shares edi_file_hash (see
+    edi.order.review._queue_ack), so the fixtures below use one hash for the
+    multi-store case and a second hash for the superseded-file case.
+    """
 
     def test_sibling_review_sol_resolves_this_reviews_missing_line(self):
         # THIS review's own SO has no matching line for EDI line 1...
         self_so = self._make_so(ref_suffix="SELF")
-        self_review = self._make_review(self_so, file_hash="livehash-self")
+        self_review = self._make_review(self_so, file_hash="livehash-multi")
 
-        # ...but a SIBLING review (same PO, same partner) DOES carry it.
+        # ...but a SIBLING store-review of the SAME interchange DOES carry it.
         sibling_so = self._make_so(ref_suffix="SIB")
         self._make_sol(sibling_so, product_uom_qty=2.0, edi_qty_shortfall=0.0)
-        self._make_review(sibling_so, file_hash="livehash-sib", store_code="99999")
+        self._make_review(sibling_so, file_hash="livehash-multi",
+                          store_code="99999")
 
         segs = self._segs(self_review)
         self.assertEqual(self._seg(segs, "LIN")[0].comp(1, 0), "5")
         qty113 = [q for q in self._seg(segs, "QTY") if q.comp(0, 0) == "113"][0]
         self.assertEqual(qty113.comp(0, 1), "2")
+
+    def test_review_from_another_interchange_does_not_supply_lines(self):
+        """A superseded or re-sent review of the same PO number carries a
+        DIFFERENT sale order, so its lines must not resolve this ACK. Without
+        the file-hash scope it did, and _order is 'received_date desc' so the
+        OLDEST such review won."""
+        self_so = self._make_so(ref_suffix="SELF")
+        self_review = self._make_review(self_so, file_hash="livehash-live")
+
+        other_so = self._make_so(ref_suffix="OLD")
+        self._make_sol(other_so, product_uom_qty=2.0, edi_qty_shortfall=0.0)
+        self._make_review(other_so, file_hash="livehash-superseded",
+                          store_code="99999")
+
+        segs = self._segs(self_review)
+        # SS-6 fail-closed: no SOL for the line in THIS interchange -> action 7.
+        self.assertEqual(self._seg(segs, "LIN")[0].comp(1, 0), "7")
 
 
 class TestGenerateAckEnvelopeIdentityOdoo(_AnimatesOrdrspLiveOdooBase):
