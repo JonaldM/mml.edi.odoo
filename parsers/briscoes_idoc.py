@@ -121,6 +121,15 @@ def _we_lifnr(parent: ET.Element, segment_tag: str) -> Optional[str]:
 
 # ── Parser ───────────────────────────────────────────────────────────────────
 
+def _review_order_key(rev):
+    """Oldest-first sort key for sibling reviews. Stringified so a missing or
+    string received_date never collides with a datetime one."""
+    return (
+        str(getattr(rev, "received_date", "") or ""),
+        getattr(rev, "id", 0) or 0,
+    )
+
+
 class BriscoesIDOCParser(BaseEDIParser):
     """Parser for Briscoes SAP iDOC ORDERSEXT purchase orders + ORDRSP ACKs."""
 
@@ -335,10 +344,20 @@ class BriscoesIDOCParser(BaseEDIParser):
         mock path (no Odoo env), where echoing the ordered quantity is intended.
         """
         try:
-            reviews = list(review_record.env["edi.order.review"].search([
+            domain = [
                 ("customer_po_number", "=", review_record.customer_po_number),
                 ("trading_partner_id", "=", review_record.trading_partner_id.id),
-            ])) or [review_record]
+            ]
+            # Scope to THIS inbound file: every store-review of one interchange
+            # shares edi_file_hash (see edi.order.review._queue_ack). Without it
+            # a superseded or re-sent review of the same PO number, which
+            # carries a DIFFERENT sale order, overwrites the live confirmations.
+            file_hash = getattr(review_record, "edi_file_hash", None)
+            if file_hash:
+                domain.append(("edi_file_hash", "=", file_hash))
+            reviews = list(
+                review_record.env["edi.order.review"].search(domain)
+            ) or [review_record]
             has_review_data = True
         except (AttributeError, TypeError):
             # No Odoo env on the record (pure unit-test / mock path): there is no
@@ -374,7 +393,10 @@ class BriscoesIDOCParser(BaseEDIParser):
             raise
 
         confirmed: dict = {}
-        for rev in reviews:
+        # _order is "received_date desc", so search() returns newest FIRST and
+        # the loop's last write (the OLDEST review) would win a POSEX
+        # collision. Walk oldest first so the newest review wins.
+        for rev in sorted(reviews, key=_review_order_key):
             rejected = getattr(rev, "state", "") == "rejected"
             so = getattr(rev, "sale_order_id", None)
             order_lines = (getattr(so, "order_line", []) or []) if so is not None else []

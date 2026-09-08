@@ -180,3 +180,69 @@ class TestSinglePoUnchanged:
         ))
         assert len(root.findall("IDOC")) == 1
         assert root.find("IDOC/E1EDK01/BELNR").text == PO_A
+
+
+# -- sibling confirmations are scoped to this review's interchange ------------
+
+class TestConfirmationScoping:
+    """_gather_confirmations aggregates every store-review of the PO, but a
+    review from a DIFFERENT inbound file (a superseded or re-sent PO) carries a
+    different sale order and must not overwrite the live confirmations."""
+
+    def _review_with_env(self, po, file_hash, cmap, siblings, state="approved",
+                         received="2026-09-08 10:00:00"):
+        r = _review(po, "", state=state, confirmed=cmap)
+        r.edi_file_hash = file_hash
+        r.received_date = received
+        r.trading_partner_id.id = 7
+
+        class _ReviewModel:
+            def search(self, domain):
+                rows = list(siblings)
+                for field, _op, value in domain:
+                    rows = [x for x in rows
+                            if getattr(getattr(x, field, None), "id",
+                                       getattr(x, field, None)) == value]
+                return rows
+
+        class _Env:
+            def __getitem__(self, name):
+                return _ReviewModel()
+
+        r.env = _Env()
+        return r
+
+    def _sibling(self, review, po, file_hash, cmap, received, state="approved"):
+        s = MagicMock()
+        s.customer_po_number = po
+        s.trading_partner_id = review.trading_partner_id
+        s.edi_file_hash = file_hash
+        s.received_date = received
+        s.state = state
+        s.sale_order_id = _MockSO([_MockLine(k, v) for k, v in cmap.items()])
+        return s
+
+    def test_superseded_interchange_does_not_overwrite_confirmations(self):
+        rows = []
+        review = self._review_with_env(PO_A, "hash-live", {10: 6}, rows)
+        stale = self._sibling(review, PO_A, "hash-old", {10: 0},
+                              "2026-09-01 10:00:00", state="rejected")
+        rows.extend([review, stale])
+
+        confirmed, has_review_data = BriscoesIDOCParser()._gather_confirmations(review)
+
+        assert has_review_data is True
+        assert confirmed[10] == (6.0, False)
+
+    def test_newest_review_wins_when_no_file_hash(self):
+        rows = []
+        review = self._review_with_env(PO_A, None, {10: 6}, rows)
+        older = self._sibling(review, PO_A, None, {10: 0},
+                              "2026-09-01 10:00:00", state="rejected")
+        # _order is "received_date desc": search returns newest FIRST, so a
+        # naive loop lets the OLDEST review's values land last and win.
+        rows.extend([review, older])
+
+        confirmed, _ = BriscoesIDOCParser()._gather_confirmations(review)
+
+        assert confirmed[10] == (6.0, False)
