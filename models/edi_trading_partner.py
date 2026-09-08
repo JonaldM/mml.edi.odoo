@@ -13,7 +13,10 @@ from ..utils.credential_store import decrypt_credential, encrypt_credential
 _logger = logging.getLogger(__name__)
 
 _ALLOWED_TEMPLATE_VARS = frozenset({'po_number', 'store_code'})
-_TEMPLATE_VAR_RE = re.compile(r'\$\{?(\w+)\}?')
+# Matches both documented syntaxes: the dollar form ($var / ${var}) and the
+# brace form ({var}), which is what the field's own default and help text
+# use. Group 1 is the dollar capture, group 2 the brace capture.
+_TEMPLATE_VAR_RE = re.compile(r'\$\{?(\w+)\}?|\{(\w+)\}')
 
 _ALLOWED_PARSER_CLASSES = frozenset({
     # NOTE: 'mml_edi.parsers.briscoes.BriscoesParser' (EDIFACT D96A) is
@@ -442,12 +445,17 @@ class EDITradingPartner(models.Model):
         for rec in self:
             if not rec.client_ref_template:
                 continue
-            found_vars = set(_TEMPLATE_VAR_RE.findall(rec.client_ref_template))
+            found_vars = {
+                dollar_var or brace_var
+                for dollar_var, brace_var
+                in _TEMPLATE_VAR_RE.findall(rec.client_ref_template)
+            }
             unknown = found_vars - _ALLOWED_TEMPLATE_VARS
             if unknown:
                 raise ValidationError(
                     "client_ref_template contains unknown variable(s): "
-                    "%s. Allowed: $po_number, $store_code"
+                    "%s. Allowed: {po_number}, {store_code} "
+                    "(or $po_number, $store_code)"
                     % ', '.join(sorted(unknown))
                 )
 
