@@ -12,7 +12,8 @@ def _lin_action(line: str) -> str:
     return line.rstrip("'").split("+")[2]
 
 
-def _make_sol(line_number, barcode, default_code, qty, price, shortfall=0.0):
+def _make_sol(line_number, barcode, default_code, qty, price, shortfall=0.0,
+              display_type=False):
     sol = MagicMock()
     sol.edi_line_number = line_number
     sol.product_id.barcode = barcode
@@ -20,6 +21,7 @@ def _make_sol(line_number, barcode, default_code, qty, price, shortfall=0.0):
     sol.product_uom_qty = qty
     sol.price_unit = price
     sol.edi_qty_shortfall = shortfall
+    sol.display_type = display_type
     return sol
 
 
@@ -263,3 +265,40 @@ def test_briscoes_interchange_sequence_is_declared():
         if f.get("name") == "code"
     ]
     assert "mml_edi.briscoes.interchange.ref" in codes
+
+
+class TestOrdrspSkipsDisplayLines:
+    """Section and note lines carry no product, zero qty and zero price, so
+    they emitted LIN+00000+5+:EN / PRI+AAA:0.00 / QTY+11:0.000:EA and each
+    inflated CNT+2. The EDIStech VAN rejects a zero net value."""
+
+    def _segments(self, review):
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        return _generate_ordrsp(review).decode("utf-8").splitlines()
+
+    def _so_with_a_section(self):
+        product = _make_sol(10, "9414844375629", "MML-1", 4.0, 12.50)
+        section = _make_sol(None, None, None, 0.0, 0.0,
+                            display_type="line_section")
+        return _make_so([section, product])
+
+    def test_section_line_emits_no_lin_segment(self):
+        segs = self._segments(_make_review(so=self._so_with_a_section()))
+        lins = [s for s in segs if s.startswith("LIN+")]
+        assert len(lins) == 1
+        assert not any(s.startswith("LIN+00000") for s in segs)
+
+    def test_section_line_does_not_inflate_cnt_2(self):
+        segs = self._segments(_make_review(so=self._so_with_a_section()))
+        cnt = [s for s in segs if s.startswith("CNT+2:")][0]
+        assert cnt.rstrip("'") == "CNT+2:1"
+
+    def test_section_line_does_not_drive_the_purpose_code(self):
+        """A note line's edi_qty_shortfall must not flip the whole ORDRSP to
+        'changed'."""
+        product = _make_sol(10, "9414844375629", "MML-1", 4.0, 12.50)
+        note = _make_sol(None, None, None, 0.0, 0.0, shortfall=3.0,
+                         display_type="line_note")
+        segs = self._segments(_make_review(so=_make_so([note, product])))
+        bgm = [s for s in segs if s.startswith("BGM")][0]
+        assert bgm.rstrip("'").endswith("+29")

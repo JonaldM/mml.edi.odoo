@@ -391,17 +391,26 @@ def _generate_ordrsp(review) -> bytes:
     buyer_name = partner.partner_id.name if partner and partner.partner_id else ""
     vendor_name = "MML Consumer Products"
 
+    # Product lines only. Section and note lines (display_type) carry no
+    # product, zero qty and zero price, so echoing them emitted
+    # LIN+00000+5+:EN / PRI+AAA:0.00 / QTY+11:0.000:EA and inflated CNT+2 -
+    # and the EDIStech VAN rejects a zero net value ("XML tag NETWR: Value
+    # specified is zero"). _validate_ean13_for_ordrsp cannot catch them
+    # because it skips lines with product_uom_qty <= 0.
+    product_lines = [
+        l for l in (so.order_line if so else []) if not l.display_type
+    ]
+
     if review.state == "rejected":
         purpose = _ORDRSP_CANCELLED
-    elif so and any(l.edi_qty_shortfall > 0 for l in so.order_line):
+    elif any(l.edi_qty_shortfall > 0 for l in product_lines):
         purpose = _ORDRSP_CHANGED
     else:
         purpose = _ORDRSP_ACCEPTED
 
     # Validate EAN-13 barcodes before building segments — Briscoes requires
     # valid EAN-13 on all ORDRSP lines; missing/invalid barcodes cause silent rejection.
-    if so:
-        _validate_ean13_for_ordrsp(so.order_line)
+    _validate_ean13_for_ordrsp(product_lines)
 
     segs = []
     segs.append("UNB+UNOA:3+%s:ZZ+%s:14+%s:%s+%s++ORDRSP" % (
@@ -415,7 +424,7 @@ def _generate_ordrsp(review) -> bytes:
 
     line_count = 0
     if so:
-        for sol in so.order_line.sorted(lambda l: l.edi_line_number or 0):
+        for sol in sorted(product_lines, key=lambda l: l.edi_line_number or 0):
             if review.state == "rejected":
                 line_action = _ORDRSP_LINE_REJECTED
             elif sol.edi_qty_shortfall > 0:
