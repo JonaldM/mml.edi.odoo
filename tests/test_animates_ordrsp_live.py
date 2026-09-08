@@ -306,3 +306,65 @@ def test_sibling_aggregation_falls_back_to_self_when_no_env():
     review = _review(sol=_sol(product_uom_qty=2.0))
     payload = _review_to_ordrsp_payload(review)
     assert payload["lines"][0]["action"] == "5"
+
+
+def test_sibling_aggregation_scoped_to_this_reviews_interchange():
+    """A superseded review of the SAME PO from a DIFFERENT inbound file must
+    not contribute SO lines to this ORDRSP. All store-reviews of one file
+    share edi_file_hash, so the sibling search is scoped by it."""
+    partner = _partner()
+    partner.id = 99
+    live_sol = _sol(edi_line_number=1, product_uom_qty=2.0)
+    stale_sol = _sol(edi_line_number=1, product_uom_qty=0.0, edi_ordered_qty=0.0)
+
+    review = _review(sol=live_sol, partner=partner)
+    review.id = 2
+    review.edi_file_hash = "hash-live"
+    review.received_date = "2026-09-08 10:00:00"
+    review.trading_partner_id = partner
+
+    stale = NS(
+        id=1, trading_partner_id=partner, customer_po_number="PO169603",
+        state="approved", edi_file_hash="hash-superseded",
+        received_date="2026-09-01 10:00:00",
+        sale_order_id=NS(order_line=[stale_sol]),
+    )
+
+    review.env = _FakeEnv({
+        "edi.order.review": _FakeReviewModel([review, stale]),
+    })
+
+    payload = _review_to_ordrsp_payload(review)
+    assert payload["lines"][0]["action"] == "5"
+    assert payload["lines"][0]["qty_committed"] == "2"
+
+
+def test_sibling_aggregation_newest_review_wins_without_file_hash():
+    """Legacy hash-less reviews cannot be scoped by interchange, so the
+    aggregation must at least be deterministic: the NEWEST review's SO line
+    wins, not whichever the search happened to return last."""
+    partner = _partner()
+    partner.id = 99
+    new_sol = _sol(edi_line_number=1, product_uom_qty=2.0)
+    old_sol = _sol(edi_line_number=1, product_uom_qty=0.0, edi_ordered_qty=0.0)
+
+    review = _review(sol=new_sol, partner=partner)
+    review.id = 2
+    review.received_date = "2026-09-08 10:00:00"
+    review.trading_partner_id = partner
+
+    old = NS(
+        id=1, trading_partner_id=partner, customer_po_number="PO169603",
+        state="approved", received_date="2026-09-01 10:00:00",
+        sale_order_id=NS(order_line=[old_sol]),
+    )
+
+    # edi.order.review._order is "received_date desc", so search() hands back
+    # newest FIRST and a naive loop lets the OLDEST row overwrite it.
+    review.env = _FakeEnv({
+        "edi.order.review": _FakeReviewModel([review, old]),
+    })
+
+    payload = _review_to_ordrsp_payload(review)
+    assert payload["lines"][0]["action"] == "5"
+    assert payload["lines"][0]["qty_committed"] == "2"

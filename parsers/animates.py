@@ -372,9 +372,19 @@ _REASON_REJECTED_ON_REVIEW = "Rejected on review"
 _REASON_REJECTED_ZERO_QTY = "Item out of stock"
 
 
+def _sibling_order_key(rev):
+    """Oldest-first sort key for sibling reviews. Stringified so a missing or
+    string received_date never collides with a datetime one."""
+    return (
+        str(getattr(rev, "received_date", "") or ""),
+        getattr(rev, "id", 0) or 0,
+    )
+
+
 def _gather_sol_by_line(review) -> dict:
-    """Collect {edi_line_number: sale.order.line} across ALL sibling reviews of
-    the same PO (mirrors briscoes_idoc._gather_confirmations — finding #11).
+    """Collect {edi_line_number: sale.order.line} across the sibling reviews of
+    the same PO IN THIS INTERCHANGE (mirrors briscoes_idoc._gather_confirmations
+    — finding #11).
 
     A multi-store Animates interchange (or a partial-failure retry that split
     one PO across several review records) must not ACK another store's/
@@ -395,14 +405,25 @@ def _gather_sol_by_line(review) -> dict:
     partner = getattr(review, "trading_partner_id", None)
     po = getattr(review, "customer_po_number", None)
     if env is not None and partner is not None and po:
+        domain = [
+            ("trading_partner_id", "=", getattr(partner, "id", partner)),
+            ("customer_po_number", "=", po),
+        ]
+        # Scope to THIS inbound file: every store-review of one interchange
+        # shares edi_file_hash (see edi.order.review._queue_ack). Without it a
+        # superseded or cancelled review of the same PO number, which carries a
+        # DIFFERENT sale order, contributes its lines to this ACK.
+        file_hash = getattr(review, "edi_file_hash", None)
+        if file_hash:
+            domain.append(("edi_file_hash", "=", file_hash))
         try:
-            siblings = env["edi.order.review"].search([
-                ("trading_partner_id", "=", getattr(partner, "id", partner)),
-                ("customer_po_number", "=", po),
-            ]) or [review]
+            siblings = list(env["edi.order.review"].search(domain)) or [review]
         except Exception:
             siblings = [review]
-        for rev in siblings:
+        # _order is "received_date desc", so search() returns newest FIRST and
+        # the loop's last write (the OLDEST review) would win a line-number
+        # collision. Index oldest first so the newest review wins.
+        for rev in sorted(siblings, key=_sibling_order_key):
             _index(getattr(rev, "sale_order_id", None))
     else:
         _index(getattr(review, "sale_order_id", None))
