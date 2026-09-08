@@ -12,6 +12,8 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
+from .common import unique_partner_code
+
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
 
@@ -25,9 +27,12 @@ class TestAnimatesIdentityFields(TransactionCase):
             "name": "Animates NZ Holding LTD",
             "customer_rank": 1,
         })
+        # Never the live "ANIMATES" code: edi.trading.partner.code is globally
+        # unique, so hardcoding it duplicate-keys against the real row that
+        # every prod clone carries and the whole class errors in setUp.
         self.partner = self.env["edi.trading.partner"].create({
             "name": "Animates",
-            "code": "ANIMATES",
+            "code": unique_partner_code(self.env, "ANIMATES"),
             "partner_id": self.customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.animates.AnimatesParser",
@@ -55,7 +60,7 @@ class TestAnimatesIdentityFields(TransactionCase):
     def test_edi_sender_qualifier_defaults_to_zzz(self):
         other = self.env["edi.trading.partner"].create({
             "name": "Animates No Qualifier",
-            "code": "ANIMATESNQ",
+            "code": unique_partner_code(self.env, "ANIMATESNQ"),
             "partner_id": self.customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.animates.AnimatesParser",
