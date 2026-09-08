@@ -8,6 +8,8 @@ line amounts/price as 4dp strings, summary amounts + tax rate as 2dp strings.
 """
 from pathlib import Path
 
+import pytest
+
 from mml_edi.parsers.animates_edifact import (
     assert_equivalent,
     tokenize,
@@ -172,3 +174,29 @@ class TestInvoicEmptyCompositesAndLengths:
         assert "RFF+AMT:9429040432250" in segs
         assert "RFF+AMT:12345678901" in segs
         assert "CTA+OC+:Ms M" in segs
+
+
+# -- require_real placeholder guard -------------------------------------------
+
+def test_build_invoic_require_real_rejects_placeholder_sender():
+    """Production callers must be able to fail closed on the documentation
+    sentinels the same way build_ordrsp already does."""
+    from mml_edi.parsers.animates_edifact import EdifactError
+
+    with pytest.raises(EdifactError):
+        build_invoic(_fixture_payload(), supplier_gln="SUPPLIER_GLN", ctrl_ref=99,
+                     require_real=True)
+
+
+def test_build_invoic_require_real_rejects_placeholder_ctrl_ref():
+    from mml_edi.parsers.animates_edifact import EdifactError
+
+    with pytest.raises(EdifactError):
+        build_invoic(_fixture_payload(), supplier_gln="9419416000008", ctrl_ref=12341,
+                     require_real=True)
+
+
+def test_build_invoic_require_real_accepts_real_identity():
+    out = build_invoic(_fixture_payload(), supplier_gln="9419416000008", ctrl_ref=4321,
+                       require_real=True)
+    assert b"UNB+" in out

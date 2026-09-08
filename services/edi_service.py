@@ -478,6 +478,7 @@ class EDIService:
             recipient=recipient_id,
             recipient_qualifier=recipient_qual,
             time_hhmm=datetime.now(timezone.utc).strftime('%H%M'),
+            require_real=True,
         )
 
         po_for_filename = payload['po'].replace('/', '')

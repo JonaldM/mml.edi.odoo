@@ -523,6 +523,7 @@ def generate_and_upload_invoic(env, move, partner) -> bytes:
         sender_qualifier=sender_qual,
         recipient=recipient_id,
         recipient_qualifier=recipient_qual,
+        require_real=True,
     )
 
     po_for_filename = str(payload["ref_on"]).replace("/", "")
