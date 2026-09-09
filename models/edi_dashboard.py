@@ -47,6 +47,19 @@ def _not_cancellation_domain(marker):
             ("change_summary", "not like", marker)]
 
 
+# ---- ORDRSP scoping ---------------------------------------------------------
+
+# edi.log's ``ack_sent`` event_type is NOT exclusive to the per-PO ORDRSP: the
+# Animates DESADV (services/edi_service.py) and the Animates INVOIC
+# (services/animates_invoice.py) deliberately reuse it rather than adding new
+# selection values. Every metric on this board that calls itself an ORDRSP
+# number must therefore also match the filename the ORDRSP sender writes,
+# ACK_<partner>_<po>_<key>[_a<n>].edi (edi_order_review._ack_filename). The
+# separator underscore is backslash-escaped because '_' is a single-character
+# wildcard in SQL LIKE, which '=like' passes through verbatim.
+_ORDRSP_FILENAME_PATTERN = "ACK\\_%"
+
+
 # ---- KPI RAG helpers (higher- and lower-is-better) --------------------------
 
 def _rag_higher_better(value, target, amber_floor):
@@ -179,6 +192,17 @@ class EdiDashboard(models.AbstractModel):
         return self.env["edi.trading.partner"].search([("code", "=", partner_code)])
 
     @api.model
+    def _ordrsp_ack_domain(self):
+        """Domain fragment matching per-PO ORDRSP uploads and nothing else.
+
+        See _ORDRSP_FILENAME_PATTERN: DESADV and INVOIC share the ``ack_sent``
+        event_type, so event_type alone over-counts both the on-time
+        denominator and the acknowledged stage.
+        """
+        return [("event_type", "=", "ack_sent"),
+                ("filename", "=like", _ORDRSP_FILENAME_PATTERN)]
+
+    @api.model
     def _partner_domain(self, partner_code, field="trading_partner_id"):
         """Domain fragment scoping a model to one partner, or [] for all."""
         if not partner_code or partner_code == "all":
@@ -293,7 +317,11 @@ class EdiDashboard(models.AbstractModel):
         parsed = _count("file_parse")
         orders_created = _count("order_created")
         in_review = self._pending_review_count(partner_code)
-        acknowledged = _count("ack_sent", status="success")
+        # ORDRSP only: DESADV and INVOIC also log ack_sent (see
+        # _ORDRSP_FILENAME_PATTERN), and this stage's note says "ORDRSP".
+        acknowledged = Log.search_count(
+            pdom + self._ordrsp_ack_domain()
+            + [("status", "=", "success"), ("timestamp", ">=", today_start)])
         # All error events today (parse / ftp / ack) — not scoped to parsing, so
         # the note reads "error(s) today", never the false "parse error(s)".
         errors_today = _count("error")
@@ -327,8 +355,8 @@ class EdiDashboard(models.AbstractModel):
         pos = len(set(reviews_today.mapped("customer_po_number")))
         store_orders = len(reviews_today)
         acks = Log.search_count(
-            pdom + [("event_type", "=", "ack_sent"), ("status", "=", "success"),
-                    ("timestamp", ">=", today_start)])
+            pdom + self._ordrsp_ack_domain()
+            + [("status", "=", "success"), ("timestamp", ">=", today_start)])
         return {"files": files, "pos": pos, "store_orders": store_orders, "acks": acks}
 
     @api.model
@@ -361,12 +389,13 @@ class EdiDashboard(models.AbstractModel):
 
         # ORDRSP on-time: successful ACK sends vs all ACK attempts (30d). A
         # failed upload (SFTP timeout to the VAN) drags this off 100%.
+        ack_dom = pdom + self._ordrsp_ack_domain()
         ack_ok = Log.search_count(
-            pdom + [("event_type", "=", "ack_sent"), ("status", "=", "success"),
-                    ("timestamp", ">=", window_start)])
+            ack_dom + [("status", "=", "success"),
+                       ("timestamp", ">=", window_start)])
         ack_fail = Log.search_count(
-            pdom + [("event_type", "=", "ack_sent"), ("status", "=", "error"),
-                    ("timestamp", ">=", window_start)])
+            ack_dom + [("status", "=", "error"),
+                       ("timestamp", ">=", window_start)])
         ack_val = _pct(ack_ok, ack_ok + ack_fail)
 
         turnaround = self._median_turnaround_h(pdom, window_start)
