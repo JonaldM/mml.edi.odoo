@@ -8,6 +8,8 @@ Two shapes are exercised, both reproduced verbatim from the MIG worked examples:
 """
 from pathlib import Path
 
+import pytest
+
 from mml_edi.parsers.animates_edifact import (
     tokenize, validate_interchange, normalized_segments,
 )
@@ -348,3 +350,29 @@ class TestDesadvEnvelopeIdentity:
         unb = self._unb(build_desadv(PALLET_PAYLOAD, ctrl_ref=78401, msg_ref=1))
         assert "ANIMATES:ZZZ" in unb
         assert ":0730" in unb
+
+
+# -- require_real placeholder guard -------------------------------------------
+
+def test_build_desadv_require_real_rejects_placeholder_sender():
+    """Production callers must be able to fail closed on the documentation
+    sentinels the same way build_ordrsp already does."""
+    from mml_edi.parsers.animates_edifact import EdifactError
+
+    with pytest.raises(EdifactError):
+        build_desadv(PALLET_PAYLOAD, supplier_gln="SUPPLIER_GLN", ctrl_ref=99,
+                     require_real=True)
+
+
+def test_build_desadv_require_real_rejects_placeholder_ctrl_ref():
+    from mml_edi.parsers.animates_edifact import EdifactError
+
+    with pytest.raises(EdifactError):
+        build_desadv(PALLET_PAYLOAD, supplier_gln="9419416000008", ctrl_ref=78401,
+                     require_real=True)
+
+
+def test_build_desadv_require_real_accepts_real_identity():
+    out = build_desadv(PALLET_PAYLOAD, supplier_gln="9419416000008", ctrl_ref=4321,
+                       require_real=True)
+    assert b"UNB+" in out

@@ -111,7 +111,7 @@ class EdiPartnerHealth(models.AbstractModel):
           - ``settings_action`` — xmlid the "Open settings" button opens
         """
         now = fields.Datetime.now()
-        partners = self.env["edi.trading.partner"].search([], order="name")
+        partners = self._all_partners()
 
         health = self._batched_health(now, partners)
         on_time = self._batched_on_time(now, partners)
@@ -136,6 +136,21 @@ class EdiPartnerHealth(models.AbstractModel):
             "settings_action": "mml_edi.action_edi_trading_partner",
         }
 
+    # ---- partner roster ------------------------------------------------------
+
+    @api.model
+    def _all_partners(self):
+        """Every configured trading partner, archived ones included.
+
+        edi.trading.partner has an ``active`` field, so a plain search is
+        active_test-filtered and returns only live partners. The board is built
+        to show archived ones: the subtitle's "N scoped" clause is
+        len(partners) - len(active), and _circuit has an "N/A" branch that
+        requires ``not p.active``. Both were dead while the search hid them.
+        """
+        return self.env["edi.trading.partner"].with_context(
+            active_test=False).search([], order="name")
+
     # ---- 24h exchange-queue strip -------------------------------------------
 
     @api.model
@@ -144,10 +159,13 @@ class EdiPartnerHealth(models.AbstractModel):
 
         Every lane is a single ``search_count`` over ``edi.log`` (six counts,
         not per-partner) so the strip is a cheap radiator. "ACK queued" is the
-        pre-upload claim marker (an ``ack_sent`` row logged at ``warning`` status
-        before the upload is confirmed); "ACK sent" is a successful upload;
-        "Failed" is an errored upload. The ramp colours are the README pipeline
-        tokens (light-bg + dark-fg, read in both schemes).
+        pre-upload claim marker, which ``edi.order.review._queue_ack`` writes as
+        its own ``ack_sending`` event type; "ACK sent" is a successful upload;
+        "Failed" is an errored upload. Like the lanes before it this is a stage
+        count over the window, not a live backlog: an exchange claimed and then
+        confirmed shows in both "ACK queued" and "ACK sent". The ramp colours
+        are the README pipeline tokens (light-bg + dark-fg, read in both
+        schemes).
         """
         Log = self.env["edi.log"]
         cutoff = now - timedelta(hours=24)
@@ -162,7 +180,7 @@ class EdiPartnerHealth(models.AbstractModel):
             {"label": "Polled", "n": _c("file_download"), "bg": "#E6F1FB", "fg": "#0C447C"},
             {"label": "Parsed", "n": _c("file_parse"), "bg": "#E6F1FB", "fg": "#0C447C"},
             {"label": "Orders", "n": _c("order_created"), "bg": "#85B7EB", "fg": "#042C53"},
-            {"label": "ACK queued", "n": _c("ack_sent", "warning"), "bg": "#FAEEDA", "fg": "#854F0B"},
+            {"label": "ACK queued", "n": _c("ack_sending"), "bg": "#FAEEDA", "fg": "#854F0B"},
             {"label": "ACK sent", "n": _c("ack_sent", "success"), "bg": "#378ADD", "fg": "#fff"},
             {"label": "Failed", "n": _c("ack_sent", "error"), "bg": "#FCEBEB", "fg": "#A32D2D"},
         ]
@@ -252,18 +270,29 @@ class EdiPartnerHealth(models.AbstractModel):
         """{partner_id: [{day, files, orders} x7]} — 2 read_groups, bucketed.
 
         Two grouped passes (file_download, order_created) over the 7-day window,
-        grouped by partner + day, then zero-filled into a Mon-anchored 7-day
-        array per partner (never a per-partner-per-day query).
+        grouped by partner + day, then zero-filled into a 7-day array per
+        partner ending on the operator's today (never a per-partner-per-day
+        query). The bars carry weekday names, so the buckets are the operator's
+        calendar days, not UTC days.
         """
-        # Bucket in UTC on BOTH sides: the day list and the read_group day
-        # granularity share tz='UTC', so a log's bucket is deterministic
-        # regardless of the operator's timezone (this is a rough 7-day
-        # histogram, not a calendar-local report).
-        Log = self.env["edi.log"].with_context(tz="UTC")
-        days = [(now - timedelta(days=6 - i)).date() for i in range(7)]
+        # Bucket in the OPERATOR's timezone on both sides: the day list and the
+        # read_group day granularity share it, so a log lands in the calendar
+        # day the '%a' label names. New Zealand is UTC+12/+13, so bucketing on
+        # UTC while printing weekday names filed every local morning under the
+        # previous day (same class as the connector-health tz bug).
+        import pytz
+        tz_name = self.env.user.tz or "Pacific/Auckland"
+        tz = pytz.timezone(tz_name)
+        Log = self.env["edi.log"].with_context(tz=tz_name)
+        local_now = pytz.utc.localize(now).astimezone(tz)
+        days = [(local_now - timedelta(days=6 - i)).date() for i in range(7)]
         day_labels = [d.strftime("%a") for d in days]
         idx = {d: i for i, d in enumerate(days)}
-        cutoff = datetime(days[0].year, days[0].month, days[0].day)
+        # Local midnight of the first bar, expressed as the naive-UTC instant
+        # the stored timestamps are compared against.
+        cutoff = tz.localize(
+            datetime(days[0].year, days[0].month, days[0].day)
+        ).astimezone(pytz.utc).replace(tzinfo=None)
 
         base = {p.id: {"files": [0] * 7, "orders": [0] * 7} for p in partners}
 
@@ -328,6 +357,11 @@ class EdiPartnerHealth(models.AbstractModel):
         proto = (p.ftp_protocol or "").upper()
         split = "per-store" if p.order_split_mode == "per_store" else "single"
         last = self._fmt_time(fields.Datetime.now(), h["last_poll"]) if h["last_poll"] else "never"
+        sub = "%s · last poll %s · %d in review" % (proto or "—", last, h["pending"])
+        # The roster now includes archived partners (see _all_partners), so the
+        # rail has to say which rows they are.
+        if not p.active:
+            sub += " · archived"
         return {
             "id": p.id,
             "code": p.code,
@@ -336,7 +370,8 @@ class EdiPartnerHealth(models.AbstractModel):
             "dot": _HEALTH_DOTS.get(state, "#adb5bd"),
             "health": _HEALTH_LABELS.get(state, state),
             "health_color": _HEALTH_DOTS.get(state, "#6c757d"),
-            "sub": "%s · last poll %s · %d in review" % (proto or "—", last, h["pending"]),
+            "sub": sub,
+            "archived": not p.active,
             "split": split,
         }
 

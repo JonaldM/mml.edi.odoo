@@ -13,7 +13,10 @@ from ..utils.credential_store import decrypt_credential, encrypt_credential
 _logger = logging.getLogger(__name__)
 
 _ALLOWED_TEMPLATE_VARS = frozenset({'po_number', 'store_code'})
-_TEMPLATE_VAR_RE = re.compile(r'\$\{?(\w+)\}?')
+# Matches both documented syntaxes: the dollar form ($var / ${var}) and the
+# brace form ({var}), which is what the field's own default and help text
+# use. Group 1 is the dollar capture, group 2 the brace capture.
+_TEMPLATE_VAR_RE = re.compile(r'\$\{?(\w+)\}?|\{(\w+)\}')
 
 _ALLOWED_PARSER_CLASSES = frozenset({
     # NOTE: 'mml_edi.parsers.briscoes.BriscoesParser' (EDIFACT D96A) is
@@ -210,11 +213,24 @@ class EDITradingPartner(models.Model):
              "(as opposed to edi_sender_id/edi_sender_qualifier, which may be "
              "ZZZ-qualified for the interchange envelope itself).",
     )
-    animates_vendor_code = fields.Char(
-        string="Animates Vendor Code",
-        help="The supplier code Animates assigned us (e.g. 'V1058'), used for "
-             "NAD+SU and PIA+1:SA identity in outbound Animates messages "
-             "(ORDRSP/DESADV/INVOIC). Blank on non-Animates partners.",
+    edi_recipient_id = fields.Char(
+        string="EDI Recipient ID",
+        help="The counterparty's identity in the UNB interchange header "
+             "(S003 DE0004), e.g. 'ANIMATES'. Also the value the inbound "
+             "envelope validator requires an inbound UNB sender to match. "
+             "Leave blank to keep the historical Animates default.",
+    )
+    edi_recipient_test_id = fields.Char(
+        string="EDI Recipient ID (test)",
+        help="The counterparty's TEST-mailbox identity, e.g. 'TST1ANIMATES'. "
+             "A test mailbox is usually a DISTINCT recipient id, not the "
+             "production id with a flag - sending to the wrong one silently "
+             "misroutes the interchange. Falls back to EDI Recipient ID.",
+    )
+    edi_recipient_qualifier = fields.Char(
+        string="EDI Recipient Qualifier",
+        help="UNB S003 qualifier (DE0007) for the recipient identity, e.g. "
+             "'ZZZ' (mutually defined) or '14' (GLN). Defaults to ZZZ.",
     )
 
     def get_unb_sender(self):
@@ -238,16 +254,30 @@ class EDITradingPartner(models.Model):
         )
 
     def get_unb_recipient(self):
-        """Return (id, qualifier) for the Animates side of an outbound UNB.
+        """Return (id, qualifier) for the counterparty side of an outbound UNB.
 
-        Switches on ``environment``: the TEST portal mailbox is a DISTINCT
-        recipient identity 'TST1ANIMATES' (per the ORDRSP/ORDERS MIG worked
-        examples), not the production 'ANIMATES' id with a flag — sending to
-        the wrong one silently misroutes the interchange in SPS Commerce.
+        Reads the per-partner edi_recipient_id / edi_recipient_test_id /
+        edi_recipient_qualifier fields, so a second EDIFACT partner can be
+        onboarded without the identity being hardcoded to Animates. Falls back
+        to the historical ANIMATES / TST1ANIMATES / ZZZ triple when they are
+        blank, which is what the live Animates row relies on.
+
+        Switches on ``environment``: a TEST portal mailbox is usually a
+        DISTINCT recipient identity (Animates' is 'TST1ANIMATES', per the
+        ORDRSP/ORDERS MIG worked examples), not the production id with a flag
+        — sending to the wrong one silently misroutes the interchange.
         """
         self.ensure_one()
-        recipient = "TST1ANIMATES" if self.environment == "test" else "ANIMATES"
-        return recipient, "ZZZ"
+        production_id = self.edi_recipient_id or "ANIMATES"
+        if self.environment == "test":
+            recipient = (
+                self.edi_recipient_test_id
+                or (self.edi_recipient_id and production_id)
+                or "TST1ANIMATES"
+            )
+        else:
+            recipient = production_id
+        return recipient, (self.edi_recipient_qualifier or "ZZZ")
 
     # ── Notifications ─────────────────────────────────────────────────────
 
@@ -286,29 +316,21 @@ class EDITradingPartner(models.Model):
     )
 
     # ── EDI Interchange Identity ──────────────────────────────────────────
-    # Used to build the EDIFACT UNB interchange envelope for VAN partners
-    # (e.g. Animates via SPS Commerce). iDOC partners (Briscoes) route by GLN
-    # in the iDOC header rather than a UNB envelope, so these may be blank for
-    # them. Stored config consumed when the EDIFACT sender path is enabled.
+    # edi_sender_id / edi_sender_qualifier / supplier_gln used to be declared
+    # a SECOND time here, with default="14". Python keeps only the last
+    # assignment, so Odoo registered that one and every partner created
+    # without an explicit qualifier got "14" instead of the "ZZZ" the Animates
+    # MIG requires and the EDI Identity block above documents. The single
+    # declaration now lives in that block; only vendor_code, which was never a
+    # duplicate, remains here.
 
-    edi_sender_id = fields.Char(
-        string="EDI Sender ID",
-        help="Interchange sender identification (typically the supplier GLN) "
-             "placed in the EDIFACT UNB segment.",
-    )
-    edi_sender_qualifier = fields.Char(
-        string="Sender Qualifier",
-        default="14",
-        help="UNB sender qualifier (14 = GLN / GS1 Global Location Number).",
-    )
-    supplier_gln = fields.Char(
-        string="Supplier GLN",
-        help="MML's GS1 Global Location Number for this trading relationship.",
-    )
     vendor_code = fields.Char(
         string="Vendor Code",
         help="The supplier/vendor account code this partner identifies MML by "
-             "in their system (echoed on acknowledgements where required).",
+             "in their system (e.g. Animates' 'V1058'). Used for NAD+SU and "
+             "PIA+1:SA identity in outbound EDIFACT messages "
+             "(ORDRSP/DESADV/INVOIC) and echoed on acknowledgements where "
+             "required. Falls back to the partner code when blank.",
     )
 
     # ── Store map (read-only view of the customer's delivery children) ────
@@ -456,12 +478,17 @@ class EDITradingPartner(models.Model):
         for rec in self:
             if not rec.client_ref_template:
                 continue
-            found_vars = set(_TEMPLATE_VAR_RE.findall(rec.client_ref_template))
+            found_vars = {
+                dollar_var or brace_var
+                for dollar_var, brace_var
+                in _TEMPLATE_VAR_RE.findall(rec.client_ref_template)
+            }
             unknown = found_vars - _ALLOWED_TEMPLATE_VARS
             if unknown:
                 raise ValidationError(
                     "client_ref_template contains unknown variable(s): "
-                    "%s. Allowed: $po_number, $store_code"
+                    "%s. Allowed: {po_number}, {store_code} "
+                    "(or $po_number, $store_code)"
                     % ', '.join(sorted(unknown))
                 )
 

@@ -12,6 +12,8 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
+from .common import unique_partner_code
+
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
 
@@ -25,9 +27,12 @@ class TestAnimatesIdentityFields(TransactionCase):
             "name": "Animates NZ Holding LTD",
             "customer_rank": 1,
         })
+        # Never the live "ANIMATES" code: edi.trading.partner.code is globally
+        # unique, so hardcoding it duplicate-keys against the real row that
+        # every prod clone carries and the whole class errors in setUp.
         self.partner = self.env["edi.trading.partner"].create({
             "name": "Animates",
-            "code": "ANIMATES",
+            "code": unique_partner_code(self.env, "ANIMATES"),
             "partner_id": self.customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.animates.AnimatesParser",
@@ -41,7 +46,7 @@ class TestAnimatesIdentityFields(TransactionCase):
             "edi_sender_id": "9419416000008T",
             "edi_sender_qualifier": "ZZZ",
             "supplier_gln": "9419416000008",
-            "animates_vendor_code": "V1058",
+            "vendor_code": "V1058",
         })
 
     # --- field persistence -----------------------------------------------
@@ -50,12 +55,15 @@ class TestAnimatesIdentityFields(TransactionCase):
         self.assertEqual(self.partner.edi_sender_id, "9419416000008T")
         self.assertEqual(self.partner.edi_sender_qualifier, "ZZZ")
         self.assertEqual(self.partner.supplier_gln, "9419416000008")
-        self.assertEqual(self.partner.animates_vendor_code, "V1058")
+        self.assertEqual(self.partner.vendor_code, "V1058")
 
     def test_edi_sender_qualifier_defaults_to_zzz(self):
+        # The duplicate declaration that made this default "14" (a second
+        # edi_sender_qualifier field further down the class body) is gone, so
+        # the MIG-correct "ZZZ" default now applies.
         other = self.env["edi.trading.partner"].create({
             "name": "Animates No Qualifier",
-            "code": "ANIMATESNQ",
+            "code": unique_partner_code(self.env, "ANIMATESNQ"),
             "partner_id": self.customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.animates.AnimatesParser",

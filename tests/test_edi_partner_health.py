@@ -16,7 +16,12 @@ from datetime import timedelta
 from odoo import fields
 from odoo.tests import TransactionCase, tagged
 
-from .common import EDITestSetup
+from .common import (
+    EDITestSetup,
+    archive_foreign_trading_partners,
+    backdate_foreign_edi_logs,
+    unique_partner_code,
+)
 
 
 @tagged("post_install", "-at_install")
@@ -29,7 +34,7 @@ class TestEdiPartnerHealth(TransactionCase, EDITestSetup):
         # exercised. Dedicated config (never search([],limit=1)).
         self.partner_b = self.env["edi.trading.partner"].create({
             "name": "SFTP EDI Partner",
-            "code": "SFTPB",
+            "code": unique_partner_code(self.env, "SFTPB"),
             "partner_id": self.trading_partner.partner_id.id,
             "edi_format": "idoc_xml",
             "parser_class": "mml_edi.parsers.briscoes.BriscoesParser",
@@ -42,6 +47,16 @@ class TestEdiPartnerHealth(TransactionCase, EDITestSetup):
             "order_split_mode": "per_store",
             "pricelist_id": self.trading_partner.pricelist_id.id,
         })
+        # get_health_summary aggregates over EVERY trading partner and, for the
+        # 24h exchange-queue strip, over EVERY edi.log row. On a prod clone that
+        # means the real partners and their real poll history, so the rail, the
+        # "N active" subtitle and the queue counts all read foreign data.
+        # Archive the foreign partners and push their log rows out of the 24h
+        # window INSIDE this transaction, so the payload under test is built
+        # from this fixture's own records; TransactionCase rolls both back.
+        self.fixture_partners = self.trading_partner | self.partner_b
+        archive_foreign_trading_partners(self.env, self.fixture_partners)
+        backdate_foreign_edi_logs(self.env, self.fixture_partners)
 
     # ---- helpers ----
 
@@ -74,7 +89,9 @@ class TestEdiPartnerHealth(TransactionCase, EDITestSetup):
         self._log(event_type="order_created")
         self._log(direction="outbound", event_type="ack_sent", status="success")
         self._log(direction="outbound", event_type="ack_sent", status="error")
-        self._log(direction="outbound", event_type="ack_sent", status="warning")
+        # The pre-upload claim _queue_ack really writes. The lane used to count
+        # ack_sent/warning, a pair no code path produces.
+        self._log(direction="outbound", event_type="ack_sending", status="success")
         queue = self.svc.get_health_summary()["queue"]
         by_label = {q["label"]: q["n"] for q in queue}
         self.assertEqual(by_label["Polled"], 2)

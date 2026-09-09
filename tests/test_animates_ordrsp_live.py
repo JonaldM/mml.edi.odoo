@@ -14,6 +14,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from mml_edi.parsers.animates import AnimatesParser, _review_to_ordrsp_payload
+from mml_edi.parsers.base_parser import EDIParseError
 from mml_edi.parsers import animates_edifact as edifact
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -23,7 +24,7 @@ ORDERS = (FIXTURES / "animates_orders_PO169603.edi").read_text(encoding="iso-885
 def _partner(code="V1058", vendor_code="V1058", environment="test", sender_qual="ZZZ"):
     return NS(
         code=code,
-        animates_vendor_code=vendor_code,
+        vendor_code=vendor_code,
         get_unb_sender=lambda: ("9419416000008T", sender_qual),
         get_unb_recipient=lambda: (
             ("TST1ANIMATES", "ZZZ") if environment == "test" else ("ANIMATES", "ZZZ")
@@ -232,9 +233,9 @@ def test_generate_ack_prod_recipient_is_animates():
     assert unb.elements[2][0] == "ANIMATES"
 
 
-def test_generate_ack_supplier_nad_uses_animates_vendor_code_not_partner_code():
+def test_generate_ack_supplier_nad_uses_vendor_code_not_partner_code():
     """NAD+SU must carry the Animates-assigned vendor code (C1
-    animates_vendor_code), not our internal partner.code."""
+    vendor_code), not our internal partner.code."""
     review = _review(partner=_partner(code="INTERNAL-CODE-123", vendor_code="V1058"))
     out = AnimatesParser().generate_ack(review)
     segs = _segs_from_bytes(out)
@@ -306,3 +307,158 @@ def test_sibling_aggregation_falls_back_to_self_when_no_env():
     review = _review(sol=_sol(product_uom_qty=2.0))
     payload = _review_to_ordrsp_payload(review)
     assert payload["lines"][0]["action"] == "5"
+
+
+def test_sibling_aggregation_scoped_to_this_reviews_interchange():
+    """A superseded review of the SAME PO from a DIFFERENT inbound file must
+    not contribute SO lines to this ORDRSP. All store-reviews of one file
+    share edi_file_hash, so the sibling search is scoped by it."""
+    partner = _partner()
+    partner.id = 99
+    live_sol = _sol(edi_line_number=1, product_uom_qty=2.0)
+    stale_sol = _sol(edi_line_number=1, product_uom_qty=0.0, edi_ordered_qty=0.0)
+
+    review = _review(sol=live_sol, partner=partner)
+    review.id = 2
+    review.edi_file_hash = "hash-live"
+    review.received_date = "2026-09-08 10:00:00"
+    review.trading_partner_id = partner
+
+    stale = NS(
+        id=1, trading_partner_id=partner, customer_po_number="PO169603",
+        state="approved", edi_file_hash="hash-superseded",
+        received_date="2026-09-01 10:00:00",
+        sale_order_id=NS(order_line=[stale_sol]),
+    )
+
+    review.env = _FakeEnv({
+        "edi.order.review": _FakeReviewModel([review, stale]),
+    })
+
+    payload = _review_to_ordrsp_payload(review)
+    assert payload["lines"][0]["action"] == "5"
+    assert payload["lines"][0]["qty_committed"] == "2"
+
+
+def test_sibling_aggregation_newest_review_wins_without_file_hash():
+    """Legacy hash-less reviews cannot be scoped by interchange, so the
+    aggregation must at least be deterministic: the NEWEST review's SO line
+    wins, not whichever the search happened to return last."""
+    partner = _partner()
+    partner.id = 99
+    new_sol = _sol(edi_line_number=1, product_uom_qty=2.0)
+    old_sol = _sol(edi_line_number=1, product_uom_qty=0.0, edi_ordered_qty=0.0)
+
+    review = _review(sol=new_sol, partner=partner)
+    review.id = 2
+    review.received_date = "2026-09-08 10:00:00"
+    review.trading_partner_id = partner
+
+    old = NS(
+        id=1, trading_partner_id=partner, customer_po_number="PO169603",
+        state="approved", received_date="2026-09-01 10:00:00",
+        sale_order_id=NS(order_line=[old_sol]),
+    )
+
+    # edi.order.review._order is "received_date desc", so search() hands back
+    # newest FIRST and a naive loop lets the OLDEST row overwrite it.
+    review.env = _FakeEnv({
+        "edi.order.review": _FakeReviewModel([review, old]),
+    })
+
+    payload = _review_to_ordrsp_payload(review)
+    assert payload["lines"][0]["action"] == "5"
+    assert payload["lines"][0]["qty_committed"] == "2"
+
+
+# --- multi-PO interchange isolation (edi_raw_data holds the WHOLE file) ---
+
+def _two_po_orders() -> str:
+    """The single-PO fixture plus a second UNH message for a different PO,
+    mimicking a batched SPS interchange. edi_processor stores the WHOLE
+    decoded file on every review of that file."""
+    second = (
+        "UNH+2+ORDERS:D:01B:UN:EAN011'"
+        "BGM+220+PO999999+9'"
+        "DTM+137:20200916:102'"
+        "NAD+BY+ANIMATES::92++Animates NZ Holding LTD'"
+        "NAD+SU+V1058::92++M&M Pty Ltd'"
+        "NAD+ST+54321::92++Animates Otherstore'"
+        "LIN+1'"
+        "PIA+5+999999:IN'"
+        "PIA+1+9999999:SA'"
+        "IMD+F++:::Other PO Product'"
+        "QTY+21:7:EA'"
+        "PRI+AAA:11.11'"
+        "UNS+S'"
+        "CNT+2:1'"
+        "UNT+14+2'"
+    )
+    head, _, tail = ORDERS.rpartition("UNZ")
+    return head + second + "UNZ" + tail
+
+
+def test_ordrsp_echoes_only_this_reviews_po():
+    """A batched multi-PO interchange must not put the other PO's lines into
+    this review's ORDRSP: the header carries only THIS review's PO/ship-to."""
+    review = _review(raw=_two_po_orders())
+    payload = _review_to_ordrsp_payload(review)
+    assert payload["po_number"] == "PO169603"
+    assert all(l["buyer_item"] != "999999" for l in payload["lines"])
+    assert len(payload["lines"]) == 1
+
+
+def test_ordrsp_fails_closed_when_no_message_matches_the_review_po():
+    """If the stored interchange holds no message for this review's PO the
+    ACK must abort, never be built from another PO's lines."""
+    review = _review(raw=_two_po_orders(), po="PO000000")
+    with pytest.raises(EDIParseError):
+        _review_to_ordrsp_payload(review)
+
+
+def test_generate_ack_supplier_nad_uses_the_form_vendor_code():
+    """NAD+SU must come from the vendor_code the Trading Partner form writes.
+    Two near-identical fields used to exist: the form exposed vendor_code
+    while every generator read vendor_code, so NAD+SU silently fell
+    back to our internal partner.code."""
+    partner = NS(
+        code="ANIMATES",
+        vendor_code="V1058",
+        get_unb_sender=lambda: ("9419416000008T", "ZZZ"),
+        get_unb_recipient=lambda: ("TST1ANIMATES", "ZZZ"),
+    )
+    payload = _review_to_ordrsp_payload(_review(partner=partner))
+    assert payload["supplier"] == "V1058"
+
+
+# --- ORDRSP dates are stamped on the NZ business day, not the server's UTC day ---
+
+def _freeze_utc(monkeypatch, iso):
+    from datetime import datetime, timezone
+    from mml_edi.parsers import animates as animates_mod
+
+    frozen = datetime.fromisoformat(iso).replace(tzinfo=timezone.utc)
+    monkeypatch.setattr(animates_mod, "_utc_now", lambda: frozen)
+
+
+def test_ordrsp_message_date_uses_the_nz_day_not_the_utc_day(monkeypatch):
+    """At 21:30 UTC on 7 Sep it is already 09:30 on 8 Sep in NZ. Stamping
+    date.today() (the server's UTC day) dated every NZ-morning ORDRSP a day
+    before it was actually sent."""
+    _freeze_utc(monkeypatch, "2026-09-07T21:30:00")
+    payload = _review_to_ordrsp_payload(_review())
+    assert payload["message_date"] == "20260908"
+
+
+def test_ordrsp_requested_date_fallback_uses_the_nz_day(monkeypatch):
+    _freeze_utc(monkeypatch, "2026-09-07T21:30:00")
+    raw = ORDERS.replace("DTM+2:20200918:102'", "")
+    payload = _review_to_ordrsp_payload(_review(raw=raw))
+    assert payload["requested_date"] == "20260908"
+
+
+def test_contrl_timestamp_uses_the_nz_day(monkeypatch):
+    from mml_edi.parsers.animates import _contrl_now_yymmdd_hhmm
+
+    _freeze_utc(monkeypatch, "2026-09-07T21:30:00")
+    assert _contrl_now_yymmdd_hhmm() == ("260908", "0930")

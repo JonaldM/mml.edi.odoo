@@ -146,6 +146,57 @@ def make_change_order_parsed_order(po_number="TESTPO001", qty=20.0):
     )
 
 
+def unique_partner_code(env, base):
+    """Return an ``edi.trading.partner`` code that is free on THIS database.
+
+    ``edi.trading.partner.code`` carries a global UNIQUE index (the model's
+    ``_code_unique`` constraint), and the index ignores ``active``. A test that
+    hardcodes a live code (``ANIMATES``, ``BRISCOES``) therefore raises a
+    duplicate-key error on any database that already carries that partner,
+    which is every clone of production, and every method in the class errors in
+    setUp. Ask for a derived code instead: it is ``<base>_T`` on a database
+    that has never seen one, and keeps counting up if it has.
+    """
+    Partner = env["edi.trading.partner"].sudo().with_context(active_test=False)
+    candidate = "%s_T" % base
+    suffix = 0
+    while Partner.search_count([("code", "=", candidate)]):
+        suffix += 1
+        candidate = "%s_T%d" % (base, suffix)
+    return candidate
+
+
+def archive_foreign_trading_partners(env, keep):
+    """Archive every trading partner except ``keep`` (inside this transaction).
+
+    Payloads that aggregate over ``edi.trading.partner.search([])`` (the health
+    dashboard rail and its "N active" subtitle) otherwise count the real rows a
+    prod clone carries. TransactionCase rolls the archive back, so nothing
+    outside the test ever sees it.
+    """
+    foreign = env["edi.trading.partner"].sudo().search([("id", "not in", keep.ids)])
+    if foreign:
+        foreign.write({"active": False})
+    return foreign
+
+
+def backdate_foreign_edi_logs(env, keep, hours=48):
+    """Push every pre-existing edi.log row ``hours`` back (inside this transaction).
+
+    The health dashboard's exchange-queue strip counts ``edi.log`` rows across
+    ALL partners in a rolling 24h window, so a clone taken within a day of a
+    real Briscoes poll makes those counts non-deterministic. Raw SQL because
+    ``edi.log`` is append-only by design; the transaction rolls it back.
+    """
+    env.flush_all()
+    env.cr.execute(
+        "UPDATE edi_log SET timestamp = timestamp - make_interval(hours => %s) "
+        "WHERE trading_partner_id IS NULL OR trading_partner_id NOT IN %s",
+        (hours, tuple(keep.ids) or (0,)),
+    )
+    env["edi.log"].invalidate_model(["timestamp"])
+
+
 class EDITestSetup:
     """
     Mixin providing setup_edi_test_data() for Odoo TransactionCase tests.

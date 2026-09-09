@@ -12,6 +12,59 @@ _ANIMATES_PARSER_CLASSES = frozenset({
     "mml_edi.parsers.animates.AnimatesParser",
 })
 
+#: Despatch advices are stamped with the NZ business date. The Odoo server runs
+#: UTC, which is 12-13 hours BEHIND NZ, so a UTC stamp names the PREVIOUS
+#: calendar day for the whole NZ morning - and 3PL despatch confirmations land
+#: in NZ business hours, so every morning ASN reported a date one day before
+#: the goods actually left.
+_NZ_TZ_NAME = 'Pacific/Auckland'
+
+
+def _nz_day(value=None) -> str:
+    """Return ``value`` as an NZ-local YYYYMMDD date string.
+
+    ``value`` is a datetime (naive values are read as UTC, which is what Odoo
+    stores) and defaults to now.
+    """
+    if value is None:
+        value = datetime.now(timezone.utc)
+    elif value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    try:
+        import pytz
+        value = value.astimezone(pytz.timezone(_NZ_TZ_NAME))
+    except Exception:
+        try:
+            from zoneinfo import ZoneInfo
+            value = value.astimezone(ZoneInfo(_NZ_TZ_NAME))
+        except Exception:
+            pass  # no tz database available - fall back to the UTC day
+    return value.strftime('%Y%m%d')
+
+
+def _filename_token(value) -> str:
+    """Strip the separators an EDI VAN filename cannot carry."""
+    return str(value or '').replace('/', '').replace('\\', '')
+
+
+def _desadv_filename(prefix, po, date, picking_name) -> str:
+    """Outbound despatch-advice filename.
+
+    The picking reference is the per-despatch discriminator. Without it a PO
+    picked in two waves on the same day produced the IDENTICAL name twice, and
+    both FTP STOR and LocalDirHandler's os.replace overwrite - so the first
+    shipment's advice was destroyed before the VAN collected it, even though
+    the split-shipment feature (ALI 164/165) explicitly expects several
+    despatches per PO. The prefix is unchanged so
+    _animates_shipment_status's `filename LIKE 'DESADV_ANIMATES_%'` prior-DESADV
+    lookup still matches.
+    """
+    parts = [prefix, _filename_token(po), _filename_token(date)]
+    picking_ref = _filename_token(picking_name)
+    if picking_ref:
+        parts.append(picking_ref)
+    return '_'.join(parts) + '.edi'
+
 
 class EDIService:
     """Public API for mml_edi. Retrieved via mml.registry.service('edi')."""
@@ -143,7 +196,7 @@ class EDIService:
         return {
             'po_number': po_number,
             'despatch_ref': 'DASN-%s' % po_number,
-            'despatch_date': datetime.now(timezone.utc).strftime('%Y%m%d'),
+            'despatch_date': _nz_day(),
             'mml_edis_id': mml_edis_id,
             'ctrl_ref': ctrl_ref,
             'deliveries': [
@@ -160,9 +213,9 @@ class EDIService:
         gen = BriscoesASNGenerator()
         asn_content = gen.generate(despatch).encode('ascii')
 
-        filename = 'DESADV_{po}_{date}.edi'.format(
-            po=despatch['po_number'],
-            date=despatch['despatch_date'],
+        filename = _desadv_filename(
+            'DESADV', despatch['po_number'], despatch['despatch_date'],
+            getattr(picking, 'name', None),
         )
 
         handler = get_transport_handler(partner)
@@ -282,14 +335,13 @@ class EDIService:
         now = datetime.now(timezone.utc)
         payload = {
             'advice_no': 'DESADV-%s' % picking.name.replace('/', ''),
-            'doc_date': now.strftime('%Y%m%d'),
-            'despatch_date': (picking.date_done or now).strftime('%Y%m%d')
-            if hasattr(picking, 'date_done') else now.strftime('%Y%m%d'),
+            'doc_date': _nz_day(now),
+            'despatch_date': _nz_day(getattr(picking, 'date_done', None) or now),
             'po': po_number,
             'connote': connote,
             'buyer': None,       # filled by get_unb_recipient() at build time
             'ship_to': store_code,
-            'supplier': partner.animates_vendor_code or partner.code,
+            'supplier': partner.vendor_code or partner.code,
             'shipment_totals': {
                 'units': len(units),
                 'unit_pac_type': 'CT',
@@ -478,11 +530,12 @@ class EDIService:
             recipient=recipient_id,
             recipient_qualifier=recipient_qual,
             time_hhmm=datetime.now(timezone.utc).strftime('%H%M'),
+            require_real=True,
         )
 
-        po_for_filename = payload['po'].replace('/', '')
-        filename = 'DESADV_ANIMATES_%s_%s.edi' % (
-            po_for_filename, payload['doc_date'],
+        filename = _desadv_filename(
+            'DESADV_ANIMATES', payload['po'], payload['doc_date'],
+            getattr(picking, 'name', None),
         )
 
         handler = get_transport_handler(partner)

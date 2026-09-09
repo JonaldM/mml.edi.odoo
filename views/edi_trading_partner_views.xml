@@ -401,6 +401,12 @@
                                         <field name="edi_sender_qualifier"
                                                string="Sender qualifier"/>
                                     </group>
+                                    <group string="Interchange recipient">
+                                        <field name="edi_recipient_id" string="EDI recipient ID"/>
+                                        <field name="edi_recipient_test_id" string="EDI recipient ID (test)"/>
+                                        <field name="edi_recipient_qualifier"
+                                               string="Recipient qualifier"/>
+                                    </group>
                                     <group string="Location &amp; vendor">
                                         <field name="supplier_gln" string="Supplier GLN"/>
                                         <field name="vendor_code" string="Vendor code"/>

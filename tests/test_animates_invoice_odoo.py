@@ -16,7 +16,7 @@ import unittest
 
 from odoo.tests.common import TransactionCase, tagged
 
-from .common import EDITestSetup, make_clean_parsed_order
+from .common import EDITestSetup, make_clean_parsed_order, unique_partner_code
 
 _ODOO_AVAILABLE = hasattr(TransactionCase, "env")
 
@@ -74,9 +74,14 @@ class TestAnimatesInvoiceOdoo(EDITestSetup, TransactionCase):
             "compute_price": "fixed",
             "fixed_price": 9.99,
         })
+        # Never the live "ANIMATES" code: edi.trading.partner.code is globally
+        # unique, so hardcoding it duplicate-keys against the real row every
+        # prod clone carries and the whole class errors in setUp. The outbound
+        # INVOIC filename prefix is a literal in services/animates_invoice.py,
+        # not this code, so the assertions below are unaffected.
         self.animates_partner = self.env["edi.trading.partner"].create({
             "name": "Animates",
-            "code": "ANIMATES",
+            "code": unique_partner_code(self.env, "ANIMATES"),
             "partner_id": self.animates_customer.id,
             "edi_format": "edifact_d01b",
             "parser_class": "mml_edi.parsers.animates.AnimatesParser",
@@ -94,7 +99,7 @@ class TestAnimatesInvoiceOdoo(EDITestSetup, TransactionCase):
             "edi_sender_id": "9419416000008T",
             "edi_sender_qualifier": "ZZZ",
             "supplier_gln": "9419416000008",
-            "animates_vendor_code": "V1058",
+            "vendor_code": "V1058",
         })
         self.env["stock.quant"]._update_available_quantity(
             self.test_product, self.wh.lot_stock_id, 1000)
@@ -139,13 +144,31 @@ class TestAnimatesInvoiceOdoo(EDITestSetup, TransactionCase):
         picking.button_validate()
         return picking
 
+    def _customer_invoice_for(self, so):
+        """The customer invoice covering what this SO has shipped.
+
+        A production database invoices a delivery automatically as soon as the
+        outgoing picking is validated (verified on a prod clone: the SO reads
+        invoice_status 'invoiced' and qty_to_invoice 0.0 straight after
+        button_validate), so ``_create_invoices()`` has nothing left to invoice
+        and raises "No items are available to invoice". Reuse whatever the
+        delivery produced when there is one; an empty test database does not
+        auto-invoice, so fall back to creating it. Either way the assertions
+        below read a real invoice built off the shipped quantities.
+        """
+        invoice = so.invoice_ids.filtered(lambda m: m.move_type == "out_invoice")
+        if not invoice:
+            invoice = so._create_invoices()
+        return invoice[:1]
+
     def _invoice(self, so):
         from odoo.fields import Date
 
-        invoice = so._create_invoices()
+        invoice = self._customer_invoice_for(so)
         if not invoice.invoice_date:
             invoice.invoice_date = Date.context_today(invoice)
-        invoice.action_post()
+        if invoice.state == "draft":
+            invoice.action_post()
         return invoice
 
     # --- basic build (scenario 1 / 4B shape: single full shipment) --------
@@ -231,8 +254,9 @@ class TestAnimatesInvoiceOdoo(EDITestSetup, TransactionCase):
             ).create({})
             wizard.process()
 
-        invoice = so._create_invoices()
-        invoice.action_post()
+        invoice = self._customer_invoice_for(so)
+        if invoice.state == "draft":
+            invoice.action_post()
 
         payload = build_invoic_payload_from_move(invoice, self.animates_partner)
         self.assertEqual(len(payload["lines"]), 1)

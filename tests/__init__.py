@@ -35,6 +35,7 @@ try:
         test_processor,
         test_reclamp_order_lines,
         test_reservation_verify,
+        test_retry_ack_window,
         test_review_workflow,
         test_edi_review_queue,
         test_edi_wall,

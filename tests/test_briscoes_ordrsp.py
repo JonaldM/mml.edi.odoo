@@ -12,7 +12,8 @@ def _lin_action(line: str) -> str:
     return line.rstrip("'").split("+")[2]
 
 
-def _make_sol(line_number, barcode, default_code, qty, price, shortfall=0.0):
+def _make_sol(line_number, barcode, default_code, qty, price, shortfall=0.0,
+              display_type=False):
     sol = MagicMock()
     sol.edi_line_number = line_number
     sol.product_id.barcode = barcode
@@ -20,6 +21,7 @@ def _make_sol(line_number, barcode, default_code, qty, price, shortfall=0.0):
     sol.product_uom_qty = qty
     sol.price_unit = price
     sol.edi_qty_shortfall = shortfall
+    sol.display_type = display_type
     return sol
 
 
@@ -205,3 +207,98 @@ class TestOrdrspGeneration:
         text = _generate_ordrsp(review).decode("utf-8")
         assert any(l.startswith("UNB") for l in text.split("\r\n")), "UNB missing"
         assert any(l.startswith("UNZ") for l in text.split("\r\n")), "UNZ missing"
+
+
+class TestOrdrspControlReference:
+    """The interchange control reference used to be a random 5-digit number
+    reused as the BGM document number: a 90,000-wide space with no uniqueness
+    check, so by the birthday bound a collision was more likely than not after
+    roughly 350 ORDRSPs, and the BGM document number collided with it."""
+
+    def _text(self, review):
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        return _generate_ordrsp(review).decode("utf-8")
+
+    def _seg(self, text, tag):
+        return [l for l in text.split("\r\n") if l.startswith(tag + "+")]
+
+    def test_control_reference_comes_from_the_sequence(self):
+        review = _make_review(state="approved", so=None)
+        review.env.__getitem__.return_value.sudo.return_value \
+            .next_by_code.return_value = "1000042"
+
+        text = self._text(review)
+
+        assert self._seg(text, "UNZ")[0].rstrip("'").endswith("1000042")
+        assert "+1000042++ORDRSP" in text
+
+    def test_bgm_document_number_is_po_derived_not_the_control_reference(self):
+        review = _make_review(state="approved", so=None, po_number="4500038166")
+        review.env.__getitem__.return_value.sudo.return_value \
+            .next_by_code.return_value = "1000042"
+
+        bgm = self._seg(self._text(review), "BGM")[0]
+
+        assert "4500038166" in bgm
+        assert "1000042" not in bgm
+
+    def test_falls_back_to_a_random_reference_without_a_sequence(self):
+        """Pure/mock path: no usable sequence value, so the historical random
+        reference is still produced rather than crashing."""
+        review = _make_review(state="approved", so=None)
+        text = self._text(review)
+        assert self._seg(text, "UNZ")
+        assert self._seg(text, "UNB")
+
+
+def test_briscoes_interchange_sequence_is_declared():
+    """The control reference must be drawn from a persisted, monotonic
+    sequence, like every other builder in this module."""
+    import pathlib
+    import xml.etree.ElementTree as ET
+
+    path = pathlib.Path(__file__).parent.parent / "data" / "ir_sequence.xml"
+    codes = [
+        (f.text or "")
+        for record in ET.parse(path).getroot().iter("record")
+        for f in record.findall("field")
+        if f.get("name") == "code"
+    ]
+    assert "mml_edi.briscoes.interchange.ref" in codes
+
+
+class TestOrdrspSkipsDisplayLines:
+    """Section and note lines carry no product, zero qty and zero price, so
+    they emitted LIN+00000+5+:EN / PRI+AAA:0.00 / QTY+11:0.000:EA and each
+    inflated CNT+2. The EDIStech VAN rejects a zero net value."""
+
+    def _segments(self, review):
+        from mml_edi.parsers.briscoes import _generate_ordrsp
+        return _generate_ordrsp(review).decode("utf-8").splitlines()
+
+    def _so_with_a_section(self):
+        product = _make_sol(10, "9414844375629", "MML-1", 4.0, 12.50)
+        section = _make_sol(None, None, None, 0.0, 0.0,
+                            display_type="line_section")
+        return _make_so([section, product])
+
+    def test_section_line_emits_no_lin_segment(self):
+        segs = self._segments(_make_review(so=self._so_with_a_section()))
+        lins = [s for s in segs if s.startswith("LIN+")]
+        assert len(lins) == 1
+        assert not any(s.startswith("LIN+00000") for s in segs)
+
+    def test_section_line_does_not_inflate_cnt_2(self):
+        segs = self._segments(_make_review(so=self._so_with_a_section()))
+        cnt = [s for s in segs if s.startswith("CNT+2:")][0]
+        assert cnt.rstrip("'") == "CNT+2:1"
+
+    def test_section_line_does_not_drive_the_purpose_code(self):
+        """A note line's edi_qty_shortfall must not flip the whole ORDRSP to
+        'changed'."""
+        product = _make_sol(10, "9414844375629", "MML-1", 4.0, 12.50)
+        note = _make_sol(None, None, None, 0.0, 0.0, shortfall=3.0,
+                         display_type="line_note")
+        segs = self._segments(_make_review(so=_make_so([note, product])))
+        bgm = [s for s in segs if s.startswith("BGM")][0]
+        assert bgm.rstrip("'").endswith("+29")
