@@ -483,12 +483,12 @@ class EdiDashboard(models.AbstractModel):
             ],
             order="reviewed_date desc")
         if resolved:
-            fname_of = {
-                rec.id: "ACK_%s_%s_%s.edi" % (
-                    rec.trading_partner_id.code, rec.customer_po_number,
-                    (rec.edi_file_hash or str(rec.id))[:8])
-                for rec in resolved
-            }
+            # The exchange filename comes from the model helper, never from a
+            # local copy of the format string: _ack_exchange_filename appends
+            # "_a<n>" once ack_attempt >= 2 (IDEM-4, a reset AFTER the ORDRSP
+            # was sent). Re-deriving it without the attempt made the triage
+            # read attempt 1's success row and call a failed re-send done.
+            fname_of = {rec.id: rec._ack_exchange_filename() for rec in resolved}
             ack_logs = Log.search([
                 ("event_type", "=", "ack_sent"),
                 ("filename", "in", list(set(fname_of.values()))),
