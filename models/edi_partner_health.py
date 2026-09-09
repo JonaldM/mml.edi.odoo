@@ -144,10 +144,13 @@ class EdiPartnerHealth(models.AbstractModel):
 
         Every lane is a single ``search_count`` over ``edi.log`` (six counts,
         not per-partner) so the strip is a cheap radiator. "ACK queued" is the
-        pre-upload claim marker (an ``ack_sent`` row logged at ``warning`` status
-        before the upload is confirmed); "ACK sent" is a successful upload;
-        "Failed" is an errored upload. The ramp colours are the README pipeline
-        tokens (light-bg + dark-fg, read in both schemes).
+        pre-upload claim marker, which ``edi.order.review._queue_ack`` writes as
+        its own ``ack_sending`` event type; "ACK sent" is a successful upload;
+        "Failed" is an errored upload. Like the lanes before it this is a stage
+        count over the window, not a live backlog: an exchange claimed and then
+        confirmed shows in both "ACK queued" and "ACK sent". The ramp colours
+        are the README pipeline tokens (light-bg + dark-fg, read in both
+        schemes).
         """
         Log = self.env["edi.log"]
         cutoff = now - timedelta(hours=24)
@@ -162,7 +165,7 @@ class EdiPartnerHealth(models.AbstractModel):
             {"label": "Polled", "n": _c("file_download"), "bg": "#E6F1FB", "fg": "#0C447C"},
             {"label": "Parsed", "n": _c("file_parse"), "bg": "#E6F1FB", "fg": "#0C447C"},
             {"label": "Orders", "n": _c("order_created"), "bg": "#85B7EB", "fg": "#042C53"},
-            {"label": "ACK queued", "n": _c("ack_sent", "warning"), "bg": "#FAEEDA", "fg": "#854F0B"},
+            {"label": "ACK queued", "n": _c("ack_sending"), "bg": "#FAEEDA", "fg": "#854F0B"},
             {"label": "ACK sent", "n": _c("ack_sent", "success"), "bg": "#378ADD", "fg": "#fff"},
             {"label": "Failed", "n": _c("ack_sent", "error"), "bg": "#FCEBEB", "fg": "#A32D2D"},
         ]
