@@ -270,18 +270,29 @@ class EdiPartnerHealth(models.AbstractModel):
         """{partner_id: [{day, files, orders} x7]} — 2 read_groups, bucketed.
 
         Two grouped passes (file_download, order_created) over the 7-day window,
-        grouped by partner + day, then zero-filled into a Mon-anchored 7-day
-        array per partner (never a per-partner-per-day query).
+        grouped by partner + day, then zero-filled into a 7-day array per
+        partner ending on the operator's today (never a per-partner-per-day
+        query). The bars carry weekday names, so the buckets are the operator's
+        calendar days, not UTC days.
         """
-        # Bucket in UTC on BOTH sides: the day list and the read_group day
-        # granularity share tz='UTC', so a log's bucket is deterministic
-        # regardless of the operator's timezone (this is a rough 7-day
-        # histogram, not a calendar-local report).
-        Log = self.env["edi.log"].with_context(tz="UTC")
-        days = [(now - timedelta(days=6 - i)).date() for i in range(7)]
+        # Bucket in the OPERATOR's timezone on both sides: the day list and the
+        # read_group day granularity share it, so a log lands in the calendar
+        # day the '%a' label names. New Zealand is UTC+12/+13, so bucketing on
+        # UTC while printing weekday names filed every local morning under the
+        # previous day (same class as the connector-health tz bug).
+        import pytz
+        tz_name = self.env.user.tz or "Pacific/Auckland"
+        tz = pytz.timezone(tz_name)
+        Log = self.env["edi.log"].with_context(tz=tz_name)
+        local_now = pytz.utc.localize(now).astimezone(tz)
+        days = [(local_now - timedelta(days=6 - i)).date() for i in range(7)]
         day_labels = [d.strftime("%a") for d in days]
         idx = {d: i for i, d in enumerate(days)}
-        cutoff = datetime(days[0].year, days[0].month, days[0].day)
+        # Local midnight of the first bar, expressed as the naive-UTC instant
+        # the stored timestamps are compared against.
+        cutoff = tz.localize(
+            datetime(days[0].year, days[0].month, days[0].day)
+        ).astimezone(pytz.utc).replace(tzinfo=None)
 
         base = {p.id: {"files": [0] * 7, "orders": [0] * 7} for p in partners}
 
