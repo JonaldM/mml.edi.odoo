@@ -60,6 +60,15 @@ def _not_cancellation_domain(marker):
 _ORDRSP_FILENAME_PATTERN = "ACK\\_%"
 
 
+# ---- unknown-store copy ------------------------------------------------------
+
+# Shared by the blocking and the warning triage tiers so an unmapped store code
+# reads the same wherever it surfaces. Unchanged operator copy, lifted out of
+# _item_warning when the blocking tier learned to recognise the issue.
+_UNKNOWN_STORE_SUFFIX = " — unknown store code"
+_UNKNOWN_STORE_SUMMARY = "Store not in the partner store map · seed then re-split"
+
+
 # ---- KPI RAG helpers (higher- and lower-is-better) --------------------------
 
 def _rag_higher_better(value, target, amber_floor):
@@ -596,7 +605,30 @@ class EdiDashboard(models.AbstractModel):
         return (target.description or "").splitlines()[0][:200] if target.description else ""
 
     @api.model
+    def _unknown_store_issues(self, rec):
+        """The review's unknown_store issues, whatever severity they carry.
+
+        edi.processor raises this issue as BLOCKING unconditionally, so the
+        dedicated copy, the "map_store" action and the wall's "Unknown stores"
+        alarm all have to be reachable from the blocking tier, not only from
+        the warning tier where they originally lived.
+        """
+        return rec.issue_ids.filtered(lambda i: i.issue_type == "unknown_store")
+
+    @api.model
     def _item_blocking(self, now, rec):
+        if self._unknown_store_issues(rec):
+            title = self._review_title(rec, _UNKNOWN_STORE_SUFFIX)
+            summary = self._issue_summary(rec) or _UNKNOWN_STORE_SUMMARY
+            # Still red: the whole PO's ORDRSP is held either way. "review"
+            # stays available so the row behaves like any other blocking row
+            # once the store map has been seeded.
+            actions = ["map_store", "review"]
+        else:
+            title = self._review_title(rec)
+            summary = (self._issue_summary(rec)
+                       or "Blocking issue — ORDRSP held for the whole PO")
+            actions = ["review"]
         return {
             "id": rec.id,
             "kind": "blocking",
@@ -605,11 +637,10 @@ class EdiDashboard(models.AbstractModel):
             "res_model": "edi.order.review",
             "res_id": rec.id,
             "partner_tag": self._partner_tag(rec),
-            "title": self._review_title(rec),
-            "summary": (self._issue_summary(rec)
-                        or "Blocking issue — ORDRSP held for the whole PO"),
+            "title": title,
+            "summary": summary,
             "age_hours": self._age_hours(now, rec.received_date),
-            "actions": ["review"],
+            "actions": actions,
         }
 
     @api.model
@@ -630,12 +661,9 @@ class EdiDashboard(models.AbstractModel):
 
     @api.model
     def _item_warning(self, now, rec):
-        unknown_store = rec.issue_ids.filtered(
-            lambda i: i.issue_type == "unknown_store")
-        if unknown_store:
-            title = self._review_title(rec, " — unknown store code")
-            summary = (self._issue_summary(rec)
-                       or "Store not in the partner store map · seed then re-split")
+        if self._unknown_store_issues(rec):
+            title = self._review_title(rec, _UNKNOWN_STORE_SUFFIX)
+            summary = self._issue_summary(rec) or _UNKNOWN_STORE_SUMMARY
             action = "map_store"
         else:
             title = self._review_title(rec)
