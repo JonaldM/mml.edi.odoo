@@ -27,6 +27,26 @@ from odoo import api, fields, models
 _logger = logging.getLogger(__name__)
 
 
+# ---- review-population helpers ----------------------------------------------
+
+
+def _not_cancellation_domain(marker):
+    """Domain fragment excluding cancellation reviews from a review search.
+
+    edi.processor._process_cancellation creates its audit review already in a
+    terminal state, with ``reviewed_date`` set to the same moment as
+    ``received_date`` and the CANCELLATION_MARKER prefixed onto
+    ``change_summary``. Nobody reviewed it, so it must not be counted as a
+    human decision: left in, every cancellation adds a ~0.0h sample to the
+    review-turnaround median and one more "needed a decision" order to the
+    exception rate. Module-level so the pure pytest tier can assert the
+    leaves without an Odoo environment. The ``= False`` leg keeps ordinary
+    new-order reviews (which carry no change_summary) in the population.
+    """
+    return ["|", ("change_summary", "=", False),
+            ("change_summary", "not like", marker)]
+
+
 # ---- KPI RAG helpers (higher- and lower-is-better) --------------------------
 
 def _rag_higher_better(value, target, amber_floor):
@@ -328,7 +348,7 @@ class EdiDashboard(models.AbstractModel):
         resolved_dom = pdom + [
             ("state", "in", ("approved", "rejected", "auto_approved")),
             ("received_date", ">=", window_start),
-        ]
+        ] + self._non_cancellation_domain()
         resolved = Review.search(resolved_dom)
         total_resolved = len(resolved)
         auto = len(resolved.filtered(lambda r: r.state == "auto_approved"))
@@ -391,19 +411,29 @@ class EdiDashboard(models.AbstractModel):
         }
 
     @api.model
+    def _non_cancellation_domain(self):
+        """The cancellation-exclusion fragment, bound to the processor marker."""
+        return _not_cancellation_domain(
+            self.env["edi.processor"].CANCELLATION_MARKER)
+
+    @api.model
     def _median_turnaround_h(self, pdom, window_start):
         """Median hours from received -> resolved over reviewed orders (30d).
 
-        Only human-reviewed orders count: the domain requires a real
-        ``reviewed_date``, and auto-approval never sets one (edi.processor
-        writes only ``state='auto_approved'``). Auto-approved orders are
-        therefore excluded — the KPI stays an honest measure of the manual
-        review turnaround, not diluted to ~0h by the clean auto-flow. None
-        when nothing resolved.
+        Only human-reviewed orders count. Two populations are excluded:
+        auto-approved orders, which never get a ``reviewed_date`` (edi.processor
+        writes only ``state='auto_approved'``), and cancellations, which DO get
+        one - _process_cancellation creates the audit review directly in
+        state='rejected' with reviewed_date set to its creation moment, so each
+        would contribute a ~0.0h sample to a median meant to measure human
+        turnaround. What is left is the honest manual-review turnaround, not
+        diluted to ~0h by the clean auto-flow or by cancellations. None when
+        nothing resolved.
         """
         reviews = self.env["edi.order.review"].search(
             pdom + [("reviewed_date", "!=", False),
-                    ("received_date", ">=", window_start)])
+                    ("received_date", ">=", window_start)]
+            + self._non_cancellation_domain())
         deltas = [
             (r.reviewed_date - r.received_date).total_seconds() / 3600.0
             for r in reviews if r.reviewed_date and r.received_date
