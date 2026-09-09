@@ -111,7 +111,7 @@ class EdiPartnerHealth(models.AbstractModel):
           - ``settings_action`` — xmlid the "Open settings" button opens
         """
         now = fields.Datetime.now()
-        partners = self.env["edi.trading.partner"].search([], order="name")
+        partners = self._all_partners()
 
         health = self._batched_health(now, partners)
         on_time = self._batched_on_time(now, partners)
@@ -135,6 +135,21 @@ class EdiPartnerHealth(models.AbstractModel):
             "subtitle": self._subtitle(active, scoped),
             "settings_action": "mml_edi.action_edi_trading_partner",
         }
+
+    # ---- partner roster ------------------------------------------------------
+
+    @api.model
+    def _all_partners(self):
+        """Every configured trading partner, archived ones included.
+
+        edi.trading.partner has an ``active`` field, so a plain search is
+        active_test-filtered and returns only live partners. The board is built
+        to show archived ones: the subtitle's "N scoped" clause is
+        len(partners) - len(active), and _circuit has an "N/A" branch that
+        requires ``not p.active``. Both were dead while the search hid them.
+        """
+        return self.env["edi.trading.partner"].with_context(
+            active_test=False).search([], order="name")
 
     # ---- 24h exchange-queue strip -------------------------------------------
 
@@ -331,6 +346,11 @@ class EdiPartnerHealth(models.AbstractModel):
         proto = (p.ftp_protocol or "").upper()
         split = "per-store" if p.order_split_mode == "per_store" else "single"
         last = self._fmt_time(fields.Datetime.now(), h["last_poll"]) if h["last_poll"] else "never"
+        sub = "%s · last poll %s · %d in review" % (proto or "—", last, h["pending"])
+        # The roster now includes archived partners (see _all_partners), so the
+        # rail has to say which rows they are.
+        if not p.active:
+            sub += " · archived"
         return {
             "id": p.id,
             "code": p.code,
@@ -339,7 +359,8 @@ class EdiPartnerHealth(models.AbstractModel):
             "dot": _HEALTH_DOTS.get(state, "#adb5bd"),
             "health": _HEALTH_LABELS.get(state, state),
             "health_color": _HEALTH_DOTS.get(state, "#6c757d"),
-            "sub": "%s · last poll %s · %d in review" % (proto or "—", last, h["pending"]),
+            "sub": sub,
+            "archived": not p.active,
             "split": split,
         }
 
