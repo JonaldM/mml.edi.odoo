@@ -89,7 +89,9 @@ class TestEdiPartnerHealth(TransactionCase, EDITestSetup):
         self._log(event_type="order_created")
         self._log(direction="outbound", event_type="ack_sent", status="success")
         self._log(direction="outbound", event_type="ack_sent", status="error")
-        self._log(direction="outbound", event_type="ack_sent", status="warning")
+        # The pre-upload claim _queue_ack really writes. The lane used to count
+        # ack_sent/warning, a pair no code path produces.
+        self._log(direction="outbound", event_type="ack_sending", status="success")
         queue = self.svc.get_health_summary()["queue"]
         by_label = {q["label"]: q["n"] for q in queue}
         self.assertEqual(by_label["Polled"], 2)

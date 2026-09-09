@@ -242,9 +242,19 @@ class EdiDashboard extends Component {
                 // Re-queue every failed ORDRSP for fully-resolved POs via the
                 // idempotent cron entrypoint, then refresh the board and confirm
                 // — the button now genuinely retries rather than just opening a log.
-                await this.orm.call("edi.processor", "retry_pending_acks", []);
-                await this._load();
-                this.notification.add("Pending ACKs re-queued", { type: "success" });
+                // onTriageAction is an async t-on-click handler, so Owl does not
+                // await it: an unwrapped rejection escapes as a raw crash dialog
+                // and the operator learns nothing. Same shape as _retryAck in
+                // edi_mobile_triage.js.
+                try {
+                    await this.orm.call("edi.processor", "retry_pending_acks", []);
+                    await this._load();
+                    this.notification.add("Pending ACKs re-queued", { type: "success" });
+                } catch (e) {
+                    this.notification.add(
+                        "Retry failed: " + (e.data ? e.data.message : e.message),
+                        { type: "danger" });
+                }
                 break;
             case "log":
                 this.actionService.doAction("mml_edi.action_edi_log");

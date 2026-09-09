@@ -149,10 +149,7 @@ class SSCCRegister(models.Model):
         if not unit_key:
             raise UserError(_("SSCC register: unit_key is required."))
 
-        existing = self.search([
-            ("picking_id", "=", picking.id),
-            ("unit_key", "=", unit_key),
-        ], limit=1)
+        existing = self._registered_unit(picking, unit_key)
         if existing:
             return existing
 
@@ -195,13 +192,37 @@ class SSCCRegister(models.Model):
                 "[EDI] SSCC register: lost create race for picking=%s "
                 "unit_key=%s, reusing winning row", picking.id, unit_key,
             )
-            existing = self.search([
-                ("picking_id", "=", picking.id),
-                ("unit_key", "=", unit_key),
-            ], limit=1)
+            existing = self._registered_unit(picking, unit_key)
             if not existing:
                 raise
             return existing
+
+    @api.model
+    def _registered_unit(self, picking, unit_key: str):
+        """The register row already holding (picking, unit_key), archived or not.
+
+        UNIQUE(picking_id, unit_key) does not care about ``active``, so an
+        archived row still occupies the slot while being invisible to an
+        active_test-filtered search. Left filtered, get_or_create saw nothing,
+        created, hit the constraint, searched again, still saw nothing and
+        re-raised the raw IntegrityError at the caller: every label reprint and
+        every DESADV for that unit failed forever, burning a serial each time.
+
+        A row found archived is brought back into use: its SSCC is on a
+        physical label that is about to be reprinted or re-sent, so the
+        register has to agree with the pallet.
+        """
+        existing = self.with_context(active_test=False).search([
+            ("picking_id", "=", picking.id),
+            ("unit_key", "=", unit_key),
+        ], limit=1)
+        if existing and not existing.active:
+            _logger.info(
+                "[EDI] SSCC register: reusing ARCHIVED row for picking=%s "
+                "unit_key=%s, reactivating", picking.id, unit_key,
+            )
+            existing.write({"active": True})
+        return existing
 
     def name_get(self):
         return [(rec.id, rec.sscc) for rec in self]

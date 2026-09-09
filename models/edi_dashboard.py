@@ -27,6 +27,48 @@ from odoo import api, fields, models
 _logger = logging.getLogger(__name__)
 
 
+# ---- review-population helpers ----------------------------------------------
+
+
+def _not_cancellation_domain(marker):
+    """Domain fragment excluding cancellation reviews from a review search.
+
+    edi.processor._process_cancellation creates its audit review already in a
+    terminal state, with ``reviewed_date`` set to the same moment as
+    ``received_date`` and the CANCELLATION_MARKER prefixed onto
+    ``change_summary``. Nobody reviewed it, so it must not be counted as a
+    human decision: left in, every cancellation adds a ~0.0h sample to the
+    review-turnaround median and one more "needed a decision" order to the
+    exception rate. Module-level so the pure pytest tier can assert the
+    leaves without an Odoo environment. The ``= False`` leg keeps ordinary
+    new-order reviews (which carry no change_summary) in the population.
+    """
+    return ["|", ("change_summary", "=", False),
+            ("change_summary", "not like", marker)]
+
+
+# ---- ORDRSP scoping ---------------------------------------------------------
+
+# edi.log's ``ack_sent`` event_type is NOT exclusive to the per-PO ORDRSP: the
+# Animates DESADV (services/edi_service.py) and the Animates INVOIC
+# (services/animates_invoice.py) deliberately reuse it rather than adding new
+# selection values. Every metric on this board that calls itself an ORDRSP
+# number must therefore also match the filename the ORDRSP sender writes,
+# ACK_<partner>_<po>_<key>[_a<n>].edi (edi_order_review._ack_filename). The
+# separator underscore is backslash-escaped because '_' is a single-character
+# wildcard in SQL LIKE, which '=like' passes through verbatim.
+_ORDRSP_FILENAME_PATTERN = "ACK\\_%"
+
+
+# ---- unknown-store copy ------------------------------------------------------
+
+# Shared by the blocking and the warning triage tiers so an unmapped store code
+# reads the same wherever it surfaces. Unchanged operator copy, lifted out of
+# _item_warning when the blocking tier learned to recognise the issue.
+_UNKNOWN_STORE_SUFFIX = " — unknown store code"
+_UNKNOWN_STORE_SUMMARY = "Store not in the partner store map · seed then re-split"
+
+
 # ---- KPI RAG helpers (higher- and lower-is-better) --------------------------
 
 def _rag_higher_better(value, target, amber_floor):
@@ -159,6 +201,17 @@ class EdiDashboard(models.AbstractModel):
         return self.env["edi.trading.partner"].search([("code", "=", partner_code)])
 
     @api.model
+    def _ordrsp_ack_domain(self):
+        """Domain fragment matching per-PO ORDRSP uploads and nothing else.
+
+        See _ORDRSP_FILENAME_PATTERN: DESADV and INVOIC share the ``ack_sent``
+        event_type, so event_type alone over-counts both the on-time
+        denominator and the acknowledged stage.
+        """
+        return [("event_type", "=", "ack_sent"),
+                ("filename", "=like", _ORDRSP_FILENAME_PATTERN)]
+
+    @api.model
     def _partner_domain(self, partner_code, field="trading_partner_id"):
         """Domain fragment scoping a model to one partner, or [] for all."""
         if not partner_code or partner_code == "all":
@@ -273,7 +326,11 @@ class EdiDashboard(models.AbstractModel):
         parsed = _count("file_parse")
         orders_created = _count("order_created")
         in_review = self._pending_review_count(partner_code)
-        acknowledged = _count("ack_sent", status="success")
+        # ORDRSP only: DESADV and INVOIC also log ack_sent (see
+        # _ORDRSP_FILENAME_PATTERN), and this stage's note says "ORDRSP".
+        acknowledged = Log.search_count(
+            pdom + self._ordrsp_ack_domain()
+            + [("status", "=", "success"), ("timestamp", ">=", today_start)])
         # All error events today (parse / ftp / ack) — not scoped to parsing, so
         # the note reads "error(s) today", never the false "parse error(s)".
         errors_today = _count("error")
@@ -307,8 +364,8 @@ class EdiDashboard(models.AbstractModel):
         pos = len(set(reviews_today.mapped("customer_po_number")))
         store_orders = len(reviews_today)
         acks = Log.search_count(
-            pdom + [("event_type", "=", "ack_sent"), ("status", "=", "success"),
-                    ("timestamp", ">=", today_start)])
+            pdom + self._ordrsp_ack_domain()
+            + [("status", "=", "success"), ("timestamp", ">=", today_start)])
         return {"files": files, "pos": pos, "store_orders": store_orders, "acks": acks}
 
     @api.model
@@ -328,7 +385,7 @@ class EdiDashboard(models.AbstractModel):
         resolved_dom = pdom + [
             ("state", "in", ("approved", "rejected", "auto_approved")),
             ("received_date", ">=", window_start),
-        ]
+        ] + self._non_cancellation_domain()
         resolved = Review.search(resolved_dom)
         total_resolved = len(resolved)
         auto = len(resolved.filtered(lambda r: r.state == "auto_approved"))
@@ -341,12 +398,13 @@ class EdiDashboard(models.AbstractModel):
 
         # ORDRSP on-time: successful ACK sends vs all ACK attempts (30d). A
         # failed upload (SFTP timeout to the VAN) drags this off 100%.
+        ack_dom = pdom + self._ordrsp_ack_domain()
         ack_ok = Log.search_count(
-            pdom + [("event_type", "=", "ack_sent"), ("status", "=", "success"),
-                    ("timestamp", ">=", window_start)])
+            ack_dom + [("status", "=", "success"),
+                       ("timestamp", ">=", window_start)])
         ack_fail = Log.search_count(
-            pdom + [("event_type", "=", "ack_sent"), ("status", "=", "error"),
-                    ("timestamp", ">=", window_start)])
+            ack_dom + [("status", "=", "error"),
+                       ("timestamp", ">=", window_start)])
         ack_val = _pct(ack_ok, ack_ok + ack_fail)
 
         turnaround = self._median_turnaround_h(pdom, window_start)
@@ -391,19 +449,29 @@ class EdiDashboard(models.AbstractModel):
         }
 
     @api.model
+    def _non_cancellation_domain(self):
+        """The cancellation-exclusion fragment, bound to the processor marker."""
+        return _not_cancellation_domain(
+            self.env["edi.processor"].CANCELLATION_MARKER)
+
+    @api.model
     def _median_turnaround_h(self, pdom, window_start):
         """Median hours from received -> resolved over reviewed orders (30d).
 
-        Only human-reviewed orders count: the domain requires a real
-        ``reviewed_date``, and auto-approval never sets one (edi.processor
-        writes only ``state='auto_approved'``). Auto-approved orders are
-        therefore excluded — the KPI stays an honest measure of the manual
-        review turnaround, not diluted to ~0h by the clean auto-flow. None
-        when nothing resolved.
+        Only human-reviewed orders count. Two populations are excluded:
+        auto-approved orders, which never get a ``reviewed_date`` (edi.processor
+        writes only ``state='auto_approved'``), and cancellations, which DO get
+        one - _process_cancellation creates the audit review directly in
+        state='rejected' with reviewed_date set to its creation moment, so each
+        would contribute a ~0.0h sample to a median meant to measure human
+        turnaround. What is left is the honest manual-review turnaround, not
+        diluted to ~0h by the clean auto-flow or by cancellations. None when
+        nothing resolved.
         """
         reviews = self.env["edi.order.review"].search(
             pdom + [("reviewed_date", "!=", False),
-                    ("received_date", ">=", window_start)])
+                    ("received_date", ">=", window_start)]
+            + self._non_cancellation_domain())
         deltas = [
             (r.reviewed_date - r.received_date).total_seconds() / 3600.0
             for r in reviews if r.reviewed_date and r.received_date
@@ -453,12 +521,12 @@ class EdiDashboard(models.AbstractModel):
             ],
             order="reviewed_date desc")
         if resolved:
-            fname_of = {
-                rec.id: "ACK_%s_%s_%s.edi" % (
-                    rec.trading_partner_id.code, rec.customer_po_number,
-                    (rec.edi_file_hash or str(rec.id))[:8])
-                for rec in resolved
-            }
+            # The exchange filename comes from the model helper, never from a
+            # local copy of the format string: _ack_exchange_filename appends
+            # "_a<n>" once ack_attempt >= 2 (IDEM-4, a reset AFTER the ORDRSP
+            # was sent). Re-deriving it without the attempt made the triage
+            # read attempt 1's success row and call a failed re-send done.
+            fname_of = {rec.id: rec._ack_exchange_filename() for rec in resolved}
             ack_logs = Log.search([
                 ("event_type", "=", "ack_sent"),
                 ("filename", "in", list(set(fname_of.values()))),
@@ -537,7 +605,30 @@ class EdiDashboard(models.AbstractModel):
         return (target.description or "").splitlines()[0][:200] if target.description else ""
 
     @api.model
+    def _unknown_store_issues(self, rec):
+        """The review's unknown_store issues, whatever severity they carry.
+
+        edi.processor raises this issue as BLOCKING unconditionally, so the
+        dedicated copy, the "map_store" action and the wall's "Unknown stores"
+        alarm all have to be reachable from the blocking tier, not only from
+        the warning tier where they originally lived.
+        """
+        return rec.issue_ids.filtered(lambda i: i.issue_type == "unknown_store")
+
+    @api.model
     def _item_blocking(self, now, rec):
+        if self._unknown_store_issues(rec):
+            title = self._review_title(rec, _UNKNOWN_STORE_SUFFIX)
+            summary = self._issue_summary(rec) or _UNKNOWN_STORE_SUMMARY
+            # Still red: the whole PO's ORDRSP is held either way. "review"
+            # stays available so the row behaves like any other blocking row
+            # once the store map has been seeded.
+            actions = ["map_store", "review"]
+        else:
+            title = self._review_title(rec)
+            summary = (self._issue_summary(rec)
+                       or "Blocking issue — ORDRSP held for the whole PO")
+            actions = ["review"]
         return {
             "id": rec.id,
             "kind": "blocking",
@@ -546,11 +637,10 @@ class EdiDashboard(models.AbstractModel):
             "res_model": "edi.order.review",
             "res_id": rec.id,
             "partner_tag": self._partner_tag(rec),
-            "title": self._review_title(rec),
-            "summary": (self._issue_summary(rec)
-                        or "Blocking issue — ORDRSP held for the whole PO"),
+            "title": title,
+            "summary": summary,
             "age_hours": self._age_hours(now, rec.received_date),
-            "actions": ["review"],
+            "actions": actions,
         }
 
     @api.model
@@ -571,12 +661,9 @@ class EdiDashboard(models.AbstractModel):
 
     @api.model
     def _item_warning(self, now, rec):
-        unknown_store = rec.issue_ids.filtered(
-            lambda i: i.issue_type == "unknown_store")
-        if unknown_store:
-            title = self._review_title(rec, " — unknown store code")
-            summary = (self._issue_summary(rec)
-                       or "Store not in the partner store map · seed then re-split")
+        if self._unknown_store_issues(rec):
+            title = self._review_title(rec, _UNKNOWN_STORE_SUFFIX)
+            summary = self._issue_summary(rec) or _UNKNOWN_STORE_SUMMARY
             action = "map_store"
         else:
             title = self._review_title(rec)

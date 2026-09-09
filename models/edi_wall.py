@@ -95,9 +95,11 @@ class EdiWall(models.AbstractModel):
         """
         blocking = sum(1 for i in attention if i["kind"] == "blocking")
         failed_ack = sum(1 for i in attention if i["kind"] == "ack_failed")
+        # An unmapped store is raised as a BLOCKING issue by edi.processor, so
+        # the row carrying "map_store" is red, not amber. Count the action, not
+        # the tier, or this tile reads zero while stores go unmapped.
         unknown = sum(
-            1 for i in attention
-            if i["kind"] == "warning" and "map_store" in i.get("actions", [])
+            1 for i in attention if "map_store" in i.get("actions", [])
         )
 
         fresh_min = self._poll_freshness_minutes(now, partner_code)
