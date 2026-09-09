@@ -800,11 +800,11 @@ class EdiReviewQueue(models.AbstractModel):
             else:
                 label, cls = "%s · approved" % store, "edi-chip-green"
             stores.append({"label": label, "cls": cls})
-        exchange_key = (rec.edi_file_hash or str(rec.id))[:8]
-        filename = "ACK_%s_%s_%s.edi" % (
-            rec.trading_partner_id.code, rec.customer_po_number, exchange_key)
+        # From the model helper, never a local copy of the format string: after
+        # a reset-after-sent (IDEM-4) the real exchange is "..._a<n>.edi", and
+        # the status chip beside this line is computed from that same name.
         return {
-            "filename": filename,
+            "filename": rec._ack_exchange_filename(),
             "total_stores": total,
             "resolved_stores": len(resolved),
             "pct": round(len(resolved) / total * 100.0, 1) if total else 0.0,
